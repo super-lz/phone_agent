@@ -33,6 +33,20 @@ class NativeCapabilityAdapter {
     }
   }
 
+  Future<Map<String, Object?>> getCurrentTime() async {
+    final now = DateTime.now();
+    final offset = now.timeZoneOffset;
+    return {
+      'ok': true,
+      'localIso': now.toIso8601String(),
+      'utcIso': now.toUtc().toIso8601String(),
+      'epochMilliseconds': now.millisecondsSinceEpoch,
+      'timeZoneName': now.timeZoneName,
+      'timeZoneOffsetMinutes': offset.inMinutes,
+      'weekday': now.weekday,
+    };
+  }
+
   Future<Map<String, Object?>> readClipboard() async {
     try {
       final data = await Clipboard.getData(Clipboard.kTextPlain);

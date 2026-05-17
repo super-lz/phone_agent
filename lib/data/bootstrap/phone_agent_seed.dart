@@ -138,6 +138,11 @@ class PhoneAgentSeed {
       CapabilityAdapter.native,
       CapabilityRisk.medium,
     ),
+    _capability(
+      'time.get_current',
+      CapabilityAdapter.native,
+      CapabilityRisk.low,
+    ),
     _capability('device.info', CapabilityAdapter.native, CapabilityRisk.low),
     _capability(
       'webview.call_capability',

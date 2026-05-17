@@ -172,6 +172,7 @@ class AgentLoop {
     final memories = visibleMemories
         .map((memory) => '- ${memory.content}')
         .join('\n');
+    final currentTime = _currentTimeContext(DateTime.now());
     final conversationContext = const ConversationContextBuilder().build(
       priorMessages,
     );
@@ -187,8 +188,9 @@ class AgentLoop {
             '当用户要求创建或切换工作区时，使用 workspace_create 或 workspace_switch。'
             '当用户要求创建、保存、读取或修改当前工作区文件时，使用 file_write_app_file 或 file_read_app_file；'
             '文件路径必须是当前工作区沙箱内的相对路径。'
-            '当用户要求查看设备环境、读取剪贴板、复制内容或使用当前位置时，使用 device_info、clipboard_read、clipboard_write 或 location_get_current。'
-            '稍后提醒使用 notification_schedule；加入日历、创建日程或安排会议使用 calendar_event_create。'
+            '当用户要求查看设备环境、当前时间、读取剪贴板、复制内容或使用当前位置时，使用 device_info、time_get_current、clipboard_read、clipboard_write 或 location_get_current。'
+            '处理今天、明天、今晚、几分钟后等相对时间时，必须以系统提供的当前本地时间为准；不确定时先调用 time_get_current 校准。'
+            '稍后提醒使用 notification_schedule；加入日历、创建日程或安排会议使用 calendar_event_create；所有绝对时间参数必须使用带时区语义的 ISO 8601。'
             '当你生成报告、文档、任务清单、文件摘要或 Web App 等可复用产物时，使用 artifact_create 保存为 Artifact；'
             '创建 Web App 时必须提供 content_html，写入完整可运行页面、内联样式和内联脚本，不能只写摘要。'
             '当你需要引用当前工作区已有产物时，使用 artifact_query。'
@@ -196,6 +198,7 @@ class AgentLoop {
             '需要读取具体网页正文时调用 web_fetch。'
             '你可以连续调用工具完成复杂任务，但要在有足够证据后及时总结，避免重复调用。'
             '\n当前 Workspace：${workspace.name}'
+            '\n当前本地时间：$currentTime'
             '\n长期记忆：\n${memories.isEmpty ? '- 暂无' : memories}',
       },
     ];
@@ -212,6 +215,19 @@ class AgentLoop {
     }
     messages.add({'role': 'user', 'content': prompt});
     return messages;
+  }
+
+  String _currentTimeContext(DateTime now) {
+    final offset = now.timeZoneOffset;
+    final sign = offset.isNegative ? '-' : '+';
+    final absoluteOffset = offset.abs();
+    final hours = absoluteOffset.inHours.toString().padLeft(2, '0');
+    final minutes = absoluteOffset.inMinutes
+        .remainder(60)
+        .toString()
+        .padLeft(2, '0');
+    return '${now.toIso8601String()} '
+        '(UTC$sign$hours:$minutes, ${now.timeZoneName}, weekday=${now.weekday})';
   }
 
   String _modelRole(MessageRole role) {

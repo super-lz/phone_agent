@@ -204,6 +204,15 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'time_get_current',
+          'description':
+              '读取设备当前本地时间、UTC 时间和时区偏移。用户询问当前时间，或安排通知/日历前需要校准相对时间时使用。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'clipboard_read',
           'description': '读取系统剪贴板中的纯文本内容。只有当用户明确要求读取剪贴板时才使用。',
           'parameters': {'type': 'object', 'properties': <String, Object?>{}},

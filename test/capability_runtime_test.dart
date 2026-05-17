@@ -568,6 +568,27 @@ void main() {
     },
   );
 
+  test('runtime exposes current device time through native adapter', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-time',
+        name: 'time_get_current',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(result.capabilityId, 'time.get_current');
+    expect(result.output['ok'], isTrue);
+    expect(result.output['localIso'], '2026-05-18T10:00:00.000');
+    expect(result.output['timeZoneOffsetMinutes'], 480);
+  });
+
   test('runtime can read and write clipboard through native adapter', () async {
     final adapter = _FakeNativeAdapter();
     final runtime = CapabilityRuntime(nativeAdapter: adapter);
@@ -796,6 +817,19 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   @override
   Future<Map<String, Object?>> getDeviceInfo() async {
     return deviceInfoOutput;
+  }
+
+  @override
+  Future<Map<String, Object?>> getCurrentTime() async {
+    return {
+      'ok': true,
+      'localIso': DateTime(2026, 5, 18, 10).toIso8601String(),
+      'utcIso': DateTime.utc(2026, 5, 18, 2).toIso8601String(),
+      'epochMilliseconds': DateTime(2026, 5, 18, 10).millisecondsSinceEpoch,
+      'timeZoneName': 'CST',
+      'timeZoneOffsetMinutes': 480,
+      'weekday': 1,
+    };
   }
 
   @override

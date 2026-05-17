@@ -121,6 +121,8 @@ class CapabilityRuntime {
         );
       case 'device_info':
         return await _nativeHandler.deviceInfo();
+      case 'time_get_current':
+        return await _nativeHandler.getCurrentTime();
       case 'clipboard_read':
         return await _nativeHandler.readClipboard();
       case 'clipboard_write':

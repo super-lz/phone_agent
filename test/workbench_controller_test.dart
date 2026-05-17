@@ -387,6 +387,40 @@ void main() {
     expect(controller.messages.last.blocks.first.data['text'], '已获取当前位置。');
   });
 
+  test('model tool call can read current time capability', () async {
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      capabilityRuntime: CapabilityRuntime(nativeAdapter: _FakeNativeAdapter()),
+      chatClient: _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-time',
+                name: 'time_get_current',
+                argumentsDelta: '{}',
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '当前时间已校准。')],
+      ]),
+    );
+
+    await controller.sendPrompt('现在几点');
+
+    final timeBlocks = controller.messages
+        .expand((message) => message.blocks)
+        .where(
+          (block) =>
+              block.type == MessageBlockType.toolResult &&
+              block.data['capabilityId'] == 'time.get_current',
+        );
+    expect(timeBlocks, isNotEmpty);
+    expect(controller.messages.last.blocks.first.data['text'], '当前时间已校准。');
+  });
+
   test('model tool call can schedule notification capability', () async {
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),
@@ -684,6 +718,19 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
     return const {
       'ok': true,
       'device': {'platform': 'test'},
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> getCurrentTime() async {
+    return {
+      'ok': true,
+      'localIso': DateTime(2026, 5, 18, 10).toIso8601String(),
+      'utcIso': DateTime.utc(2026, 5, 18, 2).toIso8601String(),
+      'epochMilliseconds': DateTime(2026, 5, 18, 10).millisecondsSinceEpoch,
+      'timeZoneName': 'CST',
+      'timeZoneOffsetMinutes': 480,
+      'weekday': 1,
     };
   }
 
