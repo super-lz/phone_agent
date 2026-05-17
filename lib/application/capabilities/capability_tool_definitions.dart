@@ -188,6 +188,14 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'location_get_current',
+          'description': '当用户明确要求基于当前位置处理问题时，获取当前设备位置。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'web_search',
           'description': '当用户需要最新信息、外部资料或网页来源时搜索互联网。',
           'parameters': {

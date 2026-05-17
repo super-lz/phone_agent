@@ -112,6 +112,8 @@ class CapabilityRuntime {
         return await _nativeHandler.writeClipboard(
           arguments: toolCall.arguments,
         );
+      case 'location_get_current':
+        return await _nativeHandler.getCurrentLocation();
       case 'web_search':
         return await _webHandler.search(
           arguments: toolCall.arguments,

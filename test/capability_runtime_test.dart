@@ -464,6 +464,63 @@ void main() {
     expect(readResult.output['text'], '复制这段文字');
   });
 
+  test('runtime exposes current location through native adapter', () async {
+    final runtime = CapabilityRuntime(
+      nativeAdapter: _FakeNativeAdapter(
+        locationOutput: const {
+          'ok': true,
+          'latitude': 31.2304,
+          'longitude': 121.4737,
+          'accuracy': 12.0,
+        },
+      ),
+    );
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-location',
+        name: 'location_get_current',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(result.capabilityId, 'location.get_current');
+    expect(result.output['ok'], isTrue);
+    expect(result.output['latitude'], 31.2304);
+  });
+
+  test('runtime returns structured location denial', () async {
+    final runtime = CapabilityRuntime(
+      nativeAdapter: _FakeNativeAdapter(
+        locationOutput: const {
+          'ok': false,
+          'error': 'permission_denied',
+          'detail': 'location permission denied',
+        },
+      ),
+    );
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-location-denied',
+        name: 'location_get_current',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(result.capabilityId, 'location.get_current');
+    expect(result.output['ok'], isFalse);
+    expect(result.output['error'], 'permission_denied');
+  });
+
   test('runtime exposes web tools through the same execute path', () async {
     final runtime = CapabilityRuntime(
       webAdapter: _FakeWebAdapter(
@@ -499,9 +556,13 @@ void main() {
 }
 
 class _FakeNativeAdapter extends NativeCapabilityAdapter {
-  _FakeNativeAdapter({this.deviceInfoOutput = const {'ok': true}});
+  _FakeNativeAdapter({
+    this.deviceInfoOutput = const {'ok': true},
+    this.locationOutput = const {'ok': true},
+  });
 
   final Map<String, Object?> deviceInfoOutput;
+  final Map<String, Object?> locationOutput;
   String _clipboardText = '';
 
   @override
@@ -522,6 +583,11 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   Future<Map<String, Object?>> writeClipboard(String text) async {
     _clipboardText = text;
     return {'ok': true, 'length': text.length};
+  }
+
+  @override
+  Future<Map<String, Object?>> getCurrentLocation() async {
+    return locationOutput;
   }
 }
 

@@ -144,12 +144,13 @@
 - 正式对话的最小 Agent Loop：模型流式输出、自动发起工具调用、Capability Runtime 执行工具、工具结果回传模型、模型继续回答。
 - Agent Loop 必须具备可调任务预算，并在日志中暴露当前工具调用消耗，方便定位过早停止或循环调用。
 - Agent Loop 必须携带同一会话的近期原文上下文，并在上下文过长时携带较早内容的压缩摘要。
-- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`artifact.create`、`artifact.query`、`device.info`、`clipboard.read` 和 `clipboard.write`。
+- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`artifact.create`、`artifact.query`、`device.info`、`clipboard.read`、`clipboard.write` 和 `location.get_current`。
 - 当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，Agent 可以调用 `db.note.create` 或 `db.note.query` 读写当前 Workspace 的 Note。
 - `db.note.create` 写入的 Note 必须落到设备本地数据库，而不是只停留在当前进程内存。
 - 当用户要求创建、保存、读取或修改当前工作区文件时，Agent 可以调用 `file.write_app_file` 或 `file.read_app_file` 读写当前 Workspace 的 App File。
 - `file.write_app_file` 写入的文件必须落到当前 Workspace 的应用沙箱文件目录；`file.read_app_file` 只能读取同一 Workspace 的 App File。
 - 当用户要求查看当前设备环境、读取剪贴板或复制内容时，Agent 可以调用 `device.info`、`clipboard.read` 或 `clipboard.write`；剪贴板读取不应在用户未明确要求时主动触发。
+- 当用户明确要求使用当前位置时，Agent 可以调用 `location.get_current`；定位服务关闭、权限拒绝、永久拒绝或平台异常时必须返回结构化错误。
 - 当 Agent 生成报告、文档、任务清单、文件摘要或 Web App 等可复用产物时，可以调用 `artifact.create` 写入当前 Workspace 的 Artifact，并在对话中展示 Artifact 卡片或 Web App 卡片。
 - `artifact.query` 只能查询当前 Workspace 的 Artifact，不能把其它 Workspace 的产物混入当前工作区结果。
 - `web.search` 和 `web.fetch` 必须通过 Capability Runtime 接入 Agent Loop；搜索返回结构化结果，网页读取返回适合模型继续处理的正文文本。
@@ -193,6 +194,7 @@
 - AI 能调用 `file.write_app_file` 和 `file.read_app_file` 在当前 Workspace 应用沙箱内写入和读取文本文件；切换 Workspace 后不能读取其它 Workspace 的文件。
 - `file.write_app_file` 和 `file.read_app_file` 对空路径、绝对路径、路径穿越、文件不存在和覆盖冲突必须返回结构化错误。
 - AI 能在用户明确要求时读取设备基础信息、读取剪贴板纯文本或写入剪贴板，并在对话中展示工具轨迹。
+- AI 能在用户明确要求时获取当前位置；定位服务关闭或用户拒绝授权时，系统不崩溃，并把结构化失败原因返回给 Agent。
 - AI 能调用 `artifact.create` 创建当前 Workspace 的 Artifact，并在对话中展示对应 Artifact 卡片；`artifact.query` 只返回当前 Workspace 的 Artifact。
 - AI 能生成一个本地 Web App，该 App 出现在应用库并可单独打开。
 - Web App 首次运行时按 manifest 请求权限，拒绝后 JSBridge 调用返回结构化错误。

@@ -36,4 +36,11 @@ class NativeCapabilityHandler {
       output: await _adapter.writeClipboard(rawText),
     );
   }
+
+  Future<CapabilityExecutionResult> getCurrentLocation() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'location.get_current',
+      output: await _adapter.getCurrentLocation(),
+    );
+  }
 }

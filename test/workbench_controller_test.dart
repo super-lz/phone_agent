@@ -318,6 +318,40 @@ void main() {
     expect(controller.messages.last.blocks.first.data['text'], '已复制。');
   });
 
+  test('model tool call can use current location capability', () async {
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      capabilityRuntime: CapabilityRuntime(nativeAdapter: _FakeNativeAdapter()),
+      chatClient: _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-location',
+                name: 'location_get_current',
+                argumentsDelta: '{}',
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '已获取当前位置。')],
+      ]),
+    );
+
+    await controller.sendPrompt('用我的当前位置推荐附近事项');
+
+    final locationBlocks = controller.messages
+        .expand((message) => message.blocks)
+        .where(
+          (block) =>
+              block.type == MessageBlockType.toolResult &&
+              block.data['capabilityId'] == 'location.get_current',
+        );
+    expect(locationBlocks, isNotEmpty);
+    expect(controller.messages.last.blocks.first.data['text'], '已获取当前位置。');
+  });
+
   test('agent loop can continue beyond three tool rounds', () async {
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),
@@ -406,6 +440,16 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   Future<Map<String, Object?>> writeClipboard(String text) async {
     _clipboardText = text;
     return {'ok': true, 'length': text.length};
+  }
+
+  @override
+  Future<Map<String, Object?>> getCurrentLocation() async {
+    return const {
+      'ok': true,
+      'latitude': 31.2304,
+      'longitude': 121.4737,
+      'accuracy': 12.0,
+    };
   }
 }
 
