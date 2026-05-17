@@ -17,17 +17,29 @@
 - 第一版本不实现语音输入或输出、不实现远程终端、不建设云端运行时、不做后台长期自主执行、不做插件市场、不允许任意网页默认调用手机能力、不实现 iOS 本机 shell、不实现完整 Office 编辑器。
 - 终端是未来高级后备能力；如果手机本地 Capability 足够强，第一版本可以完全不实现终端。
 - 远端运行时只保留抽象入口，不作为第一版本验收条件。
+- 第一版本默认使用阿里云百炼 OpenAI 兼容接口接入 `glm-5` 进行模型联调；面向用户的模型设置页当前只要求填写百炼通用 API Key，其它上下文和生成参数使用推荐默认值。
 
 ## 核心流程
 
 ### 多轮对话与工具调用
 
 1. 用户在当前 Workspace 中发起对话，可输入文字、图片、文件或系统分享内容。
-2. 系统把全局记忆、当前 Workspace 记忆、会话上下文、附件摘要和可用 Capability 一起提供给 Agent。
-3. Agent 可以流式输出 Markdown，也可以发起工具调用、权限请求、TODO 更新、任务进度和 Artifact 创建。
+2. 系统把全局长期记忆、同一会话上下文、当前 Workspace 数据上下文、附件摘要和可用 Capability 一起提供给 Agent；用户不应需要重复告诉 AI 已保存的偏好、稳定事实或本会话前面已经说过的关键信息。
+3. Agent 必须在正式对话中以流式方式输出 Markdown，也可以通过 OpenAI 兼容工具调用协议发起工具调用、权限请求、TODO 更新、任务进度和 Artifact 创建。
 4. Capability Runtime 校验工具输入、权限策略和执行边界后调用对应 adapter。
-5. 工具结果以结构化结果返回给 Agent，并以工具轨迹展示给用户。
+5. 工具结果以结构化结果返回给 Agent，并以工具轨迹展示给用户；联网搜索和网页解析结果必须优先展示为可读结果卡片，而不是只暴露原始 Map 文本。
 6. Agent 基于工具结果继续回答；失败时说明原因并给出替代方案。
+7. 单次用户请求的自动工具调用必须使用任务预算，而不是很低的固定演示轮数；预算至少要同时约束模型轮次、总工具调用次数和连续工具失败次数。
+8. 任务预算应足以支持复杂任务的多步搜索、读取、记忆和本地能力调用；达到预算或连续失败保护时，系统必须停止继续调用工具，并要求 Agent 基于已有结果给出最终回答。
+9. 普通对话必须使用当前已配置的模型提供方；若缺少 API Key，系统必须在对话中提示用户先完成模型设置。
+
+### 模型配置
+
+1. 用户可以进入模型设置页选择模型厂商。
+2. 第一版本内置阿里云百炼 `glm-5` 配置。
+3. 用户当前只需要填写和保存 API Key。
+4. 系统必须安全保存 API Key，不把密钥写入普通日志、对话消息或 Artifact。
+5. 系统提供测试连接入口，用默认推荐参数向当前模型发起最小请求，并把成功或失败原因反馈给用户。
 
 ### Artifact 创建与复用
 
@@ -40,9 +52,9 @@
 
 1. 系统必须默认创建一个默认 Workspace。
 2. 用户可以创建工作、学习、生活等 Workspace。
-3. Workspace 用于区分上下文、文件、Artifact、Web App、任务流程和局部记忆，但不把 AI 完全隔离。
-4. 回答时默认同时使用全局记忆和当前 Workspace 记忆。
-5. 用户可以要求某条记忆只属于当前 Workspace，也可以查看、编辑或删除全局记忆和 Workspace 记忆。
+3. Workspace 用于区分会话、文件、Artifact、Web App、任务流程和工作数据，但不切分用户的长期记忆。
+4. 回答时默认使用全局长期记忆和当前 Workspace 数据上下文。
+5. 用户可以查看、编辑或删除全局长期记忆；第一版不提供按 Workspace 隔离的长期记忆。
 
 ### Web 小应用
 
@@ -69,20 +81,27 @@
 - Agent Event Stream：统一承载文本、工具调用、工具结果、权限请求、TODO、进度、错误和 Artifact 事件。
 - MessageBlock Renderer：渲染 Markdown、代码块、图片、附件、工具轨迹、权限卡、进度、TODO、引用、Artifact 卡片、Web App 卡片和错误卡片。
 - Artifact Store：保存可复用产物及其归属、类型、元数据和内容位置。
-- Memory Store：保存全局记忆、Workspace 记忆和会话记忆。
-- Workspace Store：保存 Workspace、当前工作区、工作区内会话、文件、Artifact、Web App 和局部记忆。
+- Memory Store：保存用户全局长期记忆。
+- Workspace Store：保存 Workspace、当前工作区、工作区内会话、文件、Artifact、Web App 和任务数据。
+- Model Settings：保存模型厂商、默认模型、默认参数和用户 API Key。
 - Capability Runtime：统一注册、发现、校验和调度所有能力。
 - Permission Policy：把用户三档权限模式、Capability 风险等级和高级配置映射为允许、询问或拒绝。
 - Audit Log：记录所有 Capability 调用、权限决策、执行结果和失败原因。
+- App Log：记录应用运行、模型请求、Capability 调用、联网搜索、异常和诊断信息；控制台至少输出 info 以上级别日志，本地必须写入可定位的日志文件。
 - Native / Search / File / DB / MCP / Skill / WebView adapters：实现具体能力来源。
 
 ## 数据与状态语义
 
-- Workspace 是组织方式，不是强隔离人格；全局记忆默认可跨 Workspace 使用。
-- 记忆分三层：
-  - 全局记忆：用户长期偏好、身份信息、常用规则、跨场景稳定事实。
-  - Workspace 记忆：当前工作区内目标、文件、项目背景、流程记录和局部偏好。
-  - 会话记忆：当前对话短期上下文和任务状态。
+- Workspace 是组织方式，不是强隔离人格；用户长期记忆不按 Workspace 切分，默认在所有 Workspace 中可用。
+- 会话上下文必须优先保留最近消息原文；当上下文过长时，较早消息应压缩为摘要继续提供给 Agent。
+- 会话压缩摘要必须保留用户目标、关键事实、已完成动作、工具结果、Artifact、未解决问题和明确约束；最近消息原文优先级高于压缩摘要。
+- 会话上下文、Workspace 数据上下文和全局长期记忆是三种不同来源：会话上下文服务当前连续任务，Workspace 数据上下文服务当前工作区的数据组织，全局长期记忆服务跨场景稳定偏好和事实。
+- Note 是 Workspace 数据，不是用户长期记忆；它用于保存当前工作区内的备忘、事项、资料摘录和可复用文本记录。
+- Note 必须写入设备本地数据库；应用重启后，当前 Workspace 内已经保存的 Note 仍应可展示和查询。
+- `db.note.query` 默认只返回当前 Workspace 的 Note，不能把其它 Workspace 的 Note 混入当前工作区结果。
+- 长期记忆会自动注入普通对话上下文；Agent 不需要为了使用已注入的长期记忆而先调用 `memory.query`。
+- `memory.query` 只用于用户询问“你记住了什么”、盘点或管理大量记忆等显式记忆管理场景。
+- 长期记忆只保存用户长期偏好、身份信息、常用规则和跨场景稳定事实；当前对话短期状态由会话上下文承载，不写成长记忆。
 - MessageBlock 是对话 UI 的基本渲染单位，第一版本必须支持：
   - `markdown_text`
   - `code_block`
@@ -102,6 +121,10 @@
 - 面向用户只提供三档权限模式：默认权限、自动审查、完全访问权限。
 - 高级用户后续可以通过配置文件自定义 allowlist 和 denylist。
 - 默认模式下，高风险能力必须确认；完全访问权限也必须保留审计日志。
+- 当前默认模型提供方为阿里云百炼，默认模型为 `glm-5`，默认 OpenAI 兼容 Base URL 为 `https://dashscope.aliyuncs.com/compatible-mode/v1/`。
+- `glm-5` 当前推荐默认参数为普通模式、不启用思考、`temperature=1.0`、`top_p=0.95`、`top_k=20`；正式对话默认 `stream=true`，连接测试可以使用非流式请求；第一版本不在普通设置页暴露这些参数。
+- API Key 是用户敏感凭证，必须保存在安全存储中。
+- 日志不得泄露完整 API Key；写入控制台或本地文件前必须对密钥形态进行脱敏。
 
 ## 当前阶段边界
 
@@ -114,7 +137,20 @@
 - 联网搜索和网页读取能力的 Capability 定义。
 - 文件、数据库、记忆、Workspace、Artifact、定位、剪贴板、通知、设备信息、WebView、Skill 和 MCP 的 Capability 定义。
 - Artifact 中心。
-- 全局记忆、Workspace 记忆和会话记忆。
+- 全局长期记忆和会话上下文。
+- 模型设置页，支持阿里云百炼 `glm-5` API Key 保存和连接测试。
+- 正式对话的最小 Agent Loop：模型流式输出、自动发起工具调用、Capability Runtime 执行工具、工具结果回传模型、模型继续回答。
+- Agent Loop 必须具备可调任务预算，并在日志中暴露当前工具调用消耗，方便定位过早停止或循环调用。
+- Agent Loop 必须携带同一会话的近期原文上下文，并在上下文过长时携带较早内容的压缩摘要。
+- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`artifact.create` 和 `artifact.query`。
+- 当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，Agent 可以调用 `db.note.create` 或 `db.note.query` 读写当前 Workspace 的 Note。
+- `db.note.create` 写入的 Note 必须落到设备本地数据库，而不是只停留在当前进程内存。
+- 当 Agent 生成报告、文档、任务清单、文件摘要或 Web App 等可复用产物时，可以调用 `artifact.create` 写入当前 Workspace 的 Artifact，并在对话中展示 Artifact 卡片或 Web App 卡片。
+- `artifact.query` 只能查询当前 Workspace 的 Artifact，不能把其它 Workspace 的产物混入当前工作区结果。
+- `web.search` 和 `web.fetch` 必须通过 Capability Runtime 接入 Agent Loop；搜索返回结构化结果，网页读取返回适合模型继续处理的正文文本。
+- `web.search` 第一优先级使用阿里云百炼 WebSearch MCP，并复用用户已经保存的百炼通用 API Key；如果未配置 API Key，必须返回结构化未配置错误。
+- `web.fetch` 第一阶段通过阿里云百炼 WebSearch MCP 对目标 URL 发起抓取和解析请求；如果需要更专用的网页抓取 MCP，后续可接入百炼 MCP 广场对应服务。
+- `web.search` 和 `web.fetch` 的对话展示必须包含状态、Provider、查询或 URL、正文摘要和可识别的来源链接；失败时必须清晰展示错误原因。
 - WebView 小应用运行时、manifest 语义和 JSBridge 语义。
 - Agent Skills / Claude Code 风格 Skill 的安装、扫描、索引和受控调用语义。
 - HTTP/SSE 类 MCP 连接语义和失败处理。
@@ -134,13 +170,22 @@
 ## 验收标准
 
 - 用户能在默认 Workspace 中与 AI 多轮对话，回复正确渲染 Markdown、代码块和表格。
-- 用户能新建 Workspace，并在不同 Workspace 中看到各自的会话、文件、Artifact、Web App 和局部记忆。
-- AI 回答时能同时使用全局记忆和当前 Workspace 记忆；用户可指定某条记忆仅保存在当前 Workspace。
-- 用户能查看、编辑、删除全局记忆和 Workspace 记忆。
+- 用户能新建 Workspace，并在不同 Workspace 中看到各自的会话、文件、Artifact、Web App 和任务数据。
+- AI 回答时能自动使用全局长期记忆；切换 Workspace 不会让 AI 忘记用户长期偏好和稳定事实。
+- AI 能在用户明确要求记住长期偏好、事实或规则时调用 `memory.create`，在用户明确询问或管理记忆时调用 `memory.query`，并在工具结果返回后继续完成自然语言回答。
+- AI 能在用户明确要求忘记某条长期记忆时调用 `memory.delete`。
+- 用户能查看、编辑、删除全局长期记忆。
 - 用户上传文件后，AI 能总结、问答，并生成 Artifact。
 - 用户上传图片后，AI 能识别图片内容或提取文字。
+- 用户能在模型设置页只填写阿里云百炼 API Key，并使用内置 `glm-5` 默认配置测试连接。
+- 用户保存阿里云百炼 API Key 后，普通对话能调用内置 `glm-5` 配置获得模型回复。
+- 普通对话回复应在生成过程中持续更新到对话流中，并在用户仍停留在底部附近时自动滚动到最新内容；如果用户主动向上浏览历史消息，当前流式输出不得强制抢回滚动位置，直到用户重新回到底部附近才恢复自动追底。
 - AI 能自动调用 `web.search` 和 `web.fetch` 回答需要联网的问题，并展示调用轨迹和来源。
-- AI 能调用本地数据库创建和查询 note。
+- AI 在复杂任务中能连续完成超过三轮的工具调用；除非达到任务预算、连续失败保护、权限拒绝或模型自然结束，系统不得过早停止工具链。
+- `web.search` 或 `web.fetch` 的网络请求、解析或读取失败时，系统必须向 Agent 返回结构化错误，不能导致对话或应用崩溃。
+- AI 能调用本地数据库创建和查询 Note；Note 归属当前 Workspace，切换 Workspace 后不会展示或查询到其它 Workspace 的 Note。
+- 应用重启后，用户此前通过 `db.note.create` 保存的 Note 仍能在对应 Workspace 中展示，并能被 `db.note.query` 查询到。
+- AI 能调用 `artifact.create` 创建当前 Workspace 的 Artifact，并在对话中展示对应 Artifact 卡片；`artifact.query` 只返回当前 Workspace 的 Artifact。
 - AI 能生成一个本地 Web App，该 App 出现在应用库并可单独打开。
 - Web App 首次运行时按 manifest 请求权限，拒绝后 JSBridge 调用返回结构化错误。
 - 两个 Web App 不能互相读取文件目录和数据库 namespace。
@@ -157,12 +202,16 @@
 - Skill 格式错误时，阻止安装或标记不可用，并暴露可读错误。
 - Web App 调用未授权 Capability 时，JSBridge 返回拒绝错误，不暴露底层异常。
 - 文件、Artifact 或 Workspace 不存在时，返回明确的 not found 错误。
+- 模型 API Key 缺失时，模型连接测试必须提示用户先填写 API Key。
+- 模型连接失败时，系统必须展示 HTTP 状态或可读错误原因，不泄露完整密钥。
+- 搜索服务不可达、搜索结果解析失败、网页读取超时、目标 URL 无效或目标网页不可读时，联网能力必须返回结构化错误，并允许 Agent 解释限制或尝试替代方案。
+- 应用日志初始化失败不能阻断应用启动；日志文件写入失败时至少保留控制台错误。
 
 ## 关键不变量
 
 - AI 永远不能绕过 Capability Runtime 直接调用手机能力、MCP、Skill、文件、数据库或 WebView Bridge。
 - 所有高风险能力调用必须经过权限策略；完全访问权限也不能关闭审计日志。
-- Workspace 不能阻断全局记忆的默认可用性，除非用户显式限制某条记忆。
+- Workspace 不能阻断全局长期记忆的默认可用性。
 - Web App 默认只加载本地沙箱内容；任意外部网页默认不能调用手机能力。
 - Web App 之间默认文件目录和数据库 namespace 隔离。
 - Skill 格式必须跟随 Agent Skills / Claude Code 生态，不能为了移动端自定义不兼容格式。
@@ -174,10 +223,15 @@
 - Capability Runtime 是所有能力的统一入口。
 - Web 小应用是 Artifact 的高级形态，而不是产品唯一目标。
 - Workspace 是组织方式，不是强隔离人格。
-- 记忆同时支持全局、Workspace 和会话三个层级。
+- 长期记忆是全局的，不按 Workspace 切分；会话短期状态由会话上下文和压缩摘要承载。
 - Skill 遵循 Agent Skills / Claude Code 当前规范。
 - 第一版本不实现远程终端和云端运行时。
 - 第一版本不实现语音输入或输出。
+- 第一版本默认以阿里云百炼 `glm-5` 作为模型联调入口，普通用户只配置百炼通用 API Key。
+- 第一版先以记忆工具验证自动多轮工具调用闭环，再把同一机制扩展到联网搜索、文件、数据库、Skill、MCP 和手机原生能力。
+- 联网搜索和网页读取复用同一 Agent Loop 与 Capability Runtime，不走 UI 层或 controller 的特殊分支。
+- 阿里云百炼 WebSearch MCP 是第一版默认搜索 Provider，因为它能复用百炼通用 API Key、国内可用性更好，并与后续 MCP 架构一致。
+- 阿里云百炼 WebSearch MCP 当前同时承载搜索和 URL 解析请求；如果后续接入专用网页抓取 MCP，仍必须走 Capability Runtime。
 
 ## 非目标
 
@@ -192,5 +246,5 @@
 
 ## 开放问题
 
-- 第一版本的真实模型提供方、API Key 管理和模型工具调用协议需要在实现模型接入前确认。
 - 图片理解/OCR、PDF 解析和网页搜索的具体 provider 可以随实现阶段选择，但不得改变本规格定义的业务能力。
+- 多厂商模型参数暴露方式后续实现模型编排时再确认；普通设置页当前只暴露 API Key。

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../../../domain/conversation/message_block.dart';
+import 'tool_result_view.dart';
 
 class MessageView extends StatelessWidget {
   const MessageView({required this.message, super.key});
@@ -81,10 +82,9 @@ class MessageBlockView extends StatelessWidget {
           body: block.data['input'].toString(),
         );
       case MessageBlockType.toolResult:
-        return _StructuredBlock(
-          icon: Icons.check_circle_outline,
-          title: 'Tool Result · ${block.data['capabilityId']}',
-          body: block.data['output'].toString(),
+        return ToolResultView(
+          capabilityId: block.data['capabilityId']! as String,
+          output: block.data['output']! as Map<String, Object?>,
         );
       case MessageBlockType.todoList:
         return _TodoBlock(items: block.data['items']! as List<String>);

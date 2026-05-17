@@ -24,15 +24,43 @@ void main() {
     expect(find.textContaining('已创建并切换'), findsOneWidget);
   });
 
-  testWidgets('prompt can create a memory', (tester) async {
+  testWidgets('creates and deletes a visible memory', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 900));
     await tester.pumpWidget(const PhoneAgentApp());
 
-    await tester.enterText(find.byType(TextField), '记住我喜欢先看第一性原理');
-    await tester.tap(find.byIcon(Icons.send));
+    await tester.tap(find.byTooltip('新增记忆'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '测试记忆：喜欢短答案');
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('已写入'), findsOneWidget);
-    expect(find.textContaining('我喜欢先看第一性原理'), findsWidgets);
+    expect(find.text('测试记忆：喜欢短答案'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('测试记忆：喜欢短答案'));
+    await tester.pumpAndSettle();
+    final memoryTile = find.ancestor(
+      of: find.text('测试记忆：喜欢短答案'),
+      matching: find.byType(ListTile),
+    );
+    await tester.tap(
+      find.descendant(of: memoryTile, matching: find.byTooltip('删除记忆')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('测试记忆：喜欢短答案'), findsNothing);
+  });
+
+  testWidgets('prompt can create a web app artifact', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 900));
+    await tester.pumpWidget(const PhoneAgentApp());
+
+    await tester.enterText(find.byType(TextField), '帮我创建一个备忘录应用');
+    await tester.tap(find.widgetWithText(FilledButton, '发送'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('已创建 Web App Artifact'), findsOneWidget);
+    expect(find.textContaining('AI 生成的本地 Web 小应用'), findsWidgets);
   });
 }

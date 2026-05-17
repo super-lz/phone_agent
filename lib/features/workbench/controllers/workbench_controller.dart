@@ -1,42 +1,65 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
-import '../../../data/seed/phone_agent_seed.dart';
+import '../../../application/agent/agent_loop.dart';
+import '../../../application/capabilities/capability_runtime.dart';
+import '../../../core/logging/app_logger.dart';
+import '../../../data/bootstrap/phone_agent_seed.dart';
+import '../../../data/models/model_api_key_store.dart';
+import '../../../data/models/openai_compatible_chat_client.dart';
 import '../../../domain/artifacts/artifact.dart';
 import '../../../domain/capabilities/capability.dart';
 import '../../../domain/conversation/message_block.dart';
 import '../../../domain/memory/memory.dart';
+import '../../../domain/models/model_provider_config.dart';
+import '../../../domain/notes/note.dart';
+import '../../../domain/notes/note_store.dart';
 import '../../../domain/permissions/permission_policy.dart';
 import '../../../domain/workspace/workspace.dart';
 
 class WorkbenchController extends ChangeNotifier {
-  WorkbenchController()
-    : _workspaces = PhoneAgentSeed.workspaces(),
-      _capabilities = PhoneAgentSeed.capabilities(),
-      _messages = PhoneAgentSeed.messages(),
-      _memories = PhoneAgentSeed.memories(),
-      _artifacts = PhoneAgentSeed.artifacts();
+  WorkbenchController({
+    ModelApiKeyStore? apiKeyStore,
+    OpenAiCompatibleChatClient? chatClient,
+    CapabilityRuntime? capabilityRuntime,
+    AgentNoteStore? noteStore,
+  }) : _apiKeyStore = apiKeyStore ?? ModelApiKeyStore(),
+       _agentLoop = AgentLoop(
+         chatClient: chatClient ?? OpenAiCompatibleChatClient(),
+         capabilityRuntime: capabilityRuntime ?? CapabilityRuntime(),
+       ),
+       _noteStore = noteStore ?? InMemoryAgentNoteStore(PhoneAgentSeed.notes()),
+       _workspaces = PhoneAgentSeed.workspaces(),
+       _capabilities = PhoneAgentSeed.capabilities(),
+       _messages = PhoneAgentSeed.messages(),
+       _memories = PhoneAgentSeed.memories(),
+       _artifacts = PhoneAgentSeed.artifacts(),
+       _notes = PhoneAgentSeed.notes() {
+    unawaited(_loadNotes());
+  }
 
+  final ModelApiKeyStore _apiKeyStore;
+  final AgentLoop _agentLoop;
+  final AgentNoteStore _noteStore;
   final List<AgentWorkspace> _workspaces;
   final List<CapabilityDefinition> _capabilities;
   final List<AgentMessage> _messages;
   final List<AgentMemory> _memories;
   final List<AgentArtifact> _artifacts;
+  final List<AgentNote> _notes;
 
   PermissionMode _permissionMode = PermissionMode.defaultMode;
   String _workspaceId = 'default';
+  bool _isSending = false;
+  bool _isDisposed = false;
 
   List<AgentWorkspace> get workspaces => List.unmodifiable(_workspaces);
   List<CapabilityDefinition> get capabilities =>
       List.unmodifiable(_capabilities);
   List<AgentMessage> get messages => List.unmodifiable(_messages);
   List<AgentMemory> get visibleMemories {
-    return _memories
-        .where(
-          (memory) =>
-              memory.scope == MemoryScope.global ||
-              memory.workspaceId == _workspaceId,
-        )
-        .toList(growable: false);
+    return List.unmodifiable(_memories);
   }
 
   List<AgentArtifact> get workspaceArtifacts {
@@ -45,12 +68,47 @@ class WorkbenchController extends ChangeNotifier {
         .toList(growable: false);
   }
 
+  List<AgentNote> get workspaceNotes {
+    return _notes
+        .where((note) => note.workspaceId == _workspaceId)
+        .toList(growable: false);
+  }
+
   List<PermissionMode> get permissionModes => PermissionMode.values;
   PermissionMode get permissionMode => _permissionMode;
   String get workspaceId => _workspaceId;
+  bool get isSending => _isSending;
 
   AgentWorkspace get currentWorkspace {
     return _workspaces.firstWhere((workspace) => workspace.id == _workspaceId);
+  }
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    unawaited(_noteStore.close());
+    super.dispose();
+  }
+
+  Future<void> _loadNotes() async {
+    try {
+      final loadedNotes = await _noteStore.loadAll();
+      final mergedById = {
+        for (final note in loadedNotes) note.id: note,
+        for (final note in _notes) note.id: note,
+      };
+      _notes
+        ..clear()
+        ..addAll(mergedById.values);
+      AppLogger.info('workbench.notes.loaded', {'count': _notes.length});
+      if (!_isDisposed) {
+        notifyListeners();
+      }
+    } on Object catch (error) {
+      AppLogger.warning('workbench.notes.load_failed', {
+        'error': error.toString(),
+      });
+    }
   }
 
   void setPermissionMode(PermissionMode? mode) {
@@ -74,7 +132,7 @@ class WorkbenchController extends ChangeNotifier {
     final workspace = AgentWorkspace(
       id: 'workspace-$next',
       name: '新工作区 $next',
-      description: '用于区分一组任务、文件、Artifact 和局部记忆。',
+      description: '用于区分一组会话、文件、Artifact 和任务数据。',
       createdAt: DateTime.now(),
     );
     _workspaces.add(workspace);
@@ -90,102 +148,164 @@ class WorkbenchController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void sendPrompt(String prompt) {
-    final now = DateTime.now();
-    _messages
-      ..add(
-        AgentMessage(
-          id: 'msg-user-${now.microsecondsSinceEpoch}',
-          role: MessageRole.user,
-          createdAt: now,
-          blocks: [MessageBlock.markdown(prompt)],
-        ),
-      )
-      ..add(_simulateAgentResponse(prompt));
+  void createMemory({required String content}) {
+    final normalized = content.trim();
+    if (normalized.isEmpty) {
+      return;
+    }
+
+    final memory = AgentMemory(
+      id: 'memory-${DateTime.now().microsecondsSinceEpoch}',
+      content: normalized,
+      createdAt: DateTime.now(),
+    );
+    _memories.add(memory);
+    AppLogger.info('workbench.memory.create', {'memoryId': memory.id});
     notifyListeners();
   }
 
-  AgentMessage _simulateAgentResponse(String prompt) {
-    final normalized = prompt.toLowerCase();
-    if (prompt.contains('记住') || normalized.contains('remember')) {
-      return _remember(prompt);
+  void updateMemory({required String memoryId, required String content}) {
+    final normalized = content.trim();
+    if (normalized.isEmpty) {
+      return;
     }
+
+    final index = _memories.indexWhere((memory) => memory.id == memoryId);
+    if (index < 0) {
+      return;
+    }
+
+    _memories[index] = _memories[index].copyWith(content: normalized);
+    AppLogger.info('workbench.memory.update', {'memoryId': memoryId});
+    notifyListeners();
+  }
+
+  void deleteMemory(String memoryId) {
+    final index = _memories.indexWhere((memory) => memory.id == memoryId);
+    if (index < 0) {
+      return;
+    }
+    _memories.removeAt(index);
+    AppLogger.info('workbench.memory.delete', {'memoryId': memoryId});
+    notifyListeners();
+  }
+
+  Future<void> sendPrompt(String prompt) async {
+    if (_isSending) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final priorMessages = List<AgentMessage>.unmodifiable(_messages);
+    AppLogger.info('workbench.prompt.send', {
+      'workspaceId': _workspaceId,
+      'length': prompt.length,
+    });
+    _messages.add(
+      AgentMessage(
+        id: 'msg-user-${now.microsecondsSinceEpoch}',
+        role: MessageRole.user,
+        createdAt: now,
+        blocks: [MessageBlock.markdown(prompt)],
+      ),
+    );
+    notifyListeners();
+
+    final localResponse = _tryHandleLocalPrompt(prompt);
+    if (localResponse != null) {
+      _messages.add(localResponse);
+      notifyListeners();
+      return;
+    }
+
+    await _runConfiguredModel(prompt, priorMessages: priorMessages);
+  }
+
+  AgentMessage? _tryHandleLocalPrompt(String prompt) {
+    final normalized = prompt.toLowerCase();
     if (prompt.contains('应用') ||
         normalized.contains('web app') ||
         normalized.contains('app')) {
       return _createWebAppArtifact(prompt);
     }
-    if (prompt.contains('搜索') ||
-        normalized.contains('search') ||
-        prompt.contains('查')) {
-      return _search(prompt);
+    return null;
+  }
+
+  Future<void> _runConfiguredModel(
+    String prompt, {
+    required List<AgentMessage> priorMessages,
+  }) async {
+    final provider = ModelProviders.aliyunBailianGlm5;
+    final apiKey = await _apiKeyStore.readApiKey(provider.id);
+    if (apiKey == null || apiKey.trim().isEmpty) {
+      AppLogger.warning('workbench.model_api_key.missing', {
+        'provider': provider.id,
+      });
+      _messages.add(_missingApiKeyResponse());
+      notifyListeners();
+      return;
     }
-    return _defaultAssistantResponse(prompt);
+
+    _isSending = true;
+    notifyListeners();
+
+    try {
+      await _agentLoop.run(
+        provider: provider,
+        apiKey: apiKey.trim(),
+        prompt: prompt,
+        workspace: currentWorkspace,
+        workspaceId: _workspaceId,
+        visibleMemories: visibleMemories,
+        allMemories: _memories,
+        allNotes: _notes,
+        allArtifacts: _artifacts,
+        noteStore: _noteStore,
+        priorMessages: priorMessages,
+        addMessage: _messages.add,
+        replaceMessage: _replaceMessage,
+        notifyChange: notifyListeners,
+      );
+    } on Object catch (error) {
+      _messages.add(_modelErrorResponse(error.toString()));
+    } finally {
+      _isSending = false;
+      notifyListeners();
+    }
   }
 
-  AgentMessage _remember(String prompt) {
-    final scope = prompt.contains('工作区')
-        ? MemoryScope.workspace
-        : MemoryScope.global;
-    final memory = AgentMemory(
-      id: 'memory-${DateTime.now().microsecondsSinceEpoch}',
-      scope: scope,
-      workspaceId: scope == MemoryScope.workspace ? _workspaceId : null,
-      content: prompt.replaceFirst('记住', '').trim(),
-      createdAt: DateTime.now(),
-    );
-    _memories.add(memory);
-
+  AgentMessage _missingApiKeyResponse() {
     return AgentMessage(
-      id: 'msg-memory-${memory.id}',
+      id: 'msg-missing-key-${DateTime.now().microsecondsSinceEpoch}',
       role: MessageRole.assistant,
       createdAt: DateTime.now(),
       blocks: [
-        MessageBlock.toolCall('memory.create', {
-          'scope': memory.scope.label,
-          'workspaceId': memory.workspaceId,
-          'content': memory.content,
-        }),
-        MessageBlock.toolResult('memory.create', {
-          'ok': true,
-          'memoryId': memory.id,
-        }),
-        MessageBlock.markdown('已写入 **${memory.scope.label}记忆**。'),
-      ],
-    );
-  }
-
-  AgentMessage _search(String prompt) {
-    final artifact = AgentArtifact(
-      id: 'artifact-search-${DateTime.now().microsecondsSinceEpoch}',
-      workspaceId: _workspaceId,
-      type: ArtifactType.report,
-      title: '搜索摘要',
-      summary: '围绕“$prompt”的搜索结果摘要 artifact。',
-      createdAt: DateTime.now(),
-    );
-    _artifacts.add(artifact);
-
-    return AgentMessage(
-      id: 'msg-search-${artifact.id}',
-      role: MessageRole.assistant,
-      createdAt: DateTime.now(),
-      blocks: [
-        MessageBlock.toolCall('web.search', {'query': prompt}),
-        MessageBlock.toolResult('web.search', {
-          'ok': true,
-          'results': [
-            '搜索能力已进入 Capability Runtime',
-            '真实 provider 后续替换当前 mock adapter',
-          ],
-        }),
-        MessageBlock.markdown(
-          '我会通过 `web.search` 做发现，再通过 `web.fetch` 读取指定网页。'
-          '\n\n当前原型已经把搜索结果保存为 Artifact，便于后续引用。',
+        MessageBlock.error(
+          '缺少模型 API Key',
+          '请先点击右上角“模型设置”，填写并保存阿里云百炼 API Key，然后再发送普通对话。',
         ),
-        MessageBlock.artifactCard(artifact.id, artifact.title),
       ],
     );
+  }
+
+  AgentMessage _modelErrorResponse(String detail) {
+    return AgentMessage(
+      id: 'msg-model-error-${DateTime.now().microsecondsSinceEpoch}',
+      role: MessageRole.assistant,
+      createdAt: DateTime.now(),
+      blocks: [MessageBlock.error('模型调用失败', detail)],
+    );
+  }
+
+  void _replaceMessage(String messageId, AgentMessage message) {
+    final index = _messages.indexWhere(
+      (candidate) => candidate.id == messageId,
+    );
+    if (index < 0) {
+      _messages.add(message);
+      return;
+    }
+    _messages[index] = message;
   }
 
   AgentMessage _createWebAppArtifact(String prompt) {
@@ -221,31 +341,6 @@ class WorkbenchController extends ChangeNotifier {
           '并通过 `window.PhoneAgent.callCapability(id, input)` 调用手机能力。',
         ),
         MessageBlock.webAppCard(artifact.id, artifact.title),
-      ],
-    );
-  }
-
-  AgentMessage _defaultAssistantResponse(String prompt) {
-    return AgentMessage(
-      id: 'msg-assistant-${DateTime.now().microsecondsSinceEpoch}',
-      role: MessageRole.assistant,
-      createdAt: DateTime.now(),
-      blocks: [
-        MessageBlock.markdown(
-          '我已经收到：$prompt\n\n'
-          '当前第一版基座已经具备这些核心运行面：\n\n'
-          '| 模块 | 状态 |\n'
-          '| --- | --- |\n'
-          '| Workspace | 默认与自定义入口 |\n'
-          '| Memory | 全局和工作区记忆 |\n'
-          '| Artifact | 报告、文件、Web App 等产物 |\n'
-          '| Capability | 统一注册、权限和审计入口 |\n'
-          '| Skill/MCP | 兼容层入口 |\n',
-        ),
-        MessageBlock.code(
-          'js',
-          'window.PhoneAgent.callCapability("web.search", { query: "mobile agent" });',
-        ),
       ],
     );
   }

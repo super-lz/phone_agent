@@ -2,6 +2,7 @@ import '../../domain/artifacts/artifact.dart';
 import '../../domain/capabilities/capability.dart';
 import '../../domain/conversation/message_block.dart';
 import '../../domain/memory/memory.dart';
+import '../../domain/notes/note.dart';
 import '../../domain/workspace/workspace.dart';
 
 class PhoneAgentSeed {
@@ -31,15 +32,12 @@ class PhoneAgentSeed {
   static List<AgentMemory> memories() => [
     AgentMemory(
       id: 'mem-global-1',
-      scope: MemoryScope.global,
       content: '用户偏好中文回答，并倾向于第一性原理和可运行产物。',
       createdAt: now,
     ),
     AgentMemory(
-      id: 'mem-default-1',
-      scope: MemoryScope.workspace,
-      workspaceId: 'default',
-      content: '默认工作区用于收纳跨场景任务和未分类产物。',
+      id: 'mem-global-2',
+      content: 'Workspace 用于区分工作数据，不切分用户长期记忆。',
       createdAt: now,
     ),
   ];
@@ -51,6 +49,16 @@ class PhoneAgentSeed {
       type: ArtifactType.report,
       title: '第一版能力蓝图',
       summary: 'Conversation、Memory、Workspace、Artifact、Capability 的闭环说明。',
+      createdAt: now,
+    ),
+  ];
+
+  static List<AgentNote> notes() => [
+    AgentNote(
+      id: 'note-default-1',
+      workspaceId: 'default',
+      title: 'Phone Agent 第一版目标',
+      content: '把对话、工具调用、长期记忆、Workspace 数据和 Artifact 串成移动端闭环。',
       createdAt: now,
     ),
   ];

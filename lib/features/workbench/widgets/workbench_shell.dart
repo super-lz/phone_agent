@@ -63,20 +63,34 @@ class _MobileWorkbenchState extends State<_MobileWorkbench> {
       widget.chatPanel,
       widget.runtimePanel,
     ];
+    final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       body: pages[_index],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.workspaces), label: '空间'),
-          NavigationDestination(
-            icon: Icon(Icons.chat_bubble_outline),
-            label: '对话',
-          ),
-          NavigationDestination(icon: Icon(Icons.hub_outlined), label: '运行时'),
-        ],
-        onDestinationSelected: (value) => setState(() => _index = value),
+      bottomNavigationBar: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 160),
+        child: keyboardVisible
+            ? const SizedBox.shrink()
+            : NavigationBar(
+                selectedIndex: _index,
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.workspaces),
+                    label: '空间',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.chat_bubble_outline),
+                    label: '对话',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.hub_outlined),
+                    label: '运行时',
+                  ),
+                ],
+                onDestinationSelected: (value) =>
+                    setState(() => _index = value),
+              ),
       ),
     );
   }

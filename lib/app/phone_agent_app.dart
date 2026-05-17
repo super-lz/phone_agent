@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../domain/notes/note_store.dart';
 import '../features/workbench/phone_agent_home.dart';
 
 class PhoneAgentApp extends StatelessWidget {
-  const PhoneAgentApp({super.key});
+  const PhoneAgentApp({this.noteStore, super.key});
+
+  final AgentNoteStore? noteStore;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +30,7 @@ class PhoneAgentApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const PhoneAgentHome(),
+      home: PhoneAgentHome(noteStore: noteStore),
     );
   }
 }

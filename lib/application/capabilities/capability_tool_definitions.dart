@@ -1,0 +1,153 @@
+class CapabilityToolDefinitions {
+  const CapabilityToolDefinitions();
+
+  List<Map<String, Object?>> get all {
+    return const [
+      {
+        'type': 'function',
+        'function': {
+          'name': 'memory_create',
+          'description': '当用户明确要求记住长期偏好、事实或规则时使用。长期记忆是全局的，不按 Workspace 切分。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'content': {'type': 'string', 'description': '需要记住的内容。'},
+            },
+            'required': ['content'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'db_note_create',
+          'description': '把用户要求记录、沉淀或稍后复用的信息写入当前 Workspace 的本地 Note。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'title': {'type': 'string', 'description': '笔记标题，可省略。'},
+              'content': {'type': 'string', 'description': '笔记正文。'},
+            },
+            'required': ['content'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'db_note_query',
+          'description': '查询当前 Workspace 中已经保存的本地 Note。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'query': {'type': 'string', 'description': '查询关键词，可为空。'},
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'memory_query',
+          'description':
+              '当用户询问系统记住了什么，或需要盘点/管理大量长期记忆时使用。普通回答会自动获得长期记忆，不需要先调用本工具。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'query': {'type': 'string', 'description': '要查询的关键词，可为空。'},
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'memory_delete',
+          'description': '当用户明确要求忘记某条已保存记忆时使用。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'memory_id': {'type': 'string', 'description': '要删除的记忆 ID。'},
+            },
+            'required': ['memory_id'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'artifact_create',
+          'description':
+              '当产出需要后续复用、作为卡片展示或创建本地 Web App 时，把结果保存为当前 Workspace 的 Artifact。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'type': {
+                'type': 'string',
+                'description':
+                    'Artifact 类型：document、image、table、report、note、task_list、file、web_app。',
+              },
+              'title': {'type': 'string', 'description': 'Artifact 标题。'},
+              'summary': {'type': 'string', 'description': 'Artifact 摘要。'},
+              'metadata': {
+                'type': 'object',
+                'description': '可选元数据，例如 Web App 的 entry 和 permissions。',
+              },
+            },
+            'required': ['title', 'summary'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'artifact_query',
+          'description': '查询当前 Workspace 已保存的 Artifact，用于引用已有产物。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'query': {'type': 'string', 'description': '查询关键词，可为空。'},
+              'type': {'type': 'string', 'description': '可选 Artifact 类型过滤。'},
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'web_search',
+          'description': '当用户需要最新信息、外部资料或网页来源时搜索互联网。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'query': {'type': 'string', 'description': '搜索关键词。'},
+              'max_results': {
+                'type': 'integer',
+                'description': '最多返回结果数，默认 5。',
+              },
+            },
+            'required': ['query'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'web_fetch',
+          'description': '读取指定 URL 的正文，并转换为适合模型理解的文本。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'url': {'type': 'string', 'description': '需要读取的网页 URL。'},
+              'max_chars': {
+                'type': 'integer',
+                'description': '最多返回字符数，默认 12000。',
+              },
+            },
+            'required': ['url'],
+          },
+        },
+      },
+    ];
+  }
+}

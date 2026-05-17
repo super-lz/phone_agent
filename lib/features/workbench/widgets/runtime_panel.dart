@@ -2,18 +2,21 @@ import 'package:flutter/material.dart';
 
 import '../../../domain/artifacts/artifact.dart';
 import '../../../domain/capabilities/capability.dart';
+import '../../../domain/notes/note.dart';
 import '../../../domain/permissions/permission_policy.dart';
 import 'workbench_panel.dart';
 
 class RuntimePanel extends StatelessWidget {
   const RuntimePanel({
     required this.artifacts,
+    required this.notes,
     required this.capabilities,
     required this.permissionMode,
     super.key,
   });
 
   final List<AgentArtifact> artifacts;
+  final List<AgentNote> notes;
   final List<CapabilityDefinition> capabilities;
   final PermissionMode permissionMode;
 
@@ -35,6 +38,22 @@ class RuntimePanel extends StatelessWidget {
               title: artifact.title,
               body: '${artifact.type.label} · ${artifact.summary}',
             ),
+          const SizedBox(height: 16),
+          Text('Note', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          if (notes.isEmpty)
+            const InfoRow(
+              icon: Icons.note_alt_outlined,
+              title: '暂无 Note',
+              body: 'AI 可以通过 db.note.create 写入当前 Workspace 的本地 Note。',
+            )
+          else
+            for (final note in notes)
+              InfoRow(
+                icon: Icons.note_alt_outlined,
+                title: note.title,
+                body: note.content,
+              ),
           const SizedBox(height: 16),
           Text(
             'Capability Registry',
