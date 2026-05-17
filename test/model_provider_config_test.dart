@@ -3,11 +3,12 @@ import 'package:phone_agent/data/models/openai_compatible_chat_client.dart';
 import 'package:phone_agent/domain/models/model_provider_config.dart';
 
 void main() {
-  test('aliyun bailian glm-5 uses openai-compatible defaults', () {
-    final provider = ModelProviders.aliyunBailianGlm5;
+  test('aliyun bailian qwen flash uses openai-compatible defaults', () {
+    final provider = ModelProviders.aliyunBailianQwenFlash;
 
     expect(provider.vendorName, '阿里云百炼');
-    expect(provider.model, 'glm-5');
+    expect(provider.displayName, 'Qwen3.6 Flash');
+    expect(provider.model, 'qwen3.6-flash-2026-04-16');
     expect(
       provider.chatCompletionsEndpoint.toString(),
       'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',

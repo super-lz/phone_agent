@@ -21,12 +21,12 @@ class ModelProviderConfig {
 class ModelProviders {
   const ModelProviders._();
 
-  static final aliyunBailianGlm5 = ModelProviderConfig(
+  static final aliyunBailianQwenFlash = ModelProviderConfig(
     id: 'aliyun_bailian_glm5',
     vendorName: '阿里云百炼',
-    displayName: 'GLM-5',
+    displayName: 'Qwen3.6 Flash',
     baseUrl: aliyunBailianBaseUrl,
-    model: 'glm-5',
+    model: 'qwen3.6-flash-2026-04-16',
     defaultParameters: {
       'enable_thinking': false,
       'temperature': 1.0,
@@ -36,9 +36,11 @@ class ModelProviders {
     },
   );
 
+  static final aliyunBailianGlm5 = aliyunBailianQwenFlash;
+
   static final aliyunBailianBaseUrl = Uri.parse(
     'https://dashscope.aliyuncs.com/compatible-mode/v1/',
   );
 
-  static final all = [aliyunBailianGlm5];
+  static final all = [aliyunBailianQwenFlash];
 }

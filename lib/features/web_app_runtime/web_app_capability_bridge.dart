@@ -179,7 +179,7 @@ class WebAppCapabilityBridge {
       noteStore: _noteStore,
       fileStore: _fileStore,
       apiKey: await _apiKeyStore.readApiKey(
-        ModelProviders.aliyunBailianGlm5.id,
+        ModelProviders.aliyunBailianQwenFlash.id,
       ),
     );
     return {

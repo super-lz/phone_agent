@@ -19,7 +19,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
   late final ModelApiKeyStore _apiKeyStore;
   late final OpenAiCompatibleChatClient _chatClient;
   late final TextEditingController _apiKeyController;
-  ModelProviderConfig _provider = ModelProviders.aliyunBailianGlm5;
+  ModelProviderConfig _provider = ModelProviders.aliyunBailianQwenFlash;
   bool _obscureApiKey = true;
   bool _loading = true;
   bool _testing = false;

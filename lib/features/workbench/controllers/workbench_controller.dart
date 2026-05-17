@@ -287,7 +287,7 @@ class WorkbenchController extends ChangeNotifier {
     String prompt, {
     required List<AgentMessage> priorMessages,
   }) async {
-    final provider = ModelProviders.aliyunBailianGlm5;
+    final provider = ModelProviders.aliyunBailianQwenFlash;
     final apiKey = await _apiKeyStore.readApiKey(provider.id);
     if (apiKey == null || apiKey.trim().isEmpty) {
       AppLogger.warning('workbench.model_api_key.missing', {
