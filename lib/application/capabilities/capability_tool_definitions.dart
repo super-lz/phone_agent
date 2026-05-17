@@ -229,7 +229,7 @@ class CapabilityToolDefinitions {
         'type': 'function',
         'function': {
           'name': 'notification_schedule',
-          'description': '当用户明确要求稍后提醒或安排本地通知时，创建一条系统通知。',
+          'description': '当用户明确要求稍后提醒或安排本地通知时，创建一条本地通知。它不是系统时钟闹钟，也不会写入日历。',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -245,6 +245,35 @@ class CapabilityToolDefinitions {
               },
             },
             'required': ['title', 'body'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'calendar_event_create',
+          'description': '当用户明确要求加入日历、创建日程、安排会议或保存日历事件时，打开系统日历添加事件界面，由用户确认保存。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'title': {'type': 'string', 'description': '日历事件标题。'},
+              'description': {'type': 'string', 'description': '事件说明，可省略。'},
+              'location': {'type': 'string', 'description': '地点，可省略。'},
+              'start_at': {
+                'type': 'string',
+                'description': '事件开始时间，ISO 8601 格式。',
+              },
+              'end_at': {
+                'type': 'string',
+                'description': '事件结束时间，ISO 8601 格式。若省略，使用 duration_minutes。',
+              },
+              'duration_minutes': {
+                'type': 'integer',
+                'description': '事件持续分钟数。未提供 end_at 时默认 60 分钟。',
+              },
+              'all_day': {'type': 'boolean', 'description': '是否全天事件。'},
+            },
+            'required': ['title', 'start_at'],
           },
         },
       },

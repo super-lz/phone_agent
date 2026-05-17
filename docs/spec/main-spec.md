@@ -139,14 +139,14 @@
 - 多轮对话、流式输出语义、Markdown、代码块、表格和基础消息块。
 - 图片输入、文件输入和系统分享入口的业务入口。
 - 联网搜索和网页读取能力的 Capability 定义。
-- 文件、数据库、记忆、Workspace、Artifact、定位、剪贴板、通知、设备信息、WebView、Skill 和 MCP 的 Capability 定义。
+- 文件、数据库、记忆、Workspace、Artifact、定位、剪贴板、通知、日历、设备信息、WebView、Skill 和 MCP 的 Capability 定义。
 - Artifact 中心。
 - 全局长期记忆和会话上下文。
 - 模型设置页，支持阿里云百炼 `qwen3.6-flash-2026-04-16` API Key 保存和连接测试。
 - 正式对话的最小 Agent Loop：模型流式输出、自动发起工具调用、Capability Runtime 执行工具、工具结果回传模型、模型继续回答。
 - Agent Loop 必须具备可调任务预算，并在日志中暴露当前工具调用消耗，方便定位过早停止或循环调用。
 - Agent Loop 必须携带同一会话的近期原文上下文，并在上下文过长时携带较早内容的压缩摘要。
-- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`device.info`、`clipboard.read`、`clipboard.write`、`location.get_current` 和 `notification.schedule`。
+- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`device.info`、`clipboard.read`、`clipboard.write`、`location.get_current`、`notification.schedule` 和 `calendar.event.create`。
 - 当用户要求新建或切换工作区时，Agent 可以调用 `workspace.create` 或 `workspace.switch`；创建成功后当前 Workspace 必须切换到新工作区，切换目标不存在时必须返回结构化错误。
 - 当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，Agent 可以调用 `db.note.create` 或 `db.note.query` 读写当前 Workspace 的 Note。
 - `db.note.create` 写入的 Note 必须落到设备本地数据库，而不是只停留在当前进程内存。
@@ -154,7 +154,8 @@
 - `file.write_app_file` 写入的文件必须落到当前 Workspace 的应用沙箱文件目录；`file.read_app_file` 只能读取同一 Workspace 的 App File。
 - 当用户要求查看当前设备环境、读取剪贴板或复制内容时，Agent 可以调用 `device.info`、`clipboard.read` 或 `clipboard.write`；剪贴板读取不应在用户未明确要求时主动触发。
 - 当用户明确要求使用当前位置时，Agent 可以调用 `location.get_current`；定位服务关闭、权限拒绝、永久拒绝或平台异常时必须返回结构化错误。
-- 当用户明确要求稍后提醒或安排本地通知时，Agent 可以调用 `notification.schedule`；通知权限拒绝、初始化失败、无效时间或平台异常时必须返回结构化错误。
+- 当用户明确要求稍后提醒或安排本地通知时，Agent 可以调用 `notification.schedule`；本地通知不是系统时钟闹钟，也不写入系统日历；通知权限拒绝、初始化失败、无效时间或平台异常时必须返回结构化错误。
+- 当用户明确要求加入日历、创建日程、安排会议或保存日历事件时，Agent 可以调用 `calendar.event.create`；该能力必须进入系统日历添加事件流程，由用户确认保存；时间无效、用户取消、平台不可用或平台异常时必须返回结构化结果。
 - 当 Agent 生成报告、文档、任务清单、文件摘要或 Web App 等可复用产物时，可以调用 `artifact.create` 写入当前 Workspace 的 Artifact，并在对话中展示 Artifact 卡片或 Web App 卡片。
 - `artifact.query` 只能查询当前 Workspace 的 Artifact，不能把其它 Workspace 的产物混入当前工作区结果。
 - `web.search` 和 `web.fetch` 必须通过 Capability Runtime 接入 Agent Loop；搜索返回结构化结果，网页读取返回适合模型继续处理的正文文本。
@@ -206,6 +207,7 @@
 - AI 能在用户明确要求时读取设备基础信息、读取剪贴板纯文本或写入剪贴板，并在对话中展示工具轨迹。
 - AI 能在用户明确要求时获取当前位置；定位服务关闭或用户拒绝授权时，系统不崩溃，并把结构化失败原因返回给 Agent。
 - AI 能在用户明确要求时安排本地系统通知；通知权限拒绝、无效提醒时间或平台不可用时，系统不崩溃，并把结构化失败原因返回给 Agent。
+- AI 能在用户明确要求时创建日历事件；系统必须打开平台日历添加事件流程，由用户确认保存，并在取消、时间无效或平台不可用时把结构化结果返回给 Agent。
 - AI 能调用 `artifact.create` 创建当前 Workspace 的 Artifact，并在对话中展示对应 Artifact 卡片；`artifact.query` 只返回当前 Workspace 的 Artifact。
 - AI 能生成一个本地 Web App，该 App 出现在应用库并可单独打开。
 - AI 生成 Web App 后，对话中展示的 Web App 卡片可以点击进入预览页面。

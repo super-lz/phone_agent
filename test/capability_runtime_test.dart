@@ -652,6 +652,53 @@ void main() {
     expect(result.output['error'], 'body is required');
   });
 
+  test('runtime can create calendar event through native adapter', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-calendar',
+        name: 'calendar_event_create',
+        arguments: {
+          'title': '需求同步',
+          'description': '确认 Phone Agent 日历能力',
+          'location': '线上会议',
+          'start_at': '2026-05-18T10:00:00+08:00',
+          'duration_minutes': 30,
+        },
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(result.capabilityId, 'calendar.event.create');
+    expect(result.output['ok'], isTrue);
+    expect(result.output['title'], '需求同步');
+    expect(result.output['requiresUserConfirmation'], isTrue);
+  });
+
+  test('calendar_event_create validates required start_at', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-calendar-invalid',
+        name: 'calendar_event_create',
+        arguments: {'title': '需求同步'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(result.capabilityId, 'calendar.event.create');
+    expect(result.output['ok'], isFalse);
+    expect(result.output['error'], 'invalid start_at');
+  });
+
   test('runtime exposes web tools through the same execute path', () async {
     final runtime = CapabilityRuntime(
       webAdapter: _FakeWebAdapter(
@@ -733,6 +780,27 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
       'title': title,
       'body': body,
       'scheduledAt': scheduledAt.toIso8601String(),
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> createCalendarEvent({
+    required String title,
+    String? description,
+    String? location,
+    required DateTime startsAt,
+    required DateTime endsAt,
+    bool allDay = false,
+  }) async {
+    return {
+      'ok': true,
+      'title': title,
+      'description': description,
+      'location': location,
+      'startsAt': startsAt.toIso8601String(),
+      'endsAt': endsAt.toIso8601String(),
+      'allDay': allDay,
+      'requiresUserConfirmation': true,
     };
   }
 }

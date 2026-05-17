@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:add_2_calendar/add_2_calendar.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -154,6 +156,62 @@ class NativeCapabilityAdapter {
       };
     } on Object catch (error, stackTrace) {
       AppLogger.error('native.notification_schedule.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> createCalendarEvent({
+    required String title,
+    String? description,
+    String? location,
+    required DateTime startsAt,
+    required DateTime endsAt,
+    bool allDay = false,
+  }) async {
+    try {
+      if (!endsAt.isAfter(startsAt)) {
+        return const {
+          'ok': false,
+          'error': 'invalid_time_range',
+          'detail': 'endsAt must be after startsAt',
+        };
+      }
+
+      var completionInferred = false;
+      final created =
+          await Add2Calendar.addEvent2Cal(
+            Event(
+              title: title,
+              description: description,
+              location: location,
+              startDate: startsAt,
+              endDate: endsAt,
+              allDay: allDay,
+            ),
+          ).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              completionInferred = true;
+              AppLogger.warning(
+                'native.calendar_event_create.timeout_assumed_open',
+              );
+              return true;
+            },
+          );
+
+      return {
+        'ok': created,
+        'title': title,
+        'description': description,
+        'location': location,
+        'startsAt': startsAt.toIso8601String(),
+        'endsAt': endsAt.toIso8601String(),
+        'allDay': allDay,
+        'requiresUserConfirmation': true,
+        'completionInferred': completionInferred,
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.calendar_event_create.failed', error, stackTrace);
       return {'ok': false, 'error': error.toString()};
     }
   }

@@ -26,6 +26,14 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Phone Agent 只会在你明确要求使用当前位置时获取定位，用于完成当前对话任务。</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Phone Agent 只会在你明确要求创建日历事件时打开系统日历保存日程。</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Phone Agent 只会在你明确要求创建日历事件时使用日历访问权限。</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>Phone Agent 只会在你明确要求创建日历事件时写入日历事件。</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Phone Agent 不读取通讯录；系统日历界面可能需要此权限用于地点或邀请人补全。</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

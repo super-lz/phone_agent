@@ -133,6 +133,11 @@ class PhoneAgentSeed {
       CapabilityAdapter.native,
       CapabilityRisk.medium,
     ),
+    _capability(
+      'calendar.event.create',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
     _capability('device.info', CapabilityAdapter.native, CapabilityRisk.low),
     _capability(
       'webview.call_capability',

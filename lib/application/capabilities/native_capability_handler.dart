@@ -79,6 +79,46 @@ class NativeCapabilityHandler {
     );
   }
 
+  Future<CapabilityExecutionResult> createCalendarEvent({
+    required Map<String, Object?> arguments,
+  }) async {
+    final rawTitle = arguments['title'];
+    if (rawTitle is! String || rawTitle.trim().isEmpty) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'calendar.event.create',
+        output: {'ok': false, 'error': 'title is required'},
+      );
+    }
+
+    final startsAt = _parseIsoDateTime(arguments['start_at']);
+    if (startsAt == null) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'calendar.event.create',
+        output: {'ok': false, 'error': 'invalid start_at'},
+      );
+    }
+
+    final endsAt = _parseCalendarEnd(arguments, startsAt);
+    if (endsAt == null) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'calendar.event.create',
+        output: {'ok': false, 'error': 'invalid end_at'},
+      );
+    }
+
+    return CapabilityExecutionResult(
+      capabilityId: 'calendar.event.create',
+      output: await _adapter.createCalendarEvent(
+        title: rawTitle.trim(),
+        description: _optionalTrimmedString(arguments['description']),
+        location: _optionalTrimmedString(arguments['location']),
+        startsAt: startsAt,
+        endsAt: endsAt,
+        allDay: arguments['all_day'] == true,
+      ),
+    );
+  }
+
   DateTime? _parseScheduledAt(Map<String, Object?> arguments) {
     final rawScheduledAt = arguments['scheduled_at'];
     if (rawScheduledAt is String && rawScheduledAt.trim().isNotEmpty) {
@@ -90,5 +130,36 @@ class NativeCapabilityHandler {
         ? rawDelaySeconds.clamp(1, 31536000).round()
         : 60;
     return DateTime.now().add(Duration(seconds: delaySeconds));
+  }
+
+  DateTime? _parseCalendarEnd(
+    Map<String, Object?> arguments,
+    DateTime startsAt,
+  ) {
+    final explicitEnd = _parseIsoDateTime(arguments['end_at']);
+    if (explicitEnd != null) {
+      return explicitEnd;
+    }
+
+    final rawDurationMinutes = arguments['duration_minutes'];
+    final durationMinutes = rawDurationMinutes is num
+        ? rawDurationMinutes.clamp(1, 1440).round()
+        : 60;
+    return startsAt.add(Duration(minutes: durationMinutes));
+  }
+
+  DateTime? _parseIsoDateTime(Object? value) {
+    if (value is! String || value.trim().isEmpty) {
+      return null;
+    }
+    return DateTime.tryParse(value.trim())?.toLocal();
+  }
+
+  String? _optionalTrimmedString(Object? value) {
+    if (value is! String) {
+      return null;
+    }
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
   }
 }

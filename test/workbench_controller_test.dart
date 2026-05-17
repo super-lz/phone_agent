@@ -388,6 +388,41 @@ void main() {
     expect(controller.messages.last.blocks.first.data['text'], '已安排提醒。');
   });
 
+  test('model tool call can create calendar event capability', () async {
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      capabilityRuntime: CapabilityRuntime(nativeAdapter: _FakeNativeAdapter()),
+      chatClient: _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-calendar',
+                name: 'calendar_event_create',
+                argumentsDelta:
+                    '{"title":"需求同步","start_at":"2026-05-18T10:00:00+08:00","duration_minutes":30}',
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '已打开日历创建日程。')],
+      ]),
+    );
+
+    await controller.sendPrompt('帮我把明天 10 点需求同步加入日历');
+
+    final calendarBlocks = controller.messages
+        .expand((message) => message.blocks)
+        .where(
+          (block) =>
+              block.type == MessageBlockType.toolResult &&
+              block.data['capabilityId'] == 'calendar.event.create',
+        );
+    expect(calendarBlocks, isNotEmpty);
+    expect(controller.messages.last.blocks.first.data['text'], '已打开日历创建日程。');
+  });
+
   test('web app bridge can call allowed capability', () async {
     final controller = WorkbenchController(apiKeyStore: _FakeApiKeyStore(null));
 
@@ -655,6 +690,27 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
       'title': title,
       'body': body,
       'scheduledAt': scheduledAt.toIso8601String(),
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> createCalendarEvent({
+    required String title,
+    String? description,
+    String? location,
+    required DateTime startsAt,
+    required DateTime endsAt,
+    bool allDay = false,
+  }) async {
+    return {
+      'ok': true,
+      'title': title,
+      'description': description,
+      'location': location,
+      'startsAt': startsAt.toIso8601String(),
+      'endsAt': endsAt.toIso8601String(),
+      'allDay': allDay,
+      'requiresUserConfirmation': true,
     };
   }
 }

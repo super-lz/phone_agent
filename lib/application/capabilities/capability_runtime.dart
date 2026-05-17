@@ -133,6 +133,10 @@ class CapabilityRuntime {
         return await _nativeHandler.scheduleNotification(
           arguments: toolCall.arguments,
         );
+      case 'calendar_event_create':
+        return await _nativeHandler.createCalendarEvent(
+          arguments: toolCall.arguments,
+        );
       case 'web_search':
         return await _webHandler.search(
           arguments: toolCall.arguments,
