@@ -387,6 +387,44 @@ void main() {
     expect(controller.messages.last.blocks.first.data['text'], '已安排提醒。');
   });
 
+  test('web app bridge can call allowed capability', () async {
+    final controller = WorkbenchController(apiKeyStore: _FakeApiKeyStore(null));
+
+    await controller.sendPrompt('创建一个本地 Web App');
+    final webApp = controller.workspaceArtifacts.firstWhere(
+      (artifact) => artifact.type.name == 'webApp',
+    );
+    final result = await controller.callCapabilityFromWebApp(
+      webApp: webApp,
+      capabilityId: 'db.note.create',
+      input: const {'title': 'Web App Note', 'content': '来自 JSBridge'},
+    );
+
+    expect(result['ok'], isTrue);
+    expect(result['capabilityId'], 'db.note.create');
+    expect(
+      controller.workspaceNotes.any((note) => note.content == '来自 JSBridge'),
+      isTrue,
+    );
+  });
+
+  test('web app bridge denies undeclared capability', () async {
+    final controller = WorkbenchController(apiKeyStore: _FakeApiKeyStore(null));
+
+    await controller.sendPrompt('创建一个本地 Web App');
+    final webApp = controller.workspaceArtifacts.firstWhere(
+      (artifact) => artifact.type.name == 'webApp',
+    );
+    final result = await controller.callCapabilityFromWebApp(
+      webApp: webApp,
+      capabilityId: 'clipboard.write',
+      input: const {'text': 'not allowed'},
+    );
+
+    expect(result['ok'], isFalse);
+    expect(result['error'], 'permission denied');
+  });
+
   test('model tool call can create and switch workspace', () async {
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),

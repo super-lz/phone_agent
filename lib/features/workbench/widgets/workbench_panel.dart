@@ -43,33 +43,36 @@ class InfoRow extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.body,
+    this.onTap,
     super.key,
   });
 
   final IconData icon;
   final String title;
   final String body;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.labelLarge),
-                Text(body, style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
+    final row = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.labelLarge),
+              Text(body, style: Theme.of(context).textTheme.bodySmall),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
+    );
+    return InkWell(
+      onTap: onTap,
+      child: Padding(padding: const EdgeInsets.only(bottom: 10), child: row),
     );
   }
 }

@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../domain/artifacts/artifact.dart';
 import '../../domain/files/app_file_store.dart';
 import '../../domain/memory/memory.dart';
 import '../../domain/notes/note_store.dart';
 import '../../domain/permissions/permission_policy.dart';
 import '../settings/model_settings_page.dart';
+import '../web_app_runtime/web_app_runtime_page.dart';
 import 'controllers/workbench_controller.dart';
 import 'widgets/chat_panel.dart';
 import 'widgets/runtime_panel.dart';
@@ -101,6 +103,17 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome> {
     }
   }
 
+  void _openWebApp(AgentArtifact webApp) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => WebAppRuntimePage(
+          webApp: webApp,
+          callCapability: _controller.callCapabilityFromWebApp,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -157,6 +170,7 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome> {
           notes: _controller.workspaceNotes,
           capabilities: _controller.capabilities,
           permissionMode: _controller.permissionMode,
+          onOpenWebApp: _openWebApp,
         ),
       ),
     );

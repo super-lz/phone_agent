@@ -18,6 +18,7 @@ import '../../../domain/notes/note.dart';
 import '../../../domain/notes/note_store.dart';
 import '../../../domain/permissions/permission_policy.dart';
 import '../../../domain/workspace/workspace.dart';
+import '../../web_app_runtime/web_app_capability_bridge.dart';
 
 class WorkbenchController extends ChangeNotifier {
   WorkbenchController({
@@ -26,13 +27,33 @@ class WorkbenchController extends ChangeNotifier {
     CapabilityRuntime? capabilityRuntime,
     AgentNoteStore? noteStore,
     AppFileStore? fileStore,
-  }) : _apiKeyStore = apiKeyStore ?? ModelApiKeyStore(),
-       _agentLoop = AgentLoop(
+  }) : this._(
+         apiKeyStore: apiKeyStore ?? ModelApiKeyStore(),
          chatClient: chatClient ?? OpenAiCompatibleChatClient(),
          capabilityRuntime: capabilityRuntime ?? CapabilityRuntime(),
+         noteStore: noteStore ?? InMemoryAgentNoteStore(PhoneAgentSeed.notes()),
+         fileStore: fileStore ?? InMemoryAppFileStore(),
+       );
+
+  WorkbenchController._({
+    required ModelApiKeyStore apiKeyStore,
+    required OpenAiCompatibleChatClient chatClient,
+    required CapabilityRuntime capabilityRuntime,
+    required AgentNoteStore noteStore,
+    required AppFileStore fileStore,
+  }) : _apiKeyStore = apiKeyStore,
+       _agentLoop = AgentLoop(
+         chatClient: chatClient,
+         capabilityRuntime: capabilityRuntime,
        ),
-       _noteStore = noteStore ?? InMemoryAgentNoteStore(PhoneAgentSeed.notes()),
-       _fileStore = fileStore ?? InMemoryAppFileStore(),
+       _webAppBridge = WebAppCapabilityBridge(
+         capabilityRuntime: capabilityRuntime,
+         apiKeyStore: apiKeyStore,
+         noteStore: noteStore,
+         fileStore: fileStore,
+       ),
+       _noteStore = noteStore,
+       _fileStore = fileStore,
        _workspaces = PhoneAgentSeed.workspaces(),
        _capabilities = PhoneAgentSeed.capabilities(),
        _messages = PhoneAgentSeed.messages(),
@@ -44,6 +65,7 @@ class WorkbenchController extends ChangeNotifier {
 
   final ModelApiKeyStore _apiKeyStore;
   final AgentLoop _agentLoop;
+  final WebAppCapabilityBridge _webAppBridge;
   final AgentNoteStore _noteStore;
   final AppFileStore _fileStore;
   final List<AgentWorkspace> _workspaces;
@@ -76,6 +98,15 @@ class WorkbenchController extends ChangeNotifier {
     return _notes
         .where((note) => note.workspaceId == _workspaceId)
         .toList(growable: false);
+  }
+
+  AgentArtifact? artifactById(String artifactId) {
+    for (final artifact in _artifacts) {
+      if (artifact.id == artifactId) {
+        return artifact;
+      }
+    }
+    return null;
   }
 
   List<PermissionMode> get permissionModes => PermissionMode.values;
@@ -192,6 +223,23 @@ class WorkbenchController extends ChangeNotifier {
     _memories.removeAt(index);
     AppLogger.info('workbench.memory.delete', {'memoryId': memoryId});
     notifyListeners();
+  }
+
+  Future<Map<String, Object?>> callCapabilityFromWebApp({
+    required AgentArtifact webApp,
+    required String capabilityId,
+    required Map<String, Object?> input,
+  }) async {
+    return _webAppBridge.callCapability(
+      webApp: webApp,
+      capabilityId: capabilityId,
+      input: input,
+      currentWorkspaceId: _workspaceId,
+      memories: _memories,
+      notes: _notes,
+      artifacts: _artifacts,
+      workspaces: _workspaces,
+    );
   }
 
   Future<void> sendPrompt(String prompt) async {
@@ -336,7 +384,8 @@ class WorkbenchController extends ChangeNotifier {
       createdAt: DateTime.now(),
       metadata: const {
         'entry': 'index.html',
-        'permissions': ['db.note.create', 'location.get_current', 'web.search'],
+        'permissions': WebAppRuntimeDefaults.permissions,
+        'html': WebAppRuntimeDefaults.html,
       },
     );
     _artifacts.add(artifact);

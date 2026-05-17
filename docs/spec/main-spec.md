@@ -160,6 +160,8 @@
 - `web.fetch` 第一阶段通过阿里云百炼 WebSearch MCP 对目标 URL 发起抓取和解析请求；如果需要更专用的网页抓取 MCP，后续可接入百炼 MCP 广场对应服务。
 - `web.search` 和 `web.fetch` 的对话展示必须包含状态、Provider、查询或 URL、正文摘要和可识别的来源链接；失败时必须清晰展示错误原因。
 - WebView 小应用运行时、manifest 语义和 JSBridge 语义。
+- Web App Artifact 可以从应用库打开；本地 Web App 通过 `window.PhoneAgent.getManifest()` 获取 manifest，通过 `window.PhoneAgent.callCapability(id, input)` 调用 manifest 已声明权限内的 Capability。
+- Web App JSBridge 调用必须回到 Capability Runtime；未在 manifest 权限中声明的能力必须返回结构化拒绝错误。
 - Agent Skills / Claude Code 风格 Skill 的安装、扫描、索引和受控调用语义。
 - HTTP/SSE 类 MCP 连接语义和失败处理。
 - 权限三档、权限请求、权限拒绝和审计日志。
@@ -202,6 +204,7 @@
 - AI 能调用 `artifact.create` 创建当前 Workspace 的 Artifact，并在对话中展示对应 Artifact 卡片；`artifact.query` 只返回当前 Workspace 的 Artifact。
 - AI 能生成一个本地 Web App，该 App 出现在应用库并可单独打开。
 - Web App 首次运行时按 manifest 请求权限，拒绝后 JSBridge 调用返回结构化错误。
+- Web App 能通过 JSBridge 调用已授权的内建 Capability；未授权 Capability 调用必须被拒绝，不能绕过 Capability Runtime。
 - 两个 Web App 不能互相读取文件目录和数据库 namespace。
 - Skill 可从目录、zip 或 Git URL 安装、扫描、索引、触发。
 - 含 `scripts/` 的 Skill 不会绕过权限层执行。

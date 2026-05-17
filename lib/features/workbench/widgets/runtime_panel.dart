@@ -12,6 +12,7 @@ class RuntimePanel extends StatelessWidget {
     required this.notes,
     required this.capabilities,
     required this.permissionMode,
+    required this.onOpenWebApp,
     super.key,
   });
 
@@ -19,6 +20,7 @@ class RuntimePanel extends StatelessWidget {
   final List<AgentNote> notes;
   final List<CapabilityDefinition> capabilities;
   final PermissionMode permissionMode;
+  final ValueChanged<AgentArtifact> onOpenWebApp;
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +39,9 @@ class RuntimePanel extends StatelessWidget {
                   : Icons.inventory_2_outlined,
               title: artifact.title,
               body: '${artifact.type.label} · ${artifact.summary}',
+              onTap: artifact.type == ArtifactType.webApp
+                  ? () => onOpenWebApp(artifact)
+                  : null,
             ),
           const SizedBox(height: 16),
           Text('Note', style: Theme.of(context).textTheme.titleSmall),
