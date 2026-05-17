@@ -12,6 +12,7 @@ class ChatPanel extends StatefulWidget {
     required this.composerController,
     required this.isSending,
     required this.onSendPrompt,
+    required this.onOpenWebAppArtifact,
     super.key,
   });
 
@@ -20,6 +21,7 @@ class ChatPanel extends StatefulWidget {
   final TextEditingController composerController;
   final bool isSending;
   final VoidCallback onSendPrompt;
+  final ValueChanged<String> onOpenWebAppArtifact;
 
   @override
   State<ChatPanel> createState() => _ChatPanelState();
@@ -121,7 +123,10 @@ class _ChatPanelState extends State<ChatPanel> {
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               itemCount: widget.messages.length,
               itemBuilder: (context, index) {
-                return MessageView(message: widget.messages[index]);
+                return MessageView(
+                  message: widget.messages[index],
+                  onOpenWebAppArtifact: widget.onOpenWebAppArtifact,
+                );
               },
             ),
           ),

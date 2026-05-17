@@ -5,9 +5,14 @@ import '../../../domain/conversation/message_block.dart';
 import 'tool_result_view.dart';
 
 class MessageView extends StatelessWidget {
-  const MessageView({required this.message, super.key});
+  const MessageView({
+    required this.message,
+    required this.onOpenWebAppArtifact,
+    super.key,
+  });
 
   final AgentMessage message;
+  final ValueChanged<String> onOpenWebAppArtifact;
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +40,10 @@ class MessageView extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   for (final block in message.blocks)
-                    MessageBlockView(block: block),
+                    MessageBlockView(
+                      block: block,
+                      onOpenWebAppArtifact: onOpenWebAppArtifact,
+                    ),
                 ],
               ),
             ),
@@ -58,9 +66,14 @@ class MessageView extends StatelessWidget {
 }
 
 class MessageBlockView extends StatelessWidget {
-  const MessageBlockView({required this.block, super.key});
+  const MessageBlockView({
+    required this.block,
+    required this.onOpenWebAppArtifact,
+    super.key,
+  });
 
   final MessageBlock block;
+  final ValueChanged<String> onOpenWebAppArtifact;
 
   @override
   Widget build(BuildContext context) {
@@ -89,13 +102,18 @@ class MessageBlockView extends StatelessWidget {
       case MessageBlockType.todoList:
         return _TodoBlock(items: block.data['items']! as List<String>);
       case MessageBlockType.artifactCard:
-      case MessageBlockType.webAppCard:
         return _StructuredBlock(
-          icon: block.type == MessageBlockType.webAppCard
-              ? Icons.web_asset
-              : Icons.inventory_2_outlined,
+          icon: Icons.inventory_2_outlined,
           title: block.data['title']! as String,
           body: 'Artifact ID: ${block.data['artifactId']}',
+        );
+      case MessageBlockType.webAppCard:
+        final artifactId = block.data['artifactId']! as String;
+        return _StructuredBlock(
+          icon: Icons.web_asset,
+          title: block.data['title']! as String,
+          body: '点击预览 · Artifact ID: $artifactId',
+          onTap: () => onOpenWebAppArtifact(artifactId),
         );
       case MessageBlockType.errorCard:
         return _StructuredBlock(
@@ -183,39 +201,57 @@ class _StructuredBlock extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.body,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String body;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
         color: const Color(0xFFF1F4EF),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFD7DED2)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFD7DED2)),
+            ),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 4),
-                Text(body),
+                Icon(icon, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(body),
+                    ],
+                  ),
+                ),
+                if (onTap != null) ...[
+                  const SizedBox(width: 8),
+                  const Icon(Icons.chevron_right, size: 18),
+                ],
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }

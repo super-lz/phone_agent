@@ -6,10 +6,11 @@ import 'package:phone_agent/features/workbench/widgets/message_view.dart';
 void main() {
   testWidgets('renders web search result as readable card', (tester) async {
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Scaffold(
           body: MessageBlockView(
-            block: MessageBlock(
+            onOpenWebAppArtifact: (_) {},
+            block: const MessageBlock(
               type: MessageBlockType.toolResult,
               data: {
                 'capabilityId': 'web.search',
@@ -35,10 +36,11 @@ void main() {
 
   testWidgets('renders web tool error clearly', (tester) async {
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Scaffold(
           body: MessageBlockView(
-            block: MessageBlock(
+            onOpenWebAppArtifact: (_) {},
+            block: const MessageBlock(
               type: MessageBlockType.toolResult,
               data: {
                 'capabilityId': 'web.fetch',

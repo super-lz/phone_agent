@@ -47,6 +47,7 @@
 2. 对话消息中展示 Artifact 卡片，不把大型真实内容只塞进消息文本。
 3. Artifact 可归属当前 Workspace，并可被后续会话引用。
 4. 第一版本 Artifact 类型包括文档、图片引用、表格、报告、笔记、任务清单、生成文件和 Web App。
+5. Web App Artifact 在对话中必须展示为可点击卡片；用户点击后进入独立预览页面，而不是只能从运行时面板打开。
 
 ### Workspace 与记忆
 
@@ -162,6 +163,7 @@
 - `web.search` 和 `web.fetch` 的对话展示必须包含状态、Provider、查询或 URL、正文摘要和可识别的来源链接；失败时必须清晰展示错误原因。
 - WebView 小应用运行时、manifest 语义和 JSBridge 语义。
 - Web App Artifact 可以从应用库打开；本地 Web App 通过 `window.PhoneAgent.getManifest()` 获取 manifest，通过 `window.PhoneAgent.callCapability(id, input)` 调用 manifest 已声明权限内的 Capability。
+- 对话中的 Web App 卡片必须能直接打开同一个 Web App 预览页面。
 - Web App 打开前必须向用户展示 manifest 声明的能力权限；用户拒绝后 Web App 仍可打开，但 JSBridge 能力调用必须返回结构化权限错误。
 - Web App JSBridge 调用必须回到 Capability Runtime；未在 manifest 权限中声明的能力必须返回结构化拒绝错误。
 - Web App JSBridge 发起的 `db.note.create`、`db.note.query`、`file.write_app_file` 和 `file.read_app_file` 必须落到该 Web App 的独立 namespace。
@@ -206,6 +208,7 @@
 - AI 能在用户明确要求时安排本地系统通知；通知权限拒绝、无效提醒时间或平台不可用时，系统不崩溃，并把结构化失败原因返回给 Agent。
 - AI 能调用 `artifact.create` 创建当前 Workspace 的 Artifact，并在对话中展示对应 Artifact 卡片；`artifact.query` 只返回当前 Workspace 的 Artifact。
 - AI 能生成一个本地 Web App，该 App 出现在应用库并可单独打开。
+- AI 生成 Web App 后，对话中展示的 Web App 卡片可以点击进入预览页面。
 - Web App 首次运行时按 manifest 请求权限，拒绝后 JSBridge 调用返回结构化错误。
 - Web App 能通过 JSBridge 调用已授权的内建 Capability；未授权 Capability 调用必须被拒绝，不能绕过 Capability Runtime。
 - 两个 Web App 不能互相读取文件目录和数据库 namespace。

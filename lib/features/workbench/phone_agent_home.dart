@@ -114,6 +114,17 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome> {
     );
   }
 
+  void _openWebAppArtifact(String artifactId) {
+    final artifact = _controller.artifactById(artifactId);
+    if (artifact == null || artifact.type != ArtifactType.webApp) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('找不到可预览的 Web App')));
+      return;
+    }
+    _openWebApp(artifact);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -164,6 +175,7 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome> {
           composerController: _composerController,
           isSending: _controller.isSending,
           onSendPrompt: _sendPrompt,
+          onOpenWebAppArtifact: _openWebAppArtifact,
         ),
         runtimePanel: RuntimePanel(
           artifacts: _controller.workspaceArtifacts,

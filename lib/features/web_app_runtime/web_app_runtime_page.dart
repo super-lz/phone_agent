@@ -27,20 +27,24 @@ class WebAppRuntimePage extends StatefulWidget {
 }
 
 class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
-  late final WebViewController _webViewController;
+  WebViewController? _webViewController;
   WebAppPermissionDecision _permissionDecision =
       WebAppPermissionDecision.pending;
 
-  @override
-  void initState() {
-    super.initState();
-    _webViewController = WebViewController()
+  WebViewController _ensureWebViewController() {
+    final existing = _webViewController;
+    if (existing != null) {
+      return existing;
+    }
+    final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel(
         'PhoneAgentBridge',
         onMessageReceived: _handleBridgeMessage,
       )
       ..loadHtmlString(_htmlWithBridge(widget.webApp));
+    _webViewController = controller;
+    return controller;
   }
 
   Future<void> _handleBridgeMessage(JavaScriptMessage message) async {
@@ -55,7 +59,11 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
     }
     final input = _decodeInput(payload['input']);
     final response = await _callCapability(capabilityId, input);
-    await _webViewController.runJavaScript(
+    final controller = _webViewController;
+    if (controller == null) {
+      return;
+    }
+    await controller.runJavaScript(
       'window.PhoneAgent.__resolve(${jsonEncode(requestId)}, '
       '${jsonEncode(response)});',
     );
@@ -174,27 +182,34 @@ $html
         .replaceAll('>', '&gt;');
   }
 
+  void _openWithPermissionDecision(WebAppPermissionDecision decision) {
+    _ensureWebViewController();
+    setState(() {
+      _permissionDecision = decision;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final controller = _webViewController;
     return Scaffold(
       appBar: AppBar(title: Text(widget.webApp.title)),
       body: _permissionDecision == WebAppPermissionDecision.pending
           ? WebAppPermissionGate(
               webApp: widget.webApp,
               onApprove: () {
-                setState(() {
-                  _permissionDecision = WebAppPermissionDecision.granted;
-                });
+                _openWithPermissionDecision(WebAppPermissionDecision.granted);
               },
               onDeny: () {
-                setState(() {
-                  _permissionDecision = WebAppPermissionDecision.denied;
-                });
+                _openWithPermissionDecision(WebAppPermissionDecision.denied);
               },
             )
           : Stack(
               children: [
-                WebViewWidget(controller: _webViewController),
+                if (controller != null)
+                  WebViewWidget(controller: controller)
+                else
+                  const Center(child: CircularProgressIndicator()),
                 if (_permissionDecision == WebAppPermissionDecision.denied)
                   const WebAppPermissionDeniedBanner(),
               ],
