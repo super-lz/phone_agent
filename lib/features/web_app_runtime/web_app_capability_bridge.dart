@@ -15,6 +15,7 @@ class WebAppRuntimeDefaults {
   static const permissions = [
     'db.note.create',
     'db.note.query',
+    'file.read_app_file',
     'file.write_app_file',
     'device.info',
   ];
@@ -46,6 +47,65 @@ class WebAppRuntimeDefaults {
   </script>
 </main>
 ''';
+}
+
+class WebAppDataNamespace {
+  const WebAppDataNamespace._();
+
+  static String database({
+    required String workspaceId,
+    required AgentArtifact webApp,
+  }) {
+    final declared = webApp.metadata['databaseNamespace'];
+    if (declared is String && declared.trim().isNotEmpty) {
+      return declared.trim();
+    }
+    return databaseForId(workspaceId: workspaceId, webAppId: webApp.id);
+  }
+
+  static String files({
+    required String workspaceId,
+    required AgentArtifact webApp,
+  }) {
+    final declared = webApp.metadata['fileNamespace'];
+    if (declared is String && declared.trim().isNotEmpty) {
+      return declared.trim();
+    }
+    return filesForId(workspaceId: workspaceId, webAppId: webApp.id);
+  }
+
+  static String databaseForId({
+    required String workspaceId,
+    required String webAppId,
+  }) {
+    return '$workspaceId::webapp::${_safeSegment(webAppId)}::db';
+  }
+
+  static String filesForId({
+    required String workspaceId,
+    required String webAppId,
+  }) {
+    return '$workspaceId::webapp::${_safeSegment(webAppId)}::files';
+  }
+
+  static String forCapability({
+    required String capabilityId,
+    required String workspaceId,
+    required AgentArtifact webApp,
+  }) {
+    if (capabilityId == 'db.note.create' || capabilityId == 'db.note.query') {
+      return database(workspaceId: workspaceId, webApp: webApp);
+    }
+    if (capabilityId == 'file.read_app_file' ||
+        capabilityId == 'file.write_app_file') {
+      return files(workspaceId: workspaceId, webApp: webApp);
+    }
+    return workspaceId;
+  }
+
+  static String _safeSegment(String value) {
+    return value.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_');
+  }
 }
 
 class WebAppCapabilityBridge {
@@ -100,13 +160,18 @@ class WebAppCapabilityBridge {
       };
     }
 
+    final executionWorkspaceId = WebAppDataNamespace.forCapability(
+      capabilityId: capabilityId,
+      workspaceId: currentWorkspaceId,
+      webApp: webApp,
+    );
     final result = await _capabilityRuntime.execute(
       toolCall: ToolCallRequest(
         id: 'webapp-${DateTime.now().microsecondsSinceEpoch}',
         name: toolName,
         arguments: input,
       ),
-      workspaceId: currentWorkspaceId,
+      workspaceId: executionWorkspaceId,
       memories: memories,
       notes: notes,
       artifacts: artifacts,

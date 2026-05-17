@@ -4,6 +4,7 @@ import 'package:phone_agent/data/capabilities/native_capability_adapter.dart';
 import 'package:phone_agent/data/capabilities/web_capability_adapter.dart';
 import 'package:phone_agent/data/models/model_api_key_store.dart';
 import 'package:phone_agent/data/models/openai_compatible_chat_client.dart';
+import 'package:phone_agent/domain/artifacts/artifact.dart';
 import 'package:phone_agent/domain/conversation/message_block.dart';
 import 'package:phone_agent/domain/models/model_provider_config.dart';
 import 'package:phone_agent/features/workbench/controllers/workbench_controller.dart';
@@ -390,10 +391,7 @@ void main() {
   test('web app bridge can call allowed capability', () async {
     final controller = WorkbenchController(apiKeyStore: _FakeApiKeyStore(null));
 
-    await controller.sendPrompt('创建一个本地 Web App');
-    final webApp = controller.workspaceArtifacts.firstWhere(
-      (artifact) => artifact.type.name == 'webApp',
-    );
+    final webApp = await _createWebApp(controller);
     final result = await controller.callCapabilityFromWebApp(
       webApp: webApp,
       capabilityId: 'db.note.create',
@@ -404,17 +402,22 @@ void main() {
     expect(result['capabilityId'], 'db.note.create');
     expect(
       controller.workspaceNotes.any((note) => note.content == '来自 JSBridge'),
-      isTrue,
+      isFalse,
     );
+    final queryResult = await controller.callCapabilityFromWebApp(
+      webApp: webApp,
+      capabilityId: 'db.note.query',
+      input: const {'query': 'JSBridge'},
+    );
+    final output = queryResult['output']! as Map<String, Object?>;
+    final items = output['items']! as List<Object?>;
+    expect(items.length, 1);
   });
 
   test('web app bridge denies undeclared capability', () async {
     final controller = WorkbenchController(apiKeyStore: _FakeApiKeyStore(null));
 
-    await controller.sendPrompt('创建一个本地 Web App');
-    final webApp = controller.workspaceArtifacts.firstWhere(
-      (artifact) => artifact.type.name == 'webApp',
-    );
+    final webApp = await _createWebApp(controller);
     final result = await controller.callCapabilityFromWebApp(
       webApp: webApp,
       capabilityId: 'clipboard.write',
@@ -423,6 +426,49 @@ void main() {
 
     expect(result['ok'], isFalse);
     expect(result['error'], 'permission denied');
+  });
+
+  test('web app bridge keeps note namespaces isolated', () async {
+    final controller = WorkbenchController(apiKeyStore: _FakeApiKeyStore(null));
+    final firstWebApp = await _createWebApp(controller);
+    final secondWebApp = await _createWebApp(controller);
+
+    await controller.callCapabilityFromWebApp(
+      webApp: firstWebApp,
+      capabilityId: 'db.note.create',
+      input: const {'title': '私有记录', 'content': '第一个 Web App 的数据'},
+    );
+    final result = await controller.callCapabilityFromWebApp(
+      webApp: secondWebApp,
+      capabilityId: 'db.note.query',
+      input: const {'query': '第一个 Web App'},
+    );
+
+    final output = result['output']! as Map<String, Object?>;
+    final items = output['items']! as List<Object?>;
+    expect(result['ok'], isTrue);
+    expect(items, isEmpty);
+  });
+
+  test('web app bridge keeps file namespaces isolated', () async {
+    final controller = WorkbenchController(apiKeyStore: _FakeApiKeyStore(null));
+    final firstWebApp = await _createWebApp(controller);
+    final secondWebApp = await _createWebApp(controller);
+
+    await controller.callCapabilityFromWebApp(
+      webApp: firstWebApp,
+      capabilityId: 'file.write_app_file',
+      input: const {'path': 'private.txt', 'content': 'web app secret'},
+    );
+    final result = await controller.callCapabilityFromWebApp(
+      webApp: secondWebApp,
+      capabilityId: 'file.read_app_file',
+      input: const {'path': 'private.txt'},
+    );
+
+    final output = result['output']! as Map<String, Object?>;
+    expect(result['ok'], isFalse);
+    expect(output['error'], 'not_found');
   });
 
   test('model tool call can create and switch workspace', () async {
@@ -623,6 +669,13 @@ ChatStreamEvent _toolCallRound(int index, String id) {
         argumentsDelta: '{"query":"偏好"}',
       ),
     ],
+  );
+}
+
+Future<AgentArtifact> _createWebApp(WorkbenchController controller) async {
+  await controller.sendPrompt('创建一个本地 Web App');
+  return controller.workspaceArtifacts.lastWhere(
+    (artifact) => artifact.type == ArtifactType.webApp,
   );
 }
 

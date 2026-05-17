@@ -375,17 +375,27 @@ class WorkbenchController extends ChangeNotifier {
   }
 
   AgentMessage _createWebAppArtifact(String prompt) {
+    final artifactId =
+        'artifact-webapp-${DateTime.now().microsecondsSinceEpoch}';
     final artifact = AgentArtifact(
-      id: 'artifact-webapp-${DateTime.now().microsecondsSinceEpoch}',
+      id: artifactId,
       workspaceId: _workspaceId,
       type: ArtifactType.webApp,
       title: 'AI 生成的本地 Web 小应用',
       summary: '包含 manifest、独立沙箱、JSBridge 和 Capability 权限声明。',
       createdAt: DateTime.now(),
-      metadata: const {
+      metadata: {
         'entry': 'index.html',
         'permissions': WebAppRuntimeDefaults.permissions,
         'html': WebAppRuntimeDefaults.html,
+        'databaseNamespace': WebAppDataNamespace.databaseForId(
+          workspaceId: _workspaceId,
+          webAppId: artifactId,
+        ),
+        'fileNamespace': WebAppDataNamespace.filesForId(
+          workspaceId: _workspaceId,
+          webAppId: artifactId,
+        ),
       },
     );
     _artifacts.add(artifact);

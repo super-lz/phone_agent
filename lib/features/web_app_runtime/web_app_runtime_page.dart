@@ -148,6 +148,8 @@ $html
       'title': webApp.title,
       'entry': webApp.metadata['entry'] ?? 'index.html',
       'permissions': webApp.metadata['permissions'] ?? <String>[],
+      'databaseNamespace': webApp.metadata['databaseNamespace'],
+      'fileNamespace': webApp.metadata['fileNamespace'],
     };
   }
 

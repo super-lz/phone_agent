@@ -101,6 +101,7 @@
 - `db.note.query` 默认只返回当前 Workspace 的 Note，不能把其它 Workspace 的 Note 混入当前工作区结果。
 - App File 是 Workspace 数据；`file.write_app_file` 和 `file.read_app_file` 只能访问当前 Workspace 的应用沙箱文件。
 - App File 路径必须是相对路径；绝对路径、空路径和路径穿越必须返回结构化错误，不能访问系统任意文件或其它 Workspace 文件。
+- Web App 通过 JSBridge 调用数据库或文件类 Capability 时，必须使用该 Web App 独立的数据 namespace；同一 Workspace 下的两个 Web App 不能互相读取对方的 Note 或 App File。
 - 长期记忆会自动注入普通对话上下文；Agent 不需要为了使用已注入的长期记忆而先调用 `memory.query`。
 - `memory.query` 只用于用户询问“你记住了什么”、盘点或管理大量记忆等显式记忆管理场景。
 - 长期记忆只保存用户长期偏好、身份信息、常用规则和跨场景稳定事实；当前对话短期状态由会话上下文承载，不写成长记忆。
@@ -163,6 +164,7 @@
 - Web App Artifact 可以从应用库打开；本地 Web App 通过 `window.PhoneAgent.getManifest()` 获取 manifest，通过 `window.PhoneAgent.callCapability(id, input)` 调用 manifest 已声明权限内的 Capability。
 - Web App 打开前必须向用户展示 manifest 声明的能力权限；用户拒绝后 Web App 仍可打开，但 JSBridge 能力调用必须返回结构化权限错误。
 - Web App JSBridge 调用必须回到 Capability Runtime；未在 manifest 权限中声明的能力必须返回结构化拒绝错误。
+- Web App JSBridge 发起的 `db.note.create`、`db.note.query`、`file.write_app_file` 和 `file.read_app_file` 必须落到该 Web App 的独立 namespace。
 - Agent Skills / Claude Code 风格 Skill 的安装、扫描、索引和受控调用语义。
 - HTTP/SSE 类 MCP 连接语义和失败处理。
 - 权限三档、权限请求、权限拒绝和审计日志。
