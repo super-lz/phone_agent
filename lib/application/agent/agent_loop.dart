@@ -18,6 +18,7 @@ typedef AddAgentMessage = void Function(AgentMessage message);
 typedef ReplaceAgentMessage =
     void Function(String messageId, AgentMessage message);
 typedef NotifyAgentLoopChange = void Function();
+typedef SwitchAgentWorkspace = void Function(String workspaceId);
 
 class AgentLoop {
   AgentLoop({
@@ -41,14 +42,17 @@ class AgentLoop {
     required List<AgentMemory> allMemories,
     required List<AgentNote> allNotes,
     required List<AgentArtifact> allArtifacts,
+    required List<AgentWorkspace> allWorkspaces,
     required AgentNoteStore noteStore,
     required AppFileStore fileStore,
     required List<AgentMessage> priorMessages,
     required AddAgentMessage addMessage,
     required ReplaceAgentMessage replaceMessage,
     required NotifyAgentLoopChange notifyChange,
+    required SwitchAgentWorkspace switchWorkspace,
   }) async {
     final runState = AgentLoopRunState(budget);
+    var activeWorkspaceId = workspaceId;
     final modelMessages = _buildModelMessages(
       prompt: prompt,
       workspace: workspace,
@@ -67,7 +71,7 @@ class AgentLoop {
       try {
         AppLogger.info('agent_loop.model_stream.start', {
           'round': round,
-          'workspaceId': workspaceId,
+          'workspaceId': activeWorkspaceId,
           'toolCallsUsed': runState.toolCallsUsed,
           'maxToolCalls': budget.maxToolCalls,
         });
@@ -113,21 +117,25 @@ class AgentLoop {
         return;
       }
 
-      await _appendAssistantToolMessage(
-        messageId: assistantMessageId,
-        content: contentBuffer.toString(),
-        requests: requests,
-        modelMessages: modelMessages,
-        workspaceId: workspaceId,
-        allMemories: allMemories,
-        allNotes: allNotes,
-        allArtifacts: allArtifacts,
-        noteStore: noteStore,
-        fileStore: fileStore,
-        apiKey: apiKey,
-        runState: runState,
-        replaceMessage: replaceMessage,
-      );
+      activeWorkspaceId =
+          await _appendAssistantToolMessage(
+            messageId: assistantMessageId,
+            content: contentBuffer.toString(),
+            requests: requests,
+            modelMessages: modelMessages,
+            workspaceId: activeWorkspaceId,
+            allMemories: allMemories,
+            allNotes: allNotes,
+            allArtifacts: allArtifacts,
+            allWorkspaces: allWorkspaces,
+            noteStore: noteStore,
+            fileStore: fileStore,
+            apiKey: apiKey,
+            runState: runState,
+            replaceMessage: replaceMessage,
+            switchWorkspace: switchWorkspace,
+          ) ??
+          activeWorkspaceId;
       notifyChange();
 
       if (!runState.canUseTools) {
@@ -176,6 +184,7 @@ class AgentLoop {
             '长期记忆已经自动提供在上下文中；普通回答应直接使用这些记忆，不要为了使用记忆而调用 memory_query。'
             '只有当用户明确要求记住、忘记、查看或管理记忆时，才调用记忆工具。'
             '当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，使用 db_note_create 或 db_note_query。'
+            '当用户要求创建或切换工作区时，使用 workspace_create 或 workspace_switch。'
             '当用户要求创建、保存、读取或修改当前工作区文件时，使用 file_write_app_file 或 file_read_app_file；'
             '文件路径必须是当前工作区沙箱内的相对路径。'
             '当用户要求查看设备环境、读取剪贴板、复制内容、使用当前位置或安排本地提醒时，使用 device_info、clipboard_read、clipboard_write、location_get_current 或 notification_schedule。'
@@ -214,7 +223,7 @@ class AgentLoop {
     }
   }
 
-  Future<void> _appendAssistantToolMessage({
+  Future<String?> _appendAssistantToolMessage({
     required String messageId,
     required String content,
     required List<ToolCallRequest> requests,
@@ -223,26 +232,30 @@ class AgentLoop {
     required List<AgentMemory> allMemories,
     required List<AgentNote> allNotes,
     required List<AgentArtifact> allArtifacts,
+    required List<AgentWorkspace> allWorkspaces,
     required AgentNoteStore noteStore,
     required AppFileStore fileStore,
     required String apiKey,
     required AgentLoopRunState runState,
     required ReplaceAgentMessage replaceMessage,
+    required SwitchAgentWorkspace switchWorkspace,
   }) async {
     final blocks = <MessageBlock>[
       if (content.trim().isNotEmpty) MessageBlock.markdown(content),
     ];
     final toolResultMessages = <Map<String, Object?>>[];
+    var activeWorkspaceId = workspaceId;
 
     for (final request in requests) {
       blocks.add(MessageBlock.toolCall(request.name, request.arguments));
       final result = runState.canStartToolCall
           ? await _capabilityRuntime.execute(
               toolCall: request,
-              workspaceId: workspaceId,
+              workspaceId: activeWorkspaceId,
               memories: allMemories,
               notes: allNotes,
               artifacts: allArtifacts,
+              workspaces: allWorkspaces,
               noteStore: noteStore,
               fileStore: fileStore,
               apiKey: apiKey,
@@ -256,6 +269,11 @@ class AgentLoop {
               },
             );
       runState.recordToolResult(result.output['ok'] == true);
+      activeWorkspaceId = _switchWorkspaceIfNeeded(
+        result: result,
+        fallbackWorkspaceId: activeWorkspaceId,
+        switchWorkspace: switchWorkspace,
+      );
       blocks.add(MessageBlock.toolResult(result.capabilityId, result.output));
       blocks.addAll(_artifactBlocksFor(result));
       toolResultMessages.add({
@@ -284,6 +302,27 @@ class AgentLoop {
           .toList(growable: false),
     });
     modelMessages.addAll(toolResultMessages);
+    return activeWorkspaceId;
+  }
+
+  String _switchWorkspaceIfNeeded({
+    required CapabilityExecutionResult result,
+    required String fallbackWorkspaceId,
+    required SwitchAgentWorkspace switchWorkspace,
+  }) {
+    if (result.output['ok'] != true) {
+      return fallbackWorkspaceId;
+    }
+    if (result.capabilityId != 'workspace.create' &&
+        result.capabilityId != 'workspace.switch') {
+      return fallbackWorkspaceId;
+    }
+    final workspaceId = result.output['activeWorkspaceId'];
+    if (workspaceId is! String || workspaceId.isEmpty) {
+      return fallbackWorkspaceId;
+    }
+    switchWorkspace(workspaceId);
+    return workspaceId;
   }
 
   List<MessageBlock> _artifactBlocksFor(CapabilityExecutionResult result) {

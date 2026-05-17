@@ -8,6 +8,7 @@ import 'package:phone_agent/domain/files/app_file_store.dart';
 import 'package:phone_agent/domain/memory/memory.dart';
 import 'package:phone_agent/domain/notes/note.dart';
 import 'package:phone_agent/domain/notes/note_store.dart';
+import 'package:phone_agent/domain/workspace/workspace.dart';
 
 void main() {
   test('memory_create writes a global memory', () async {
@@ -399,6 +400,92 @@ void main() {
     final items = rawItems! as List<Object?>;
     expect(items.length, 1);
     expect((items.first! as Map<String, Object?>)['id'], 'artifact-work');
+  });
+
+  test('workspace_create adds and activates a workspace', () async {
+    final runtime = CapabilityRuntime();
+    final workspaces = <AgentWorkspace>[
+      AgentWorkspace(
+        id: 'default',
+        name: '默认',
+        description: '默认工作区',
+        createdAt: DateTime(2026),
+      ),
+    ];
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-workspace-create',
+        name: 'workspace_create',
+        arguments: {'name': '生活', 'description': '生活事项'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      workspaces: workspaces,
+    );
+
+    expect(result.capabilityId, 'workspace.create');
+    expect(result.output['ok'], isTrue);
+    expect(workspaces.map((workspace) => workspace.name), contains('生活'));
+    expect(result.output['activeWorkspaceId'], workspaces.last.id);
+  });
+
+  test('workspace_switch finds workspace by name', () async {
+    final runtime = CapabilityRuntime();
+    final workspaces = <AgentWorkspace>[
+      AgentWorkspace(
+        id: 'default',
+        name: '默认',
+        description: '默认工作区',
+        createdAt: DateTime(2026),
+      ),
+      AgentWorkspace(
+        id: 'work',
+        name: '工作',
+        description: '工作事项',
+        createdAt: DateTime(2026),
+      ),
+    ];
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-workspace-switch',
+        name: 'workspace_switch',
+        arguments: {'name': '工作'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      workspaces: workspaces,
+    );
+
+    expect(result.capabilityId, 'workspace.switch');
+    expect(result.output['ok'], isTrue);
+    expect(result.output['activeWorkspaceId'], 'work');
+  });
+
+  test('workspace_switch reports missing workspace', () async {
+    final runtime = CapabilityRuntime();
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-workspace-missing',
+        name: 'workspace_switch',
+        arguments: {'name': '不存在'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      workspaces: const [],
+    );
+
+    expect(result.capabilityId, 'workspace.switch');
+    expect(result.output['ok'], isFalse);
+    expect(result.output['error'], 'workspace not found');
   });
 
   test(

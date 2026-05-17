@@ -387,6 +387,78 @@ void main() {
     expect(controller.messages.last.blocks.first.data['text'], '已安排提醒。');
   });
 
+  test('model tool call can create and switch workspace', () async {
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-workspace-create',
+                name: 'workspace_create',
+                argumentsDelta: '{"name":"生活","description":"生活事项"}',
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '已切换到生活工作区。')],
+      ]),
+    );
+
+    await controller.sendPrompt('新建一个生活工作区并切换过去');
+
+    expect(
+      controller.workspaces.map((workspace) => workspace.name),
+      contains('生活'),
+    );
+    expect(controller.currentWorkspace.name, '生活');
+    final workspaceBlocks = controller.messages
+        .expand((message) => message.blocks)
+        .where(
+          (block) =>
+              block.type == MessageBlockType.toolResult &&
+              block.data['capabilityId'] == 'workspace.create',
+        );
+    expect(workspaceBlocks, isNotEmpty);
+    expect(controller.messages.last.blocks.first.data['text'], '已切换到生活工作区。');
+  });
+
+  test('model tool call can switch to existing workspace', () async {
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-workspace-switch',
+                name: 'workspace_switch',
+                argumentsDelta: '{"name":"工作"}',
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '已切换到工作。')],
+      ]),
+    );
+
+    await controller.sendPrompt('切换到工作');
+
+    expect(controller.workspaceId, 'work');
+    final workspaceBlocks = controller.messages
+        .expand((message) => message.blocks)
+        .where(
+          (block) =>
+              block.type == MessageBlockType.toolResult &&
+              block.data['capabilityId'] == 'workspace.switch',
+        );
+    expect(workspaceBlocks, isNotEmpty);
+    expect(controller.messages.last.blocks.first.data['text'], '已切换到工作。');
+  });
+
   test('agent loop can continue beyond three tool rounds', () async {
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),

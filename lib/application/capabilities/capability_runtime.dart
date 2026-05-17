@@ -7,6 +7,7 @@ import '../../domain/files/app_file_store.dart';
 import '../../domain/memory/memory.dart';
 import '../../domain/notes/note.dart';
 import '../../domain/notes/note_store.dart';
+import '../../domain/workspace/workspace.dart';
 import 'artifact_capability_handler.dart';
 import 'capability_execution_result.dart';
 import 'capability_tool_definitions.dart';
@@ -15,6 +16,7 @@ import 'memory_capability_handler.dart';
 import 'native_capability_handler.dart';
 import 'note_capability_handler.dart';
 import 'web_capability_handler.dart';
+import 'workspace_capability_handler.dart';
 
 class CapabilityRuntime {
   CapabilityRuntime({
@@ -31,6 +33,8 @@ class CapabilityRuntime {
   final FileCapabilityHandler _fileHandler = const FileCapabilityHandler();
   final ArtifactCapabilityHandler _artifactHandler =
       const ArtifactCapabilityHandler();
+  final WorkspaceCapabilityHandler _workspaceHandler =
+      const WorkspaceCapabilityHandler();
   final WebCapabilityHandler _webHandler;
   final NativeCapabilityHandler _nativeHandler;
   final CapabilityToolDefinitions _toolDefinitions =
@@ -42,6 +46,7 @@ class CapabilityRuntime {
     required List<AgentMemory> memories,
     required List<AgentNote> notes,
     required List<AgentArtifact> artifacts,
+    List<AgentWorkspace>? workspaces,
     AgentNoteStore? noteStore,
     AppFileStore? fileStore,
     String? apiKey,
@@ -103,6 +108,16 @@ class CapabilityRuntime {
           workspaceId: workspaceId,
           arguments: toolCall.arguments,
           artifacts: artifacts,
+        );
+      case 'workspace_create':
+        return _workspaceHandler.create(
+          arguments: toolCall.arguments,
+          workspaces: workspaces,
+        );
+      case 'workspace_switch':
+        return _workspaceHandler.switchWorkspace(
+          arguments: toolCall.arguments,
+          workspaces: workspaces,
         );
       case 'device_info':
         return await _nativeHandler.deviceInfo();

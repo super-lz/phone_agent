@@ -264,12 +264,14 @@ class WorkbenchController extends ChangeNotifier {
         allMemories: _memories,
         allNotes: _notes,
         allArtifacts: _artifacts,
+        allWorkspaces: _workspaces,
         noteStore: _noteStore,
         fileStore: _fileStore,
         priorMessages: priorMessages,
         addMessage: _messages.add,
         replaceMessage: _replaceMessage,
         notifyChange: notifyListeners,
+        switchWorkspace: _switchWorkspaceFromAgent,
       );
     } on Object catch (error) {
       _messages.add(_modelErrorResponse(error.toString()));
@@ -311,6 +313,17 @@ class WorkbenchController extends ChangeNotifier {
       return;
     }
     _messages[index] = message;
+  }
+
+  void _switchWorkspaceFromAgent(String workspaceId) {
+    final exists = _workspaces.any((workspace) => workspace.id == workspaceId);
+    if (!exists || workspaceId == _workspaceId) {
+      return;
+    }
+    _workspaceId = workspaceId;
+    AppLogger.info('workbench.workspace.switch_by_agent', {
+      'workspaceId': workspaceId,
+    });
   }
 
   AgentMessage _createWebAppArtifact(String prompt) {

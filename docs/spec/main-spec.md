@@ -144,7 +144,8 @@
 - 正式对话的最小 Agent Loop：模型流式输出、自动发起工具调用、Capability Runtime 执行工具、工具结果回传模型、模型继续回答。
 - Agent Loop 必须具备可调任务预算，并在日志中暴露当前工具调用消耗，方便定位过早停止或循环调用。
 - Agent Loop 必须携带同一会话的近期原文上下文，并在上下文过长时携带较早内容的压缩摘要。
-- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`artifact.create`、`artifact.query`、`device.info`、`clipboard.read`、`clipboard.write`、`location.get_current` 和 `notification.schedule`。
+- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`device.info`、`clipboard.read`、`clipboard.write`、`location.get_current` 和 `notification.schedule`。
+- 当用户要求新建或切换工作区时，Agent 可以调用 `workspace.create` 或 `workspace.switch`；创建成功后当前 Workspace 必须切换到新工作区，切换目标不存在时必须返回结构化错误。
 - 当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，Agent 可以调用 `db.note.create` 或 `db.note.query` 读写当前 Workspace 的 Note。
 - `db.note.create` 写入的 Note 必须落到设备本地数据库，而不是只停留在当前进程内存。
 - 当用户要求创建、保存、读取或修改当前工作区文件时，Agent 可以调用 `file.write_app_file` 或 `file.read_app_file` 读写当前 Workspace 的 App File。
@@ -192,6 +193,7 @@
 - `web.search` 或 `web.fetch` 的网络请求、解析或读取失败时，系统必须向 Agent 返回结构化错误，不能导致对话或应用崩溃。
 - AI 能调用本地数据库创建和查询 Note；Note 归属当前 Workspace，切换 Workspace 后不会展示或查询到其它 Workspace 的 Note。
 - 应用重启后，用户此前通过 `db.note.create` 保存的 Note 仍能在对应 Workspace 中展示，并能被 `db.note.query` 查询到。
+- AI 能调用 `workspace.create` 创建 Workspace 并切换过去，也能调用 `workspace.switch` 切换到已有 Workspace；目标不存在时不得崩溃。
 - AI 能调用 `file.write_app_file` 和 `file.read_app_file` 在当前 Workspace 应用沙箱内写入和读取文本文件；切换 Workspace 后不能读取其它 Workspace 的文件。
 - `file.write_app_file` 和 `file.read_app_file` 对空路径、绝对路径、路径穿越、文件不存在和覆盖冲突必须返回结构化错误。
 - AI 能在用户明确要求时读取设备基础信息、读取剪贴板纯文本或写入剪贴板，并在对话中展示工具轨迹。

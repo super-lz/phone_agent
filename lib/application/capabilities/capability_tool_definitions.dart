@@ -158,6 +158,38 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'workspace_create',
+          'description': '当用户明确要求新建工作区时，创建一个 Workspace 并切换过去。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'name': {'type': 'string', 'description': '工作区名称。'},
+              'description': {'type': 'string', 'description': '工作区用途说明，可省略。'},
+            },
+            'required': ['name'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'workspace_switch',
+          'description': '当用户明确要求切换工作区时，按工作区 ID 或名称切换当前 Workspace。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'workspace_id': {
+                'type': 'string',
+                'description': '目标工作区 ID。若不知道 ID，可使用 name。',
+              },
+              'name': {'type': 'string', 'description': '目标工作区名称。'},
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'device_info',
           'description': '读取当前手机或模拟器的基础设备信息，用于排障、适配判断或环境说明。',
           'parameters': {'type': 'object', 'properties': <String, Object?>{}},
