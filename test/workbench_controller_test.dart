@@ -352,6 +352,41 @@ void main() {
     expect(controller.messages.last.blocks.first.data['text'], '已获取当前位置。');
   });
 
+  test('model tool call can schedule notification capability', () async {
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      capabilityRuntime: CapabilityRuntime(nativeAdapter: _FakeNativeAdapter()),
+      chatClient: _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-notification',
+                name: 'notification_schedule',
+                argumentsDelta:
+                    '{"title":"提醒","body":"整理 Phone Agent 需求","delay_seconds":60}',
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '已安排提醒。')],
+      ]),
+    );
+
+    await controller.sendPrompt('一分钟后提醒我整理需求');
+
+    final notificationBlocks = controller.messages
+        .expand((message) => message.blocks)
+        .where(
+          (block) =>
+              block.type == MessageBlockType.toolResult &&
+              block.data['capabilityId'] == 'notification.schedule',
+        );
+    expect(notificationBlocks, isNotEmpty);
+    expect(controller.messages.last.blocks.first.data['text'], '已安排提醒。');
+  });
+
   test('agent loop can continue beyond three tool rounds', () async {
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),
@@ -449,6 +484,21 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
       'latitude': 31.2304,
       'longitude': 121.4737,
       'accuracy': 12.0,
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> scheduleNotification({
+    required String title,
+    required String body,
+    required DateTime scheduledAt,
+  }) async {
+    return {
+      'ok': true,
+      'notificationId': 1,
+      'title': title,
+      'body': body,
+      'scheduledAt': scheduledAt.toIso8601String(),
     };
   }
 }

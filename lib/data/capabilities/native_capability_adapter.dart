@@ -2,15 +2,23 @@ import 'dart:convert';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
 
 import '../../core/logging/app_logger.dart';
 
 class NativeCapabilityAdapter {
-  NativeCapabilityAdapter({DeviceInfoPlugin? deviceInfo})
-    : _deviceInfo = deviceInfo ?? DeviceInfoPlugin();
+  NativeCapabilityAdapter({
+    DeviceInfoPlugin? deviceInfo,
+    FlutterLocalNotificationsPlugin? notifications,
+  }) : _deviceInfo = deviceInfo ?? DeviceInfoPlugin(),
+       _notifications = notifications ?? FlutterLocalNotificationsPlugin();
 
   final DeviceInfoPlugin _deviceInfo;
+  final FlutterLocalNotificationsPlugin _notifications;
+  Future<bool>? _notificationInitialization;
 
   Future<Map<String, Object?>> getDeviceInfo() async {
     try {
@@ -96,6 +104,60 @@ class NativeCapabilityAdapter {
     }
   }
 
+  Future<Map<String, Object?>> scheduleNotification({
+    required String title,
+    required String body,
+    required DateTime scheduledAt,
+  }) async {
+    try {
+      if (!scheduledAt.isAfter(DateTime.now())) {
+        return const {
+          'ok': false,
+          'error': 'scheduled_at_in_past',
+          'detail': 'scheduledAt must be in the future',
+        };
+      }
+
+      final initialized = await _ensureNotificationsInitialized();
+      if (!initialized) {
+        return const {
+          'ok': false,
+          'error': 'notification_initialization_failed',
+        };
+      }
+      final permissionGranted = await _requestNotificationPermission();
+      if (!permissionGranted) {
+        return const {
+          'ok': false,
+          'error': 'permission_denied',
+          'detail': 'notification permission denied',
+        };
+      }
+
+      final id = DateTime.now().microsecondsSinceEpoch.remainder(1 << 31);
+      await _notifications.zonedSchedule(
+        id: id,
+        title: title,
+        body: body,
+        scheduledDate: tz.TZDateTime.from(scheduledAt, tz.local),
+        notificationDetails: _notificationDetails(),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        payload: jsonEncode({'source': 'phone_agent'}),
+      );
+
+      return {
+        'ok': true,
+        'notificationId': id,
+        'title': title,
+        'body': body,
+        'scheduledAt': scheduledAt.toIso8601String(),
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.notification_schedule.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
   Map<String, Object?> _jsonSafeMap(Map<String, dynamic> data) {
     final encoded = jsonEncode(data);
     final decoded = jsonDecode(encoded);
@@ -103,5 +165,59 @@ class NativeCapabilityAdapter {
       return decoded;
     }
     return {'raw': decoded.toString()};
+  }
+
+  Future<bool> _ensureNotificationsInitialized() {
+    return _notificationInitialization ??= _initializeNotifications();
+  }
+
+  Future<bool> _initializeNotifications() async {
+    tz_data.initializeTimeZones();
+    final initialized = await _notifications.initialize(
+      settings: const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        iOS: DarwinInitializationSettings(
+          requestAlertPermission: false,
+          requestBadgePermission: false,
+          requestSoundPermission: false,
+        ),
+      ),
+    );
+    return initialized ?? true;
+  }
+
+  Future<bool> _requestNotificationPermission() async {
+    final android = _notifications
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    final androidGranted = await android?.requestNotificationsPermission();
+    if (androidGranted == false) {
+      return false;
+    }
+
+    final ios = _notifications
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >();
+    final iosGranted = await ios?.requestPermissions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    return iosGranted ?? true;
+  }
+
+  NotificationDetails _notificationDetails() {
+    return const NotificationDetails(
+      android: AndroidNotificationDetails(
+        'phone_agent_reminders',
+        'Phone Agent Reminders',
+        channelDescription: 'Scheduled notifications created by Phone Agent.',
+        importance: Importance.defaultImportance,
+        priority: Priority.defaultPriority,
+      ),
+      iOS: DarwinNotificationDetails(),
+    );
   }
 }

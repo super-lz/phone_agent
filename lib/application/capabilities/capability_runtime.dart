@@ -114,6 +114,10 @@ class CapabilityRuntime {
         );
       case 'location_get_current':
         return await _nativeHandler.getCurrentLocation();
+      case 'notification_schedule':
+        return await _nativeHandler.scheduleNotification(
+          arguments: toolCall.arguments,
+        );
       case 'web_search':
         return await _webHandler.search(
           arguments: toolCall.arguments,

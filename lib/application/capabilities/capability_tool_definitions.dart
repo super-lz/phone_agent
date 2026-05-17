@@ -196,6 +196,29 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'notification_schedule',
+          'description': '当用户明确要求稍后提醒或安排本地通知时，创建一条系统通知。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'title': {'type': 'string', 'description': '通知标题。'},
+              'body': {'type': 'string', 'description': '通知正文。'},
+              'delay_seconds': {
+                'type': 'number',
+                'description': '从现在开始延迟多少秒提醒。未提供 scheduled_at 时默认 60 秒。',
+              },
+              'scheduled_at': {
+                'type': 'string',
+                'description': 'ISO 8601 时间。若提供，优先于 delay_seconds。',
+              },
+            },
+            'required': ['title', 'body'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'web_search',
           'description': '当用户需要最新信息、外部资料或网页来源时搜索互联网。',
           'parameters': {

@@ -521,6 +521,50 @@ void main() {
     expect(result.output['error'], 'permission_denied');
   });
 
+  test('runtime can schedule notification through native adapter', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-notification',
+        name: 'notification_schedule',
+        arguments: {
+          'title': '提醒',
+          'body': '整理 Phone Agent 需求',
+          'delay_seconds': 60,
+        },
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(result.capabilityId, 'notification.schedule');
+    expect(result.output['ok'], isTrue);
+    expect(result.output['title'], '提醒');
+  });
+
+  test('notification_schedule validates required body', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-notification-invalid',
+        name: 'notification_schedule',
+        arguments: {'title': '提醒'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(result.capabilityId, 'notification.schedule');
+    expect(result.output['ok'], isFalse);
+    expect(result.output['error'], 'body is required');
+  });
+
   test('runtime exposes web tools through the same execute path', () async {
     final runtime = CapabilityRuntime(
       webAdapter: _FakeWebAdapter(
@@ -588,6 +632,21 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   @override
   Future<Map<String, Object?>> getCurrentLocation() async {
     return locationOutput;
+  }
+
+  @override
+  Future<Map<String, Object?>> scheduleNotification({
+    required String title,
+    required String body,
+    required DateTime scheduledAt,
+  }) async {
+    return {
+      'ok': true,
+      'notificationId': 1,
+      'title': title,
+      'body': body,
+      'scheduledAt': scheduledAt.toIso8601String(),
+    };
   }
 }
 

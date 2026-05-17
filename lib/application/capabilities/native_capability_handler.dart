@@ -43,4 +43,52 @@ class NativeCapabilityHandler {
       output: await _adapter.getCurrentLocation(),
     );
   }
+
+  Future<CapabilityExecutionResult> scheduleNotification({
+    required Map<String, Object?> arguments,
+  }) async {
+    final rawTitle = arguments['title'];
+    final rawBody = arguments['body'];
+    if (rawTitle is! String || rawTitle.trim().isEmpty) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'notification.schedule',
+        output: {'ok': false, 'error': 'title is required'},
+      );
+    }
+    if (rawBody is! String || rawBody.trim().isEmpty) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'notification.schedule',
+        output: {'ok': false, 'error': 'body is required'},
+      );
+    }
+
+    final scheduledAt = _parseScheduledAt(arguments);
+    if (scheduledAt == null) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'notification.schedule',
+        output: {'ok': false, 'error': 'invalid scheduled_at'},
+      );
+    }
+    return CapabilityExecutionResult(
+      capabilityId: 'notification.schedule',
+      output: await _adapter.scheduleNotification(
+        title: rawTitle.trim(),
+        body: rawBody.trim(),
+        scheduledAt: scheduledAt,
+      ),
+    );
+  }
+
+  DateTime? _parseScheduledAt(Map<String, Object?> arguments) {
+    final rawScheduledAt = arguments['scheduled_at'];
+    if (rawScheduledAt is String && rawScheduledAt.trim().isNotEmpty) {
+      return DateTime.tryParse(rawScheduledAt.trim())?.toLocal();
+    }
+
+    final rawDelaySeconds = arguments['delay_seconds'];
+    final delaySeconds = rawDelaySeconds is num
+        ? rawDelaySeconds.clamp(1, 31536000).round()
+        : 60;
+    return DateTime.now().add(Duration(seconds: delaySeconds));
+  }
 }
