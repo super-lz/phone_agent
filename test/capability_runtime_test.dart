@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone_agent/application/capabilities/capability_runtime.dart';
+import 'package:phone_agent/data/capabilities/native_capability_adapter.dart';
 import 'package:phone_agent/data/capabilities/web_capability_adapter.dart';
 import 'package:phone_agent/data/models/openai_compatible_chat_client.dart';
 import 'package:phone_agent/domain/artifacts/artifact.dart';
@@ -400,6 +401,69 @@ void main() {
     expect((items.first! as Map<String, Object?>)['id'], 'artifact-work');
   });
 
+  test(
+    'runtime exposes native device info through the same execute path',
+    () async {
+      final runtime = CapabilityRuntime(
+        nativeAdapter: _FakeNativeAdapter(
+          deviceInfoOutput: const {
+            'ok': true,
+            'device': {'platform': 'android'},
+          },
+        ),
+      );
+
+      final result = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-device-info',
+          name: 'device_info',
+          arguments: {},
+        ),
+        workspaceId: 'default',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+      );
+
+      expect(result.capabilityId, 'device.info');
+      expect(result.output['ok'], isTrue);
+      expect(result.output['device'], isA<Map<String, Object?>>());
+    },
+  );
+
+  test('runtime can read and write clipboard through native adapter', () async {
+    final adapter = _FakeNativeAdapter();
+    final runtime = CapabilityRuntime(nativeAdapter: adapter);
+
+    final writeResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-clipboard-write',
+        name: 'clipboard_write',
+        arguments: {'text': '复制这段文字'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final readResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-clipboard-read',
+        name: 'clipboard_read',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(writeResult.capabilityId, 'clipboard.write');
+    expect(writeResult.output['ok'], isTrue);
+    expect(readResult.capabilityId, 'clipboard.read');
+    expect(readResult.output['text'], '复制这段文字');
+  });
+
   test('runtime exposes web tools through the same execute path', () async {
     final runtime = CapabilityRuntime(
       webAdapter: _FakeWebAdapter(
@@ -432,6 +496,33 @@ void main() {
     expect(result.capabilityId, 'web.search');
     expect(result.output['ok'], isTrue);
   });
+}
+
+class _FakeNativeAdapter extends NativeCapabilityAdapter {
+  _FakeNativeAdapter({this.deviceInfoOutput = const {'ok': true}});
+
+  final Map<String, Object?> deviceInfoOutput;
+  String _clipboardText = '';
+
+  @override
+  Future<Map<String, Object?>> getDeviceInfo() async {
+    return deviceInfoOutput;
+  }
+
+  @override
+  Future<Map<String, Object?>> readClipboard() async {
+    return {
+      'ok': true,
+      'hasText': _clipboardText.isNotEmpty,
+      'text': _clipboardText,
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> writeClipboard(String text) async {
+    _clipboardText = text;
+    return {'ok': true, 'length': text.length};
+  }
 }
 
 class _FakeWebAdapter extends WebCapabilityAdapter {

@@ -178,6 +178,7 @@ class AgentLoop {
             '当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，使用 db_note_create 或 db_note_query。'
             '当用户要求创建、保存、读取或修改当前工作区文件时，使用 file_write_app_file 或 file_read_app_file；'
             '文件路径必须是当前工作区沙箱内的相对路径。'
+            '当用户要求查看设备环境、读取剪贴板或复制内容时，使用 device_info、clipboard_read 或 clipboard_write。'
             '当你生成报告、文档、任务清单、文件摘要或 Web App 等可复用产物时，使用 artifact_create 保存为 Artifact。'
             '当你需要引用当前工作区已有产物时，使用 artifact_query。'
             '当用户问题需要最新信息、网页资料或来源引用时，必须优先调用 web_search；'

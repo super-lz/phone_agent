@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone_agent/application/capabilities/capability_runtime.dart';
+import 'package:phone_agent/data/capabilities/native_capability_adapter.dart';
 import 'package:phone_agent/data/capabilities/web_capability_adapter.dart';
 import 'package:phone_agent/data/models/model_api_key_store.dart';
 import 'package:phone_agent/data/models/openai_compatible_chat_client.dart';
@@ -283,6 +284,40 @@ void main() {
     expect(controller.messages.last.blocks.first.data['text'], '文件已保存并读回。');
   });
 
+  test('model tool call can use native clipboard capability', () async {
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      capabilityRuntime: CapabilityRuntime(nativeAdapter: _FakeNativeAdapter()),
+      chatClient: _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-clipboard-write',
+                name: 'clipboard_write',
+                argumentsDelta: '{"text":"Phone Agent"}',
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '已复制。')],
+      ]),
+    );
+
+    await controller.sendPrompt('复制 Phone Agent');
+
+    final clipboardBlocks = controller.messages
+        .expand((message) => message.blocks)
+        .where(
+          (block) =>
+              block.type == MessageBlockType.toolResult &&
+              block.data['capabilityId'] == 'clipboard.write',
+        );
+    expect(clipboardBlocks, isNotEmpty);
+    expect(controller.messages.last.blocks.first.data['text'], '已复制。');
+  });
+
   test('agent loop can continue beyond three tool rounds', () async {
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),
@@ -345,6 +380,33 @@ void main() {
       isTrue,
     );
   });
+}
+
+class _FakeNativeAdapter extends NativeCapabilityAdapter {
+  String _clipboardText = '';
+
+  @override
+  Future<Map<String, Object?>> getDeviceInfo() async {
+    return const {
+      'ok': true,
+      'device': {'platform': 'test'},
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> readClipboard() async {
+    return {
+      'ok': true,
+      'hasText': _clipboardText.isNotEmpty,
+      'text': _clipboardText,
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> writeClipboard(String text) async {
+    _clipboardText = text;
+    return {'ok': true, 'length': text.length};
+  }
 }
 
 ChatStreamEvent _toolCallRound(int index, String id) {

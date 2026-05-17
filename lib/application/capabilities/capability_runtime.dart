@@ -1,4 +1,5 @@
 import '../../core/logging/app_logger.dart';
+import '../../data/capabilities/native_capability_adapter.dart';
 import '../../data/capabilities/web_capability_adapter.dart';
 import '../../data/models/openai_compatible_chat_client.dart';
 import '../../domain/artifacts/artifact.dart';
@@ -11,12 +12,18 @@ import 'capability_execution_result.dart';
 import 'capability_tool_definitions.dart';
 import 'file_capability_handler.dart';
 import 'memory_capability_handler.dart';
+import 'native_capability_handler.dart';
 import 'note_capability_handler.dart';
 import 'web_capability_handler.dart';
 
 class CapabilityRuntime {
-  CapabilityRuntime({WebCapabilityAdapter? webAdapter})
-    : _webHandler = WebCapabilityHandler(webAdapter: webAdapter);
+  CapabilityRuntime({
+    WebCapabilityAdapter? webAdapter,
+    NativeCapabilityAdapter? nativeAdapter,
+  }) : _webHandler = WebCapabilityHandler(webAdapter: webAdapter),
+       _nativeHandler = NativeCapabilityHandler(
+         adapter: nativeAdapter ?? NativeCapabilityAdapter(),
+       );
 
   final MemoryCapabilityHandler _memoryHandler =
       const MemoryCapabilityHandler();
@@ -25,6 +32,7 @@ class CapabilityRuntime {
   final ArtifactCapabilityHandler _artifactHandler =
       const ArtifactCapabilityHandler();
   final WebCapabilityHandler _webHandler;
+  final NativeCapabilityHandler _nativeHandler;
   final CapabilityToolDefinitions _toolDefinitions =
       const CapabilityToolDefinitions();
 
@@ -95,6 +103,14 @@ class CapabilityRuntime {
           workspaceId: workspaceId,
           arguments: toolCall.arguments,
           artifacts: artifacts,
+        );
+      case 'device_info':
+        return await _nativeHandler.deviceInfo();
+      case 'clipboard_read':
+        return await _nativeHandler.readClipboard();
+      case 'clipboard_write':
+        return await _nativeHandler.writeClipboard(
+          arguments: toolCall.arguments,
         );
       case 'web_search':
         return await _webHandler.search(

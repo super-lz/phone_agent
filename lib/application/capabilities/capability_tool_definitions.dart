@@ -158,6 +158,36 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'device_info',
+          'description': '读取当前手机或模拟器的基础设备信息，用于排障、适配判断或环境说明。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'clipboard_read',
+          'description': '读取系统剪贴板中的纯文本内容。只有当用户明确要求读取剪贴板时才使用。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'clipboard_write',
+          'description': '把用户明确要求复制的文本写入系统剪贴板。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'text': {'type': 'string', 'description': '要写入剪贴板的文本。'},
+            },
+            'required': ['text'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'web_search',
           'description': '当用户需要最新信息、外部资料或网页来源时搜索互联网。',
           'parameters': {
