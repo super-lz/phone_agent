@@ -360,6 +360,56 @@ void main() {
     expect(artifacts.single.type, ArtifactType.report);
   });
 
+  test('artifact_create writes runnable web app html', () async {
+    final runtime = CapabilityRuntime();
+    final artifacts = <AgentArtifact>[];
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-webapp-create',
+        name: 'artifact_create',
+        arguments: {
+          'type': 'web_app',
+          'title': '美食网页',
+          'summary': '带样式的本地网页',
+          'content_html':
+              '<main><style>body{background:#fafafa}</style><h1>美食</h1></main>',
+        },
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: artifacts,
+    );
+
+    expect(result.capabilityId, 'artifact.create');
+    expect(result.output['ok'], isTrue);
+    expect(artifacts.single.type, ArtifactType.webApp);
+    expect(artifacts.single.metadata['html'], contains('<style>'));
+  });
+
+  test('artifact_create rejects web app without html', () async {
+    final runtime = CapabilityRuntime();
+    final artifacts = <AgentArtifact>[];
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-webapp-missing-html',
+        name: 'artifact_create',
+        arguments: {'type': 'web_app', 'title': '空网页', 'summary': '没有真实页面内容'},
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: artifacts,
+    );
+
+    expect(result.capabilityId, 'artifact.create');
+    expect(result.output['ok'], isFalse);
+    expect(result.output['error'], 'web_app_html is required');
+    expect(artifacts, isEmpty);
+  });
+
   test('artifact_query only returns current workspace artifacts', () async {
     final runtime = CapabilityRuntime();
     final artifacts = [

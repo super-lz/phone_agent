@@ -238,6 +238,40 @@ void main() {
     expect(controller.messages.last.blocks.first.data['text'], '已生成报告。');
   });
 
+  test('model tool call can create runnable web app card', () async {
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-webapp-1',
+                name: 'artifact_create',
+                argumentsDelta:
+                    '{"type":"web_app","title":"美食网页","summary":"带样式的本地网页","content_html":"<main><style>body{background:#fff7ed}</style><h1>美食</h1></main>"}',
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '已生成网页。')],
+      ]),
+    );
+
+    await controller.sendPrompt('生成一个美食网页');
+
+    final webApp = controller.workspaceArtifacts.singleWhere(
+      (artifact) => artifact.title == '美食网页',
+    );
+    expect(webApp.type, ArtifactType.webApp);
+    expect(webApp.metadata['html'], contains('background'));
+    final webAppCards = controller.messages
+        .expand((message) => message.blocks)
+        .where((block) => block.type == MessageBlockType.webAppCard);
+    expect(webAppCards, isNotEmpty);
+  });
+
   test('model tool call can write and read workspace file', () async {
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),

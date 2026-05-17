@@ -121,7 +121,7 @@ class CapabilityToolDefinitions {
         'function': {
           'name': 'artifact_create',
           'description':
-              '当产出需要后续复用、作为卡片展示或创建本地 Web App 时，把结果保存为当前 Workspace 的 Artifact。',
+              '当产出需要后续复用、作为卡片展示或创建本地 Web App 时，把结果保存为当前 Workspace 的 Artifact。创建 web_app 时必须同时提供 content_html，且应包含完整 HTML、内联 CSS 和内联 JS。',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -132,9 +132,15 @@ class CapabilityToolDefinitions {
               },
               'title': {'type': 'string', 'description': 'Artifact 标题。'},
               'summary': {'type': 'string', 'description': 'Artifact 摘要。'},
+              'content_html': {
+                'type': 'string',
+                'description':
+                    '仅 web_app 使用：完整可运行 HTML 文档或片段，必须包含页面真实内容、样式和交互脚本。优先内联 CSS/JS，避免依赖外部资源。',
+              },
               'metadata': {
                 'type': 'object',
-                'description': '可选元数据，例如 Web App 的 entry 和 permissions。',
+                'description':
+                    '可选元数据。Web App 可声明 entry、permissions；也兼容 metadata.html，但优先使用 content_html。',
               },
             },
             'required': ['title', 'summary'],

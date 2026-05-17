@@ -24,14 +24,28 @@ class ArtifactCapabilityHandler {
       );
     }
 
+    final type = _parseType(arguments['type']);
+    final metadata = _metadataFor(arguments);
+    if (type == ArtifactType.webApp && !_hasRunnableHtml(metadata)) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'artifact.create',
+        output: {
+          'ok': false,
+          'error': 'web_app_html is required',
+          'detail':
+              'web_app artifacts must include content_html or metadata.html',
+        },
+      );
+    }
+
     final artifact = AgentArtifact(
       id: 'artifact-${DateTime.now().microsecondsSinceEpoch}',
       workspaceId: workspaceId,
-      type: _parseType(arguments['type']),
+      type: type,
       title: rawTitle.trim(),
       summary: rawSummary.trim(),
       createdAt: DateTime.now(),
-      metadata: _metadataFor(arguments),
+      metadata: metadata,
     );
     artifacts.add(artifact);
 
@@ -120,8 +134,17 @@ class ArtifactCapabilityHandler {
     if (_parseType(arguments['type']) == ArtifactType.webApp) {
       metadata.putIfAbsent('entry', () => 'index.html');
       metadata.putIfAbsent('permissions', () => <String>[]);
+      final contentHtml = arguments['content_html'];
+      if (contentHtml is String && contentHtml.trim().isNotEmpty) {
+        metadata['html'] = contentHtml;
+      }
     }
     return metadata;
+  }
+
+  bool _hasRunnableHtml(Map<String, Object?> metadata) {
+    final html = metadata['html'];
+    return html is String && html.trim().isNotEmpty;
   }
 
   Map<String, Object?> _toOutput(AgentArtifact artifact) {
