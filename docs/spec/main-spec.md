@@ -99,6 +99,8 @@
 - Note 是 Workspace 数据，不是用户长期记忆；它用于保存当前工作区内的备忘、事项、资料摘录和可复用文本记录。
 - Note 必须写入设备本地数据库；应用重启后，当前 Workspace 内已经保存的 Note 仍应可展示和查询。
 - `db.note.query` 默认只返回当前 Workspace 的 Note，不能把其它 Workspace 的 Note 混入当前工作区结果。
+- App File 是 Workspace 数据；`file.write_app_file` 和 `file.read_app_file` 只能访问当前 Workspace 的应用沙箱文件。
+- App File 路径必须是相对路径；绝对路径、空路径和路径穿越必须返回结构化错误，不能访问系统任意文件或其它 Workspace 文件。
 - 长期记忆会自动注入普通对话上下文；Agent 不需要为了使用已注入的长期记忆而先调用 `memory.query`。
 - `memory.query` 只用于用户询问“你记住了什么”、盘点或管理大量记忆等显式记忆管理场景。
 - 长期记忆只保存用户长期偏好、身份信息、常用规则和跨场景稳定事实；当前对话短期状态由会话上下文承载，不写成长记忆。
@@ -142,9 +144,11 @@
 - 正式对话的最小 Agent Loop：模型流式输出、自动发起工具调用、Capability Runtime 执行工具、工具结果回传模型、模型继续回答。
 - Agent Loop 必须具备可调任务预算，并在日志中暴露当前工具调用消耗，方便定位过早停止或循环调用。
 - Agent Loop 必须携带同一会话的近期原文上下文，并在上下文过长时携带较早内容的压缩摘要。
-- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`artifact.create` 和 `artifact.query`。
+- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`artifact.create` 和 `artifact.query`。
 - 当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，Agent 可以调用 `db.note.create` 或 `db.note.query` 读写当前 Workspace 的 Note。
 - `db.note.create` 写入的 Note 必须落到设备本地数据库，而不是只停留在当前进程内存。
+- 当用户要求创建、保存、读取或修改当前工作区文件时，Agent 可以调用 `file.write_app_file` 或 `file.read_app_file` 读写当前 Workspace 的 App File。
+- `file.write_app_file` 写入的文件必须落到当前 Workspace 的应用沙箱文件目录；`file.read_app_file` 只能读取同一 Workspace 的 App File。
 - 当 Agent 生成报告、文档、任务清单、文件摘要或 Web App 等可复用产物时，可以调用 `artifact.create` 写入当前 Workspace 的 Artifact，并在对话中展示 Artifact 卡片或 Web App 卡片。
 - `artifact.query` 只能查询当前 Workspace 的 Artifact，不能把其它 Workspace 的产物混入当前工作区结果。
 - `web.search` 和 `web.fetch` 必须通过 Capability Runtime 接入 Agent Loop；搜索返回结构化结果，网页读取返回适合模型继续处理的正文文本。
@@ -185,6 +189,8 @@
 - `web.search` 或 `web.fetch` 的网络请求、解析或读取失败时，系统必须向 Agent 返回结构化错误，不能导致对话或应用崩溃。
 - AI 能调用本地数据库创建和查询 Note；Note 归属当前 Workspace，切换 Workspace 后不会展示或查询到其它 Workspace 的 Note。
 - 应用重启后，用户此前通过 `db.note.create` 保存的 Note 仍能在对应 Workspace 中展示，并能被 `db.note.query` 查询到。
+- AI 能调用 `file.write_app_file` 和 `file.read_app_file` 在当前 Workspace 应用沙箱内写入和读取文本文件；切换 Workspace 后不能读取其它 Workspace 的文件。
+- `file.write_app_file` 和 `file.read_app_file` 对空路径、绝对路径、路径穿越、文件不存在和覆盖冲突必须返回结构化错误。
 - AI 能调用 `artifact.create` 创建当前 Workspace 的 Artifact，并在对话中展示对应 Artifact 卡片；`artifact.query` 只返回当前 Workspace 的 Artifact。
 - AI 能生成一个本地 Web App，该 App 出现在应用库并可单独打开。
 - Web App 首次运行时按 manifest 请求权限，拒绝后 JSBridge 调用返回结构化错误。

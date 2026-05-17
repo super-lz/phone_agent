@@ -236,6 +236,53 @@ void main() {
     expect(controller.messages.last.blocks.first.data['text'], '已生成报告。');
   });
 
+  test('model tool call can write and read workspace file', () async {
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-file-write',
+                name: 'file_write_app_file',
+                argumentsDelta:
+                    '{"path":"reports/today.md","content":"今天的工作总结"}',
+              ),
+            ],
+          ),
+        ],
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-file-read',
+                name: 'file_read_app_file',
+                argumentsDelta: '{"path":"reports/today.md"}',
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '文件已保存并读回。')],
+      ]),
+    );
+
+    await controller.sendPrompt('保存并读取今天总结');
+
+    final fileBlocks = controller.messages
+        .expand((message) => message.blocks)
+        .where(
+          (block) =>
+              block.type == MessageBlockType.toolResult &&
+              (block.data['capabilityId'] == 'file.write_app_file' ||
+                  block.data['capabilityId'] == 'file.read_app_file'),
+        );
+    expect(fileBlocks.length, 2);
+    expect(controller.messages.last.blocks.first.data['text'], '文件已保存并读回。');
+  });
+
   test('agent loop can continue beyond three tool rounds', () async {
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),

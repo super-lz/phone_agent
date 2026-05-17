@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../domain/files/app_file_store.dart';
 import '../domain/notes/note_store.dart';
 import '../features/workbench/phone_agent_home.dart';
 
 class PhoneAgentApp extends StatelessWidget {
-  const PhoneAgentApp({this.noteStore, super.key});
+  const PhoneAgentApp({this.noteStore, this.fileStore, super.key});
 
   final AgentNoteStore? noteStore;
+  final AppFileStore? fileStore;
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +32,7 @@ class PhoneAgentApp extends StatelessWidget {
           ),
         ),
       ),
-      home: PhoneAgentHome(noteStore: noteStore),
+      home: PhoneAgentHome(noteStore: noteStore, fileStore: fileStore),
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:phone_agent/application/capabilities/capability_runtime.dart';
 import 'package:phone_agent/data/capabilities/web_capability_adapter.dart';
 import 'package:phone_agent/data/models/openai_compatible_chat_client.dart';
 import 'package:phone_agent/domain/artifacts/artifact.dart';
+import 'package:phone_agent/domain/files/app_file_store.dart';
 import 'package:phone_agent/domain/memory/memory.dart';
 import 'package:phone_agent/domain/notes/note.dart';
 import 'package:phone_agent/domain/notes/note_store.dart';
@@ -232,6 +233,103 @@ void main() {
     expect(result.capabilityId, 'db.note.create');
     expect(result.output['ok'], isFalse);
     expect(notes, isEmpty);
+  });
+
+  test(
+    'file_write_app_file and file_read_app_file use workspace file store',
+    () async {
+      final runtime = CapabilityRuntime();
+      final fileStore = InMemoryAppFileStore();
+
+      final writeResult = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-file-write',
+          name: 'file_write_app_file',
+          arguments: {
+            'path': 'reports/summary.md',
+            'content': '# 总结\nPhone Agent 文件能力。',
+          },
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+        fileStore: fileStore,
+      );
+
+      final readResult = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-file-read',
+          name: 'file_read_app_file',
+          arguments: {'path': 'reports/summary.md'},
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+        fileStore: fileStore,
+      );
+
+      expect(writeResult.capabilityId, 'file.write_app_file');
+      expect(writeResult.output['ok'], isTrue);
+      expect(readResult.capabilityId, 'file.read_app_file');
+      expect(readResult.output['ok'], isTrue);
+      expect(readResult.output['content'], contains('Phone Agent 文件能力'));
+    },
+  );
+
+  test('file_read_app_file does not leak files across workspaces', () async {
+    final runtime = CapabilityRuntime();
+    final fileStore = InMemoryAppFileStore();
+
+    await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-file-write-a',
+        name: 'file_write_app_file',
+        arguments: {'path': 'private.txt', 'content': 'workspace a secret'},
+      ),
+      workspaceId: 'workspace-a',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      fileStore: fileStore,
+    );
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-file-read-b',
+        name: 'file_read_app_file',
+        arguments: {'path': 'private.txt'},
+      ),
+      workspaceId: 'workspace-b',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      fileStore: fileStore,
+    );
+
+    expect(result.output['ok'], isFalse);
+    expect(result.output['error'], 'not_found');
+  });
+
+  test('file capability rejects path traversal', () async {
+    final runtime = CapabilityRuntime();
+    final fileStore = InMemoryAppFileStore();
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-file-traversal',
+        name: 'file_write_app_file',
+        arguments: {'path': '../escape.txt', 'content': 'bad'},
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      fileStore: fileStore,
+    );
+
+    expect(result.output['ok'], isFalse);
+    expect(result.output['error'], 'invalid_path');
   });
 
   test('artifact_create writes a workspace artifact', () async {

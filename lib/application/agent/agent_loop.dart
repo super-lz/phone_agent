@@ -2,6 +2,7 @@ import '../../core/logging/app_logger.dart';
 import '../../data/models/openai_compatible_chat_client.dart';
 import '../../domain/artifacts/artifact.dart';
 import '../../domain/conversation/message_block.dart';
+import '../../domain/files/app_file_store.dart';
 import '../../domain/memory/memory.dart';
 import '../../domain/models/model_provider_config.dart';
 import '../../domain/notes/note.dart';
@@ -41,6 +42,7 @@ class AgentLoop {
     required List<AgentNote> allNotes,
     required List<AgentArtifact> allArtifacts,
     required AgentNoteStore noteStore,
+    required AppFileStore fileStore,
     required List<AgentMessage> priorMessages,
     required AddAgentMessage addMessage,
     required ReplaceAgentMessage replaceMessage,
@@ -121,6 +123,7 @@ class AgentLoop {
         allNotes: allNotes,
         allArtifacts: allArtifacts,
         noteStore: noteStore,
+        fileStore: fileStore,
         apiKey: apiKey,
         runState: runState,
         replaceMessage: replaceMessage,
@@ -173,6 +176,8 @@ class AgentLoop {
             '长期记忆已经自动提供在上下文中；普通回答应直接使用这些记忆，不要为了使用记忆而调用 memory_query。'
             '只有当用户明确要求记住、忘记、查看或管理记忆时，才调用记忆工具。'
             '当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，使用 db_note_create 或 db_note_query。'
+            '当用户要求创建、保存、读取或修改当前工作区文件时，使用 file_write_app_file 或 file_read_app_file；'
+            '文件路径必须是当前工作区沙箱内的相对路径。'
             '当你生成报告、文档、任务清单、文件摘要或 Web App 等可复用产物时，使用 artifact_create 保存为 Artifact。'
             '当你需要引用当前工作区已有产物时，使用 artifact_query。'
             '当用户问题需要最新信息、网页资料或来源引用时，必须优先调用 web_search；'
@@ -218,6 +223,7 @@ class AgentLoop {
     required List<AgentNote> allNotes,
     required List<AgentArtifact> allArtifacts,
     required AgentNoteStore noteStore,
+    required AppFileStore fileStore,
     required String apiKey,
     required AgentLoopRunState runState,
     required ReplaceAgentMessage replaceMessage,
@@ -237,6 +243,7 @@ class AgentLoop {
               notes: allNotes,
               artifacts: allArtifacts,
               noteStore: noteStore,
+              fileStore: fileStore,
               apiKey: apiKey,
             )
           : CapabilityExecutionResult(

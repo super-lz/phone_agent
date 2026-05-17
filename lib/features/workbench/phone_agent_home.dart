@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../domain/files/app_file_store.dart';
 import '../../domain/memory/memory.dart';
 import '../../domain/notes/note_store.dart';
 import '../../domain/permissions/permission_policy.dart';
@@ -13,9 +14,10 @@ import 'widgets/workbench_shell.dart';
 import 'widgets/workspace_panel.dart';
 
 class PhoneAgentHome extends StatefulWidget {
-  const PhoneAgentHome({this.noteStore, super.key});
+  const PhoneAgentHome({this.noteStore, this.fileStore, super.key});
 
   final AgentNoteStore? noteStore;
+  final AppFileStore? fileStore;
 
   @override
   State<PhoneAgentHome> createState() => _PhoneAgentHomeState();
@@ -28,7 +30,10 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome> {
   @override
   void initState() {
     super.initState();
-    _controller = WorkbenchController(noteStore: widget.noteStore);
+    _controller = WorkbenchController(
+      noteStore: widget.noteStore,
+      fileStore: widget.fileStore,
+    );
     _controller.addListener(_handleControllerChanged);
   }
 

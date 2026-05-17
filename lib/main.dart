@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'app/phone_agent_app.dart';
 import 'core/logging/app_logger.dart';
 import 'data/bootstrap/phone_agent_seed.dart';
+import 'data/files/local_app_file_store.dart';
 import 'data/notes/sqlite_agent_note_store.dart';
 
 Future<void> main() async {
@@ -10,6 +11,7 @@ Future<void> main() async {
   await AppLogger.initialize();
   runApp(
     PhoneAgentApp(
+      fileStore: LocalAppFileStore(),
       noteStore: SqliteAgentNoteStore(seedNotes: PhoneAgentSeed.notes()),
     ),
   );

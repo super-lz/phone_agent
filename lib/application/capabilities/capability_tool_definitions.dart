@@ -76,6 +76,49 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'file_write_app_file',
+          'description': '把文本内容写入当前 Workspace 的应用沙箱文件。只能使用相对路径，不能访问系统任意路径。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'path': {
+                'type': 'string',
+                'description': '当前 Workspace 文件区内的相对路径，例如 notes/summary.md。',
+              },
+              'content': {'type': 'string', 'description': '要写入的文本内容。'},
+              'overwrite': {
+                'type': 'boolean',
+                'description': '是否覆盖已有文件，默认 true。',
+              },
+            },
+            'required': ['path', 'content'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'file_read_app_file',
+          'description': '读取当前 Workspace 应用沙箱内的文本文件。不能读取其它 Workspace 或系统文件。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'path': {
+                'type': 'string',
+                'description': '当前 Workspace 文件区内的相对路径。',
+              },
+              'max_chars': {
+                'type': 'integer',
+                'description': '最多返回字符数，默认 12000。',
+              },
+            },
+            'required': ['path'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'artifact_create',
           'description':
               '当产出需要后续复用、作为卡片展示或创建本地 Web App 时，把结果保存为当前 Workspace 的 Artifact。',

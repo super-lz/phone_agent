@@ -11,6 +11,7 @@ import '../../../data/models/openai_compatible_chat_client.dart';
 import '../../../domain/artifacts/artifact.dart';
 import '../../../domain/capabilities/capability.dart';
 import '../../../domain/conversation/message_block.dart';
+import '../../../domain/files/app_file_store.dart';
 import '../../../domain/memory/memory.dart';
 import '../../../domain/models/model_provider_config.dart';
 import '../../../domain/notes/note.dart';
@@ -24,12 +25,14 @@ class WorkbenchController extends ChangeNotifier {
     OpenAiCompatibleChatClient? chatClient,
     CapabilityRuntime? capabilityRuntime,
     AgentNoteStore? noteStore,
+    AppFileStore? fileStore,
   }) : _apiKeyStore = apiKeyStore ?? ModelApiKeyStore(),
        _agentLoop = AgentLoop(
          chatClient: chatClient ?? OpenAiCompatibleChatClient(),
          capabilityRuntime: capabilityRuntime ?? CapabilityRuntime(),
        ),
        _noteStore = noteStore ?? InMemoryAgentNoteStore(PhoneAgentSeed.notes()),
+       _fileStore = fileStore ?? InMemoryAppFileStore(),
        _workspaces = PhoneAgentSeed.workspaces(),
        _capabilities = PhoneAgentSeed.capabilities(),
        _messages = PhoneAgentSeed.messages(),
@@ -42,6 +45,7 @@ class WorkbenchController extends ChangeNotifier {
   final ModelApiKeyStore _apiKeyStore;
   final AgentLoop _agentLoop;
   final AgentNoteStore _noteStore;
+  final AppFileStore _fileStore;
   final List<AgentWorkspace> _workspaces;
   final List<CapabilityDefinition> _capabilities;
   final List<AgentMessage> _messages;
@@ -261,6 +265,7 @@ class WorkbenchController extends ChangeNotifier {
         allNotes: _notes,
         allArtifacts: _artifacts,
         noteStore: _noteStore,
+        fileStore: _fileStore,
         priorMessages: priorMessages,
         addMessage: _messages.add,
         replaceMessage: _replaceMessage,

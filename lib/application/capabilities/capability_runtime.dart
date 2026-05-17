@@ -2,12 +2,14 @@ import '../../core/logging/app_logger.dart';
 import '../../data/capabilities/web_capability_adapter.dart';
 import '../../data/models/openai_compatible_chat_client.dart';
 import '../../domain/artifacts/artifact.dart';
+import '../../domain/files/app_file_store.dart';
 import '../../domain/memory/memory.dart';
 import '../../domain/notes/note.dart';
 import '../../domain/notes/note_store.dart';
 import 'artifact_capability_handler.dart';
 import 'capability_execution_result.dart';
 import 'capability_tool_definitions.dart';
+import 'file_capability_handler.dart';
 import 'memory_capability_handler.dart';
 import 'note_capability_handler.dart';
 import 'web_capability_handler.dart';
@@ -19,6 +21,7 @@ class CapabilityRuntime {
   final MemoryCapabilityHandler _memoryHandler =
       const MemoryCapabilityHandler();
   final NoteCapabilityHandler _noteHandler = const NoteCapabilityHandler();
+  final FileCapabilityHandler _fileHandler = const FileCapabilityHandler();
   final ArtifactCapabilityHandler _artifactHandler =
       const ArtifactCapabilityHandler();
   final WebCapabilityHandler _webHandler;
@@ -32,6 +35,7 @@ class CapabilityRuntime {
     required List<AgentNote> notes,
     required List<AgentArtifact> artifacts,
     AgentNoteStore? noteStore,
+    AppFileStore? fileStore,
     String? apiKey,
   }) async {
     AppLogger.info('capability.execute.start', {
@@ -67,6 +71,18 @@ class CapabilityRuntime {
           arguments: toolCall.arguments,
           notes: notes,
           noteStore: noteStore,
+        );
+      case 'file_write_app_file':
+        return await _fileHandler.write(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+        );
+      case 'file_read_app_file':
+        return await _fileHandler.read(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
         );
       case 'artifact_create':
         return _artifactHandler.create(
