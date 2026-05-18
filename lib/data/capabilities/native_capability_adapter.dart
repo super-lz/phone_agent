@@ -36,8 +36,7 @@ class NativeCapabilityAdapter {
 
   Future<Map<String, Object?>> getDeviceInfo() async {
     try {
-      final info = await _deviceInfo.deviceInfo;
-      final data = _jsonSafeMap(info.data);
+      final data = await _readPlatformDeviceData();
       final device = _normalizedDeviceInfo(data);
       return {
         'ok': true,
@@ -53,6 +52,19 @@ class NativeCapabilityAdapter {
         'userMessage': '读取设备信息失败：$error',
       };
     }
+  }
+
+  Future<Map<String, Object?>> _readPlatformDeviceData() async {
+    if (Platform.isAndroid) {
+      final info = await _deviceInfo.androidInfo;
+      return _jsonSafeMap(info.data);
+    }
+    if (Platform.isIOS) {
+      final info = await _deviceInfo.iosInfo;
+      return _jsonSafeMap(info.data);
+    }
+    final info = await _deviceInfo.deviceInfo;
+    return _jsonSafeMap(info.data);
   }
 
   Future<Map<String, Object?>> getCurrentTime() async {
@@ -485,6 +497,10 @@ class NativeCapabilityAdapter {
         'device': data['device'],
         'product': data['product'],
         'hardware': data['hardware'],
+        'board': data['board'],
+        'display': data['display'],
+        'fingerprint': data['fingerprint'],
+        'host': data['host'],
         'osVersion': version['release'] ?? data['version.release'],
         'sdkInt': version['sdkInt'] ?? data['version.sdkInt'],
         'securityPatch': version['securityPatch'],
@@ -520,10 +536,15 @@ class NativeCapabilityAdapter {
 
   String _deviceSummary(Map<String, Object?> device) {
     final model = _stringValue(device['model']) ?? _stringValue(device['name']);
+    final manufacturer = _stringValue(device['manufacturer']);
+    final brand = _stringValue(device['brand']);
     final platform = _stringValue(device['platform']);
     final version = _stringValue(device['osVersion']);
     final physical = device['isPhysicalDevice'] == false ? '，可能是模拟器' : '';
-    final parts = <String>[?model, ?platform, ?version];
+    final maker = manufacturer == null || manufacturer == brand
+        ? brand
+        : '$manufacturer/$brand';
+    final parts = <String>[?maker, ?model, ?platform, ?version];
     return parts.isEmpty
         ? '已读取设备信息$physical。'
         : '当前设备：${parts.join(' · ')}$physical。';

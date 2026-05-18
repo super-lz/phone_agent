@@ -48,7 +48,7 @@ void main() {
     expect(context.recentEntries.single.content, contains('- 切换工作区'));
   });
 
-  test('summarizes tool results without leaking raw metadata', () {
+  test('drops raw tool process from transcript context', () {
     final context = const ConversationContextBuilder(maxRecentChars: 1000)
         .build([
           AgentMessage(
@@ -68,11 +68,7 @@ void main() {
           ),
         ]);
 
-    final content = context.recentEntries.single.content;
-    expect(content, contains('工具调用 location_get_current'));
-    expect(content, contains('当前位置：纬度 31.298900'));
-    expect(content, isNot(contains('hiddenRaw')));
-    expect(content, isNot(contains('不应该进入模型历史')));
+    expect(context.recentEntries, isEmpty);
   });
 
   test('drops nested process block data from transcript context', () {

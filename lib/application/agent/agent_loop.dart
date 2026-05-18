@@ -12,6 +12,7 @@ import '../../domain/permissions/permission_policy.dart';
 import '../../domain/workbench/workbench_store.dart';
 import '../../domain/workspace/workspace.dart';
 import '../capabilities/capability_execution_result.dart';
+import '../capabilities/capability_result_presentation.dart';
 import '../capabilities/capability_runtime.dart';
 import 'agent_loop_budget.dart';
 import 'conversation_context_builder.dart';
@@ -110,6 +111,7 @@ class AgentLoop {
       priorMessages: priorMessages,
       toolIndex: toolRoute.index,
     );
+    final currentTurnToolResults = <CapabilityExecutionResult>[];
 
     for (var round = 0; round < budget.maxModelRounds; round += 1) {
       final assistantMessageId =
@@ -209,6 +211,14 @@ class AgentLoop {
             _modelErrorResponse('模型没有返回文本内容。'),
           );
           notifyChange();
+        } else {
+          _replaceIfToolTranscriptEcho(
+            messageId: assistantMessageId,
+            content: contentBuffer.toString(),
+            toolResults: currentTurnToolResults,
+            replaceMessage: replaceMessage,
+            notifyChange: notifyChange,
+          );
         }
         return;
       }
@@ -231,6 +241,7 @@ class AgentLoop {
             apiKey: apiKey,
             permissionMode: permissionMode,
             runState: runState,
+            currentTurnToolResults: currentTurnToolResults,
             replaceMessage: replaceMessage,
             switchWorkspace: switchWorkspace,
           ) ??
@@ -246,6 +257,7 @@ class AgentLoop {
           addMessage: addMessage,
           replaceMessage: replaceMessage,
           notifyChange: notifyChange,
+          toolResults: currentTurnToolResults,
         );
         return;
       }
@@ -259,6 +271,7 @@ class AgentLoop {
       addMessage: addMessage,
       replaceMessage: replaceMessage,
       notifyChange: notifyChange,
+      toolResults: currentTurnToolResults,
     );
   }
 
@@ -396,6 +409,7 @@ class AgentLoop {
     required String apiKey,
     required PermissionMode permissionMode,
     required AgentLoopRunState runState,
+    required List<CapabilityExecutionResult> currentTurnToolResults,
     required ReplaceAgentMessage replaceMessage,
     required SwitchAgentWorkspace switchWorkspace,
   }) async {
@@ -431,6 +445,7 @@ class AgentLoop {
               },
             );
       runState.recordToolResult(result.output['ok'] == true);
+      currentTurnToolResults.add(result);
       activeWorkspaceId = _switchWorkspaceIfNeeded(
         result: result,
         fallbackWorkspaceId: activeWorkspaceId,
@@ -537,6 +552,7 @@ class AgentLoop {
     required AddAgentMessage addMessage,
     required ReplaceAgentMessage replaceMessage,
     required NotifyAgentLoopChange notifyChange,
+    required List<CapabilityExecutionResult> toolResults,
   }) async {
     modelMessages.add({
       'role': 'system',
@@ -613,7 +629,73 @@ class AgentLoop {
         ),
       );
       notifyChange();
+    } else {
+      _replaceIfToolTranscriptEcho(
+        messageId: assistantMessageId,
+        content: contentBuffer.toString(),
+        toolResults: toolResults,
+        replaceMessage: replaceMessage,
+        notifyChange: notifyChange,
+      );
     }
+  }
+
+  void _replaceIfToolTranscriptEcho({
+    required String messageId,
+    required String content,
+    required List<CapabilityExecutionResult> toolResults,
+    required ReplaceAgentMessage replaceMessage,
+    required NotifyAgentLoopChange notifyChange,
+  }) {
+    if (!_looksLikeToolTranscriptEcho(content) || toolResults.isEmpty) {
+      return;
+    }
+    replaceMessage(
+      messageId,
+      _assistantMarkdownMessage(messageId, _fallbackFinalAnswer(toolResults)),
+    );
+    notifyChange();
+  }
+
+  bool _looksLikeToolTranscriptEcho(String content) {
+    final normalized = content.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.isEmpty) {
+      return false;
+    }
+    final lower = normalized.toLowerCase();
+    return normalized.contains('工具调用') && normalized.contains('工具结果') ||
+        lower.contains('tool call') && lower.contains('tool result') ||
+        lower.contains('capabilityid') ||
+        normalized.contains('{ok:') ||
+        normalized.contains('"ok":');
+  }
+
+  String _fallbackFinalAnswer(List<CapabilityExecutionResult> toolResults) {
+    final visibleResults = toolResults
+        .where(
+          (result) => result.output['ok'] == true || result.output.isNotEmpty,
+        )
+        .toList(growable: false);
+    if (visibleResults.isEmpty) {
+      return '工具已经执行完成，但模型没有生成可用的最终回答。';
+    }
+    if (visibleResults.length == 1) {
+      final presentation = presentCapabilityResult(
+        capabilityId: visibleResults.single.capabilityId,
+        output: visibleResults.single.output,
+      );
+      return presentation.summary;
+    }
+    final lines = visibleResults
+        .map((result) {
+          final presentation = presentCapabilityResult(
+            capabilityId: result.capabilityId,
+            output: result.output,
+          );
+          return '- ${presentation.title}：${presentation.summary}';
+        })
+        .join('\n');
+    return '我已经处理完这些步骤：\n$lines';
   }
 
   AgentMessage _emptyAssistantMessage(String id) {

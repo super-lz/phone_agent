@@ -292,9 +292,14 @@ String _deviceSummary(Map<String, Object?> output) {
     return '已读取设备信息。';
   }
   final model = _stringValue(device['model']) ?? _stringValue(device['name']);
+  final manufacturer = _stringValue(device['manufacturer']);
+  final brand = _stringValue(device['brand']);
   final platform = _stringValue(device['platform']);
   final version = _stringValue(device['osVersion']);
-  final parts = <String>[?model, ?platform, ?version];
+  final maker = manufacturer == null || manufacturer == brand
+      ? brand
+      : '$manufacturer/$brand';
+  final parts = <String>[?maker, ?model, ?platform, ?version];
   return parts.isEmpty ? '已读取设备信息。' : '当前设备：${parts.join(' · ')}。';
 }
 
@@ -329,13 +334,18 @@ String _locationSummary(Map<String, Object?> output) {
   final latitude = output['latitude'];
   final longitude = output['longitude'];
   final accuracy = output['accuracy'];
+  final address = _stringValue(output['address']);
   if (latitude is! num || longitude is! num) {
-    return '已获取当前位置。';
+    return address == null ? '已获取当前位置。' : '当前位置：$address。';
   }
   final accuracyText = accuracy is num
       ? '，精度约 ${accuracy.toStringAsFixed(0)} 米'
       : '';
-  return '当前位置：纬度 ${latitude.toStringAsFixed(6)}，经度 ${longitude.toStringAsFixed(6)}$accuracyText。';
+  final coordinateText =
+      '纬度 ${latitude.toStringAsFixed(6)}，经度 ${longitude.toStringAsFixed(6)}';
+  return address == null
+      ? '当前位置：$coordinateText$accuracyText。'
+      : '当前位置：$address（$coordinateText$accuracyText）。';
 }
 
 String _notificationSummary(Map<String, Object?> output) {

@@ -1,6 +1,5 @@
 import '../../core/logging/app_logger.dart';
 import '../../domain/conversation/message_block.dart';
-import '../capabilities/capability_result_presentation.dart';
 
 class ConversationContextBuilder {
   const ConversationContextBuilder({
@@ -66,10 +65,6 @@ class ConversationContextBuilder {
         final language = block.data['language'] as String? ?? '';
         final code = block.data['code'] as String? ?? '';
         return '代码块($language):\n$code';
-      case MessageBlockType.toolCall:
-        return '工具调用 ${block.data['capabilityId']}';
-      case MessageBlockType.toolResult:
-        return _toolResultSummary(block);
       case MessageBlockType.image:
         return '图片附件: ${_attachmentSummary(block)}';
       case MessageBlockType.fileAttachment:
@@ -85,24 +80,13 @@ class ConversationContextBuilder {
         return 'Artifact ${block.data['title']}: ${block.data['artifactId']}';
       case MessageBlockType.errorCard:
         return '错误 ${block.data['title']}: ${block.data['detail']}';
+      case MessageBlockType.toolCall:
+      case MessageBlockType.toolResult:
       case MessageBlockType.approvalRequest:
       case MessageBlockType.taskProgress:
       case MessageBlockType.citation:
         return '';
     }
-  }
-
-  String _toolResultSummary(MessageBlock block) {
-    final capabilityId = block.data['capabilityId'];
-    final output = block.data['output'];
-    if (capabilityId is! String || output is! Map<String, Object?>) {
-      return '工具结果';
-    }
-    final presentation = presentCapabilityResult(
-      capabilityId: capabilityId,
-      output: output,
-    );
-    return '工具结果 ${presentation.title}: ${presentation.summary}';
   }
 
   String _attachmentSummary(MessageBlock block) {

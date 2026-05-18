@@ -644,6 +644,46 @@ void main() {
     expect(controller.messages.last.blocks.first.data['text'], '已获取当前位置。');
   });
 
+  test(
+    'model tool process echo is replaced with readable final answer',
+    () async {
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        capabilityRuntime: CapabilityRuntime(
+          nativeAdapter: _FakeNativeAdapter(),
+        ),
+        chatClient: _FakeChatClient([
+          [
+            const ChatStreamEvent(
+              toolCallDeltas: [
+                ToolCallDelta(
+                  index: 0,
+                  id: 'call-location',
+                  name: 'location_get_current',
+                  argumentsDelta: '{}',
+                ),
+              ],
+            ),
+          ],
+          [
+            const ChatStreamEvent(
+              contentDelta:
+                  '工具调用 location_get_current: {} 工具结果 location.get_current: {ok: true, latitude: 31.2304, longitude: 121.4737}',
+            ),
+          ],
+        ]),
+      );
+
+      await controller.sendPrompt('我在哪');
+
+      final finalText = controller.messages.last.blocks.first.data['text'];
+      expect(finalText, isA<String>());
+      expect(finalText as String, contains('当前位置'));
+      expect(finalText, isNot(contains('工具调用')));
+      expect(finalText, isNot(contains('{ok:')));
+    },
+  );
+
   test('model tool call can read current time capability', () async {
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),
