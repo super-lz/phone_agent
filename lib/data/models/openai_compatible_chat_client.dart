@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -66,9 +68,10 @@ class ChatStreamEvent {
 }
 
 class ModelRequestException implements Exception {
-  const ModelRequestException(this.message);
+  const ModelRequestException(this.message, {this.isRetryable = false});
 
   final String message;
+  final bool isRetryable;
 
   @override
   String toString() {
@@ -127,7 +130,17 @@ class OpenAiCompatibleChatClient {
         if (tools.isNotEmpty) 'tool_choice': 'auto',
       });
 
-    final response = await _httpClient.send(request).timeout(requestTimeout);
+    late final http.StreamedResponse response;
+    try {
+      response = await _httpClient.send(request).timeout(requestTimeout);
+    } on Object catch (error, stackTrace) {
+      throw _modelRequestExceptionFor(
+        error,
+        stackTrace,
+        provider: provider,
+        stage: 'connect',
+      );
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final body = await response.stream.bytesToString();
       AppLogger.warning('model.stream_chat.http_error', {
@@ -137,22 +150,31 @@ class OpenAiCompatibleChatClient {
       throw ModelRequestException('HTTP ${response.statusCode}: $body');
     }
 
-    await for (final line
-        in response.stream
-            .transform(utf8.decoder)
-            .transform(const LineSplitter())) {
-      final chunk = _parseSseDataLine(line);
-      if (chunk == null) {
-        continue;
-      }
-      if (chunk == '[DONE]') {
-        return;
-      }
+    try {
+      await for (final line
+          in response.stream
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())) {
+        final chunk = _parseSseDataLine(line);
+        if (chunk == null) {
+          continue;
+        }
+        if (chunk == '[DONE]') {
+          return;
+        }
 
-      final event = _extractStreamEvent(chunk);
-      if (!event.isEmpty) {
-        yield event;
+        final event = _extractStreamEvent(chunk);
+        if (!event.isEmpty) {
+          yield event;
+        }
       }
+    } on Object catch (error, stackTrace) {
+      throw _modelRequestExceptionFor(
+        error,
+        stackTrace,
+        provider: provider,
+        stage: 'receive',
+      );
     }
   }
 
@@ -330,6 +352,51 @@ class OpenAiCompatibleChatClient {
           body: jsonEncode(body),
         )
         .timeout(requestTimeout);
+  }
+
+  ModelRequestException _modelRequestExceptionFor(
+    Object error,
+    StackTrace stackTrace, {
+    required ModelProviderConfig provider,
+    required String stage,
+  }) {
+    if (error is ModelRequestException) {
+      return error;
+    }
+
+    final rawMessage = error.toString();
+    final isTimeout = error is TimeoutException;
+    final isTransient = isTimeout || _isTransientConnectionError(error);
+    final message = isTimeout
+        ? '模型请求超时，请检查网络后重试。'
+        : isTransient
+        ? '模型流式连接中断，可能是应用切到后台、网络切换或系统关闭了连接。请回到前台并保持网络稳定后重试。'
+        : '模型请求失败：$rawMessage';
+
+    AppLogger.error('model.stream_chat.$stage.exception', error, stackTrace, {
+      'provider': provider.id,
+      'model': provider.model,
+      'retryable': isTransient,
+    });
+    return ModelRequestException(message, isRetryable: isTransient);
+  }
+
+  bool _isTransientConnectionError(Object error) {
+    if (error is SocketException) {
+      return true;
+    }
+    if (error is http.ClientException) {
+      return true;
+    }
+
+    final message = error.toString().toLowerCase();
+    return message.contains('connection closed') ||
+        message.contains('connection reset') ||
+        message.contains('connection aborted') ||
+        message.contains('broken pipe') ||
+        message.contains('receive data') ||
+        message.contains('receiving data') ||
+        message.contains('network is unreachable');
   }
 
   String _extractAssistantTextFromBody(String body) {

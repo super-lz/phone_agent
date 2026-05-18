@@ -114,9 +114,20 @@ class PhoneAgentSeed {
       CapabilityRisk.low,
     ),
     _capability(
+      'project.create_web_app',
+      CapabilityAdapter.file,
+      CapabilityRisk.low,
+    ),
+    _capability(
+      'file.apply_text_patch',
+      CapabilityAdapter.file,
+      CapabilityRisk.medium,
+    ),
+    _capability(
       'location.get_current',
       CapabilityAdapter.native,
       CapabilityRisk.medium,
+      requiredPermissions: const ['location'],
     ),
     _capability(
       'clipboard.read',
@@ -132,6 +143,7 @@ class PhoneAgentSeed {
       'notification.schedule',
       CapabilityAdapter.native,
       CapabilityRisk.medium,
+      requiredPermissions: const ['notifications'],
     ),
     _capability(
       'calendar.event.create',
@@ -183,15 +195,16 @@ class PhoneAgentSeed {
   static CapabilityDefinition _capability(
     String id,
     CapabilityAdapter adapter,
-    CapabilityRisk risk,
-  ) {
+    CapabilityRisk risk, {
+    List<String> requiredPermissions = const [],
+  }) {
     return CapabilityDefinition(
       id: id,
       description: 'Built-in capability: $id',
       inputSchema: const {'type': 'object'},
       outputSchema: const {'type': 'object'},
       risk: risk,
-      requiredPermissions: const [],
+      requiredPermissions: requiredPermissions,
       adapter: adapter,
     );
   }

@@ -1,0 +1,464 @@
+import 'dart:convert';
+
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart';
+
+import '../../domain/artifacts/artifact.dart';
+import '../../domain/capabilities/capability.dart';
+import '../../domain/conversation/message_block.dart';
+import '../../domain/memory/memory.dart';
+import '../../domain/workbench/workbench_store.dart';
+import '../../domain/workspace/workspace.dart';
+
+class SqliteWorkbenchStore implements WorkbenchStore {
+  SqliteWorkbenchStore() : _dbPath = null;
+
+  SqliteWorkbenchStore.forPath(String dbPath) : _dbPath = dbPath;
+
+  final String? _dbPath;
+  Database? _database;
+
+  @override
+  Future<void> initialize({
+    required List<AgentWorkspace> seedWorkspaces,
+    required List<AgentMemory> seedMemories,
+    required List<AgentArtifact> seedArtifacts,
+    required List<AgentMessage> seedMessages,
+    required String defaultWorkspaceId,
+  }) async {
+    final db = await _open();
+    await _seedWorkspaces(db, seedWorkspaces);
+    await _seedMemories(db, seedMemories);
+    await _seedArtifacts(db, seedArtifacts);
+    await _seedMessages(db, defaultWorkspaceId, seedMessages);
+    final currentWorkspaceId = await loadCurrentWorkspaceId();
+    if (currentWorkspaceId == null || currentWorkspaceId.isEmpty) {
+      await saveCurrentWorkspaceId(defaultWorkspaceId);
+    }
+  }
+
+  @override
+  Future<List<AgentWorkspace>> loadWorkspaces() async {
+    final rows = await (await _open()).query(
+      'workspaces',
+      orderBy: 'created_at ASC',
+    );
+    return rows.map(_workspaceFromRow).toList(growable: false);
+  }
+
+  @override
+  Future<String?> loadCurrentWorkspaceId() async {
+    final rows = await (await _open()).query(
+      'app_state',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: ['current_workspace_id'],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    return rows.first['value'] as String?;
+  }
+
+  @override
+  Future<void> saveCurrentWorkspaceId(String workspaceId) async {
+    await (await _open()).insert('app_state', {
+      'key': 'current_workspace_id',
+      'value': workspaceId,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  @override
+  Future<void> upsertWorkspace(AgentWorkspace workspace) async {
+    await (await _open()).insert(
+      'workspaces',
+      _workspaceToRow(workspace),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<List<AgentMemory>> loadMemories() async {
+    final rows = await (await _open()).query(
+      'memories',
+      orderBy: 'created_at DESC',
+    );
+    return rows.map(_memoryFromRow).toList(growable: false);
+  }
+
+  @override
+  Future<void> upsertMemory(AgentMemory memory) async {
+    await (await _open()).insert(
+      'memories',
+      _memoryToRow(memory),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<void> deleteMemory(String memoryId) async {
+    await (await _open()).delete(
+      'memories',
+      where: 'id = ?',
+      whereArgs: [memoryId],
+    );
+  }
+
+  @override
+  Future<List<AgentArtifact>> loadArtifacts() async {
+    final rows = await (await _open()).query(
+      'artifacts',
+      orderBy: 'created_at DESC',
+    );
+    return rows.map(_artifactFromRow).toList(growable: false);
+  }
+
+  @override
+  Future<void> upsertArtifact(AgentArtifact artifact) async {
+    await (await _open()).insert(
+      'artifacts',
+      _artifactToRow(artifact),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<List<AgentMessage>> loadMessages(String workspaceId) async {
+    final rows = await (await _open()).query(
+      'messages',
+      where: 'workspace_id = ?',
+      whereArgs: [workspaceId],
+      orderBy: 'created_at ASC',
+    );
+    return rows.map(_messageFromRow).toList(growable: false);
+  }
+
+  @override
+  Future<void> upsertMessage({
+    required String workspaceId,
+    required AgentMessage message,
+  }) async {
+    await (await _open()).insert(
+      'messages',
+      _messageToRow(workspaceId, message),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<void> recordInvocation(CapabilityInvocation invocation) async {
+    await (await _open()).insert(
+      'capability_invocations',
+      _invocationToRow(invocation),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<List<CapabilityInvocation>> loadInvocations() async {
+    final rows = await (await _open()).query(
+      'capability_invocations',
+      orderBy: 'created_at ASC',
+    );
+    return rows.map(_invocationFromRow).toList(growable: false);
+  }
+
+  @override
+  Future<void> close() async {
+    final db = _database;
+    _database = null;
+    await db?.close();
+  }
+
+  Future<Database> _open() async {
+    final existing = _database;
+    if (existing != null) {
+      await _ensureSchema(existing);
+      return existing;
+    }
+    final dbPath = _dbPath ?? await _defaultDbPath();
+    final db = await openDatabase(
+      dbPath,
+      version: 1,
+      onCreate: (database, version) async => _ensureSchema(database),
+      onOpen: _ensureSchema,
+    );
+    _database = db;
+    await _ensureSchema(db);
+    return db;
+  }
+
+  Future<String> _defaultDbPath() async {
+    final directory = await getApplicationDocumentsDirectory();
+    return p.join(directory.path, 'phone_agent.sqlite');
+  }
+
+  Future<void> _ensureSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS workspaces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS app_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS memories (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS artifacts (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        uri TEXT,
+        metadata_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        blocks_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS capability_invocations (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        capability_id TEXT NOT NULL,
+        input_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        permission_decision TEXT,
+        output_json TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_messages_workspace '
+      'ON messages(workspace_id, created_at)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_artifacts_workspace '
+      'ON artifacts(workspace_id, created_at)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_invocations_workspace '
+      'ON capability_invocations(workspace_id, created_at)',
+    );
+  }
+
+  Future<void> _seedWorkspaces(
+    Database db,
+    List<AgentWorkspace> seedWorkspaces,
+  ) async {
+    final count = Sqflite.firstIntValue(
+      await db.rawQuery('SELECT COUNT(*) FROM workspaces'),
+    );
+    if (count != 0) {
+      return;
+    }
+    await db.transaction((transaction) async {
+      for (final workspace in seedWorkspaces) {
+        await transaction.insert('workspaces', _workspaceToRow(workspace));
+      }
+    });
+  }
+
+  Future<void> _seedMemories(
+    Database db,
+    List<AgentMemory> seedMemories,
+  ) async {
+    final count = Sqflite.firstIntValue(
+      await db.rawQuery('SELECT COUNT(*) FROM memories'),
+    );
+    if (count != 0) {
+      return;
+    }
+    await db.transaction((transaction) async {
+      for (final memory in seedMemories) {
+        await transaction.insert('memories', _memoryToRow(memory));
+      }
+    });
+  }
+
+  Future<void> _seedArtifacts(
+    Database db,
+    List<AgentArtifact> seedArtifacts,
+  ) async {
+    final count = Sqflite.firstIntValue(
+      await db.rawQuery('SELECT COUNT(*) FROM artifacts'),
+    );
+    if (count != 0) {
+      return;
+    }
+    await db.transaction((transaction) async {
+      for (final artifact in seedArtifacts) {
+        await transaction.insert('artifacts', _artifactToRow(artifact));
+      }
+    });
+  }
+
+  Future<void> _seedMessages(
+    Database db,
+    String workspaceId,
+    List<AgentMessage> seedMessages,
+  ) async {
+    final count = Sqflite.firstIntValue(
+      await db.rawQuery(
+        'SELECT COUNT(*) FROM messages WHERE workspace_id = ?',
+        [workspaceId],
+      ),
+    );
+    if (count != 0) {
+      return;
+    }
+    await db.transaction((transaction) async {
+      for (final message in seedMessages) {
+        await transaction.insert(
+          'messages',
+          _messageToRow(workspaceId, message),
+        );
+      }
+    });
+  }
+
+  Map<String, Object?> _workspaceToRow(AgentWorkspace workspace) => {
+    'id': workspace.id,
+    'name': workspace.name,
+    'description': workspace.description,
+    'created_at': workspace.createdAt.toIso8601String(),
+  };
+
+  AgentWorkspace _workspaceFromRow(Map<String, Object?> row) => AgentWorkspace(
+    id: row['id']! as String,
+    name: row['name']! as String,
+    description: row['description']! as String,
+    createdAt: DateTime.parse(row['created_at']! as String),
+  );
+
+  Map<String, Object?> _memoryToRow(AgentMemory memory) => {
+    'id': memory.id,
+    'content': memory.content,
+    'created_at': memory.createdAt.toIso8601String(),
+  };
+
+  AgentMemory _memoryFromRow(Map<String, Object?> row) => AgentMemory(
+    id: row['id']! as String,
+    content: row['content']! as String,
+    createdAt: DateTime.parse(row['created_at']! as String),
+  );
+
+  Map<String, Object?> _artifactToRow(AgentArtifact artifact) => {
+    'id': artifact.id,
+    'workspace_id': artifact.workspaceId,
+    'type': artifact.type.name,
+    'title': artifact.title,
+    'summary': artifact.summary,
+    'uri': artifact.uri?.toString(),
+    'metadata_json': jsonEncode(artifact.metadata),
+    'created_at': artifact.createdAt.toIso8601String(),
+  };
+
+  AgentArtifact _artifactFromRow(Map<String, Object?> row) => AgentArtifact(
+    id: row['id']! as String,
+    workspaceId: row['workspace_id']! as String,
+    type: ArtifactType.values.byName(row['type']! as String),
+    title: row['title']! as String,
+    summary: row['summary']! as String,
+    uri: (row['uri'] as String?) == null
+        ? null
+        : Uri.parse(row['uri']! as String),
+    metadata: _decodeMap(row['metadata_json']! as String),
+    createdAt: DateTime.parse(row['created_at']! as String),
+  );
+
+  Map<String, Object?> _messageToRow(
+    String workspaceId,
+    AgentMessage message,
+  ) => {
+    'id': message.id,
+    'workspace_id': workspaceId,
+    'role': message.role.name,
+    'blocks_json': jsonEncode(
+      message.blocks
+          .map((block) => {'type': block.type.name, 'data': block.data})
+          .toList(growable: false),
+    ),
+    'created_at': message.createdAt.toIso8601String(),
+  };
+
+  AgentMessage _messageFromRow(Map<String, Object?> row) => AgentMessage(
+    id: row['id']! as String,
+    role: MessageRole.values.byName(row['role']! as String),
+    createdAt: DateTime.parse(row['created_at']! as String),
+    blocks: _decodeList(row['blocks_json']! as String)
+        .map((item) {
+          final map = _objectMap(item);
+          return MessageBlock(
+            type: MessageBlockType.values.byName(map['type']! as String),
+            data: _objectMap(map['data']),
+          );
+        })
+        .toList(growable: false),
+  );
+
+  Map<String, Object?> _invocationToRow(CapabilityInvocation invocation) => {
+    'id': invocation.id,
+    'workspace_id': invocation.workspaceId,
+    'capability_id': invocation.capabilityId,
+    'input_json': jsonEncode(invocation.input),
+    'status': invocation.status.name,
+    'permission_decision': invocation.permissionDecision,
+    'output_json': invocation.output == null
+        ? null
+        : jsonEncode(invocation.output),
+    'error': invocation.error,
+    'created_at': invocation.createdAt.toIso8601String(),
+  };
+
+  CapabilityInvocation _invocationFromRow(Map<String, Object?> row) =>
+      CapabilityInvocation(
+        id: row['id']! as String,
+        workspaceId: row['workspace_id']! as String,
+        capabilityId: row['capability_id']! as String,
+        input: _decodeMap(row['input_json']! as String),
+        status: CapabilityInvocationStatus.values.byName(
+          row['status']! as String,
+        ),
+        permissionDecision: row['permission_decision'] as String?,
+        output: row['output_json'] == null
+            ? null
+            : _decodeMap(row['output_json']! as String),
+        error: row['error'] as String?,
+        createdAt: DateTime.parse(row['created_at']! as String),
+      );
+
+  Map<String, Object?> _decodeMap(String value) =>
+      _objectMap(jsonDecode(value));
+
+  List<Object?> _decodeList(String value) =>
+      (jsonDecode(value) as List<Object?>).toList(growable: false);
+
+  Map<String, Object?> _objectMap(Object? value) {
+    final map = value as Map<Object?, Object?>;
+    return map.map((key, value) => MapEntry(key.toString(), value));
+  }
+}

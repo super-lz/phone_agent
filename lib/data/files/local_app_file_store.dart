@@ -61,13 +61,42 @@ class LocalAppFileStore implements AppFileStore {
     );
   }
 
+  @override
+  Future<List<AppFileEntry>> listFiles({required String workspaceId}) async {
+    final workspaceRoot = await _workspaceFilesRoot(workspaceId);
+    if (!await workspaceRoot.exists()) {
+      return const [];
+    }
+    final entries = <AppFileEntry>[];
+    await for (final entity in workspaceRoot.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is! File) {
+        continue;
+      }
+      final stat = await entity.stat();
+      final relativePath = p
+          .relative(entity.path, from: workspaceRoot.path)
+          .replaceAll('\\', '/');
+      entries.add(
+        AppFileEntry(
+          path: relativePath,
+          uri: entity.uri,
+          bytes: stat.size,
+          modifiedAt: stat.modified,
+        ),
+      );
+    }
+    entries.sort((a, b) => a.path.compareTo(b.path));
+    return entries;
+  }
+
   Future<File> _fileFor({
     required String workspaceId,
     required String normalizedPath,
   }) async {
-    final root = await _root();
-    final workspaceSegment = Uri.encodeComponent(workspaceId);
-    final workspaceRoot = p.join(root.path, workspaceSegment, 'files');
+    final workspaceRoot = (await _workspaceFilesRoot(workspaceId)).path;
     final fullPath = p.joinAll([workspaceRoot, ...normalizedPath.split('/')]);
     final normalizedFullPath = p.normalize(fullPath);
     final normalizedWorkspaceRoot = p.normalize(workspaceRoot);
@@ -79,6 +108,12 @@ class LocalAppFileStore implements AppFileStore {
       );
     }
     return File(normalizedFullPath);
+  }
+
+  Future<Directory> _workspaceFilesRoot(String workspaceId) async {
+    final root = await _root();
+    final workspaceSegment = Uri.encodeComponent(workspaceId);
+    return Directory(p.join(root.path, workspaceSegment, 'files'));
   }
 
   Future<Directory> _root() async {

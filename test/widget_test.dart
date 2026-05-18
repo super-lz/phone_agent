@@ -1,6 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone_agent/app/phone_agent_app.dart';
+import 'package:phone_agent/data/models/model_api_key_store.dart';
+import 'package:phone_agent/data/models/openai_compatible_chat_client.dart';
+import 'package:phone_agent/domain/models/model_provider_config.dart';
 
 void main() {
   testWidgets('renders Phone Agent workbench', (tester) async {
@@ -54,19 +59,19 @@ void main() {
 
   testWidgets('prompt can create a web app artifact', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 900));
-    await tester.pumpWidget(const PhoneAgentApp());
+    await tester.pumpWidget(_appWithWebAppModel());
 
     await tester.enterText(find.byType(TextField), '帮我创建一个备忘录应用');
     await tester.tap(find.widgetWithText(FilledButton, '发送'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('已创建 Web App Artifact'), findsOneWidget);
-    expect(find.textContaining('AI 生成的本地 Web 小应用'), findsWidgets);
+    expect(find.textContaining('已生成 Web App'), findsOneWidget);
+    expect(find.textContaining('测试备忘录 Web App'), findsWidgets);
   });
 
   testWidgets('chat web app card opens preview page', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 900));
-    await tester.pumpWidget(const PhoneAgentApp());
+    await tester.pumpWidget(_appWithWebAppModel());
 
     await tester.enterText(find.byType(TextField), '帮我创建一个备忘录应用');
     await tester.tap(find.widgetWithText(FilledButton, '发送'));
@@ -77,4 +82,68 @@ void main() {
     expect(find.text('权限确认'), findsOneWidget);
     expect(find.text('允许并打开'), findsOneWidget);
   });
+}
+
+PhoneAgentApp _appWithWebAppModel() {
+  return PhoneAgentApp(
+    apiKeyStore: _FakeApiKeyStore('test-key'),
+    chatClient: _FakeChatClient([
+      [_webAppToolCallRound()],
+      [const ChatStreamEvent(contentDelta: '已生成 Web App。')],
+    ]),
+  );
+}
+
+ChatStreamEvent _webAppToolCallRound() {
+  return ChatStreamEvent(
+    toolCallDeltas: [
+      ToolCallDelta(
+        index: 0,
+        id: 'call-webapp-widget',
+        name: 'artifact_create',
+        argumentsDelta: jsonEncode({
+          'type': 'web_app',
+          'title': '测试备忘录 Web App',
+          'summary': '用于验证聊天卡片可以打开预览。',
+          'content_html': '<main><h1>测试备忘录</h1></main>',
+          'metadata': {
+            'entry': 'index.html',
+            'permissions': ['db.note.create', 'db.note.query'],
+          },
+        }),
+      ),
+    ],
+  );
+}
+
+class _FakeApiKeyStore extends ModelApiKeyStore {
+  _FakeApiKeyStore(this.apiKey);
+
+  final String? apiKey;
+
+  @override
+  Future<String?> readApiKey(String providerId) async {
+    return apiKey;
+  }
+}
+
+class _FakeChatClient extends OpenAiCompatibleChatClient {
+  _FakeChatClient(this.rounds);
+
+  final List<List<ChatStreamEvent>> rounds;
+  int callCount = 0;
+
+  @override
+  Stream<ChatStreamEvent> streamChat({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+    List<Map<String, Object?>> tools = const [],
+  }) async* {
+    final events = rounds[callCount];
+    callCount += 1;
+    for (final event in events) {
+      yield event;
+    }
+  }
 }

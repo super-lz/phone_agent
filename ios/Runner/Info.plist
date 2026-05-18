@@ -24,6 +24,11 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Phone Agent 只会在你明确要求使用当前位置时获取定位，用于完成当前对话任务。</string>
 	<key>NSCalendarsUsageDescription</key>
@@ -34,6 +39,10 @@
 	<string>Phone Agent 只会在你明确要求创建日历事件时写入日历事件。</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Phone Agent 不读取通讯录；系统日历界面可能需要此权限用于地点或邀请人补全。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Phone Agent 的本地 Web App 只有在你打开并授权的页面请求相机时才会使用相机。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Phone Agent 的本地 Web App 只有在你打开并授权的页面请求麦克风时才会使用麦克风。</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

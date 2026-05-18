@@ -17,7 +17,7 @@
 - 第一版本不实现语音输入或输出、不实现远程终端、不建设云端运行时、不做后台长期自主执行、不做插件市场、不允许任意网页默认调用手机能力、不实现 iOS 本机 shell、不实现完整 Office 编辑器。
 - 终端是未来高级后备能力；如果手机本地 Capability 足够强，第一版本可以完全不实现终端。
 - 远端运行时只保留抽象入口，不作为第一版本验收条件。
-- 第一版本默认使用阿里云百炼 OpenAI 兼容接口接入 `qwen3.6-flash-2026-04-16` 进行模型联调；面向用户的模型设置页当前只要求填写百炼通用 API Key，其它上下文和生成参数使用推荐默认值。
+- 第一版本默认使用阿里云百炼 OpenAI 兼容接口接入 `qwen3.6-flash-2026-04-16` 进行模型联调；面向用户的模型设置页允许填写百炼通用 API Key，并可覆盖模型名称，其它上下文和生成参数使用推荐默认值。
 
 ## 核心流程
 
@@ -27,7 +27,7 @@
 2. 系统把全局长期记忆、同一会话上下文、当前 Workspace 数据上下文、附件摘要和可用 Capability 一起提供给 Agent；用户不应需要重复告诉 AI 已保存的偏好、稳定事实或本会话前面已经说过的关键信息。
 3. Agent 必须在正式对话中以流式方式输出 Markdown，也可以通过 OpenAI 兼容工具调用协议发起工具调用、权限请求、TODO 更新、任务进度和 Artifact 创建。
 4. Capability Runtime 校验工具输入、权限策略和执行边界后调用对应 adapter。
-5. 工具结果以结构化结果返回给 Agent，并以工具轨迹展示给用户；联网搜索和网页解析结果必须优先展示为可读结果卡片，而不是只暴露原始 Map 文本。
+5. 工具结果以结构化结果返回给 Agent，并以工具轨迹展示给用户；同一次用户请求中的中间模型轮次、工具调用和工具结果默认应收敛到同一个回复气泡的折叠执行过程里，最终回答和可复用产物卡片保持外露；模型准备工具调用前已经输出的临时说明或代码也应归入折叠过程，不能在生成中用大段源码淹没会话；联网搜索和网页解析结果必须优先展示为可读结果卡片，而不是只暴露原始 Map 文本。
 6. Agent 基于工具结果继续回答；失败时说明原因并给出替代方案。
 7. 单次用户请求的自动工具调用必须使用任务预算，而不是很低的固定演示轮数；预算至少要同时约束模型轮次、总工具调用次数和连续工具失败次数。
 8. 任务预算应足以支持复杂任务的多步搜索、读取、记忆和本地能力调用；达到预算或连续失败保护时，系统必须停止继续调用工具，并要求 Agent 基于已有结果给出最终回答。
@@ -37,9 +37,9 @@
 
 1. 用户可以进入模型设置页选择模型厂商。
 2. 第一版本内置阿里云百炼 `qwen3.6-flash-2026-04-16` 配置。
-3. 用户当前只需要填写和保存 API Key。
+3. 用户可以填写和保存 API Key，也可以把模型名称改成同一 OpenAI 兼容接口下可用的其它百炼模型。
 4. 系统必须安全保存 API Key，不把密钥写入普通日志、对话消息或 Artifact。
-5. 系统提供测试连接入口，用默认推荐参数向当前模型发起最小请求，并把成功或失败原因反馈给用户。
+5. 系统提供测试连接入口，用当前配置的模型名称和默认推荐参数发起最小请求，并把成功或失败原因反馈给用户。
 
 ### Artifact 创建与复用
 
@@ -66,6 +66,10 @@
 5. Web App 首次运行时按 manifest 请求权限。
 6. Web App 通过 JSBridge 调用受控 Capability。
 7. 权限拒绝、能力不可用或调用失败时，JSBridge 返回结构化错误。
+8. Web App 运行时应在平台允许范围内启用本地 HTML/CSS/JS 所需的媒体播放、文件选择和受控设备权限请求；Android WebView 内核版本由系统 WebView 提供，应用只能配置运行能力，不能承诺内置升级内核。
+9. AI 生成 Web App 时，凡网页脚本需要调用手机能力，都必须在 manifest/metadata permissions 中声明精确 Capability，并通过 `window.PhoneAgent.callCapability(id, input)` 调用，不能假装直接访问手机原生能力。
+10. AI 生成 Web App 时默认按手机竖屏和触摸交互设计；页面必须适配常见手机宽度、安全区域和移动端性能，不应默认生成桌面优先、多列侧栏、依赖 hover 或密集小字号的布局。
+11. Web App 运行时应把页面运行过程中的 warning、error、未捕获异常和未处理 Promise 拒绝写入该 Web App 项目目录下的运行日志，供后续 AI 维护时读取并结合用户反馈修复。
 
 ### Skill 与 MCP
 
@@ -84,9 +88,10 @@
 - Artifact Store：保存可复用产物及其归属、类型、元数据和内容位置。
 - Memory Store：保存用户全局长期记忆。
 - Workspace Store：保存 Workspace、当前工作区、工作区内会话、文件、Artifact、Web App 和任务数据。
-- Model Settings：保存模型厂商、默认模型、默认参数和用户 API Key。
+- Model Settings：保存模型厂商、默认模型、用户覆盖的模型名称、默认参数和用户 API Key。
 - Capability Runtime：统一注册、发现、校验和调度所有能力。
 - Permission Policy：把用户三档权限模式、Capability 风险等级和高级配置映射为允许、询问或拒绝。
+- System Permission Registry：统一记录手机系统权限的业务含义、当前授权状态、受影响 Capability、申请入口和系统设置入口。
 - Audit Log：记录所有 Capability 调用、权限决策、执行结果和失败原因。
 - App Log：记录应用运行、模型请求、Capability 调用、联网搜索、异常和诊断信息；控制台至少输出 info 以上级别日志，本地必须写入可定位的日志文件。
 - Native / Search / File / DB / MCP / Skill / WebView adapters：实现具体能力来源。
@@ -125,6 +130,8 @@
 - 面向用户只提供三档权限模式：默认权限、自动审查、完全访问权限。
 - 高级用户后续可以通过配置文件自定义 allowlist 和 denylist。
 - 默认模式下，高风险能力必须确认；完全访问权限也必须保留审计日志。
+- 手机系统运行时权限必须由统一权限申请服务检查和申请；手机原生 Capability 不应在各自 adapter 中分散实现权限申请流程。
+- 用户必须能在统一权限列表页查看当前系统权限状态；当权限可在 App 内申请时可以直接申请，当权限被永久拒绝、受系统限制、服务关闭或无法在 App 内恢复时，必须提供跳转系统设置的入口。
 - 当前默认模型提供方为阿里云百炼，默认模型为 `qwen3.6-flash-2026-04-16`，默认 OpenAI 兼容 Base URL 为 `https://dashscope.aliyuncs.com/compatible-mode/v1/`。
 - `qwen3.6-flash-2026-04-16` 当前推荐默认参数为普通模式、不启用思考、`temperature=1.0`、`top_p=0.95`、`top_k=20`；正式对话默认 `stream=true`，连接测试可以使用非流式请求；第一版本不在普通设置页暴露这些参数。
 - API Key 是用户敏感凭证，必须保存在安全存储中。
@@ -142,22 +149,25 @@
 - 文件、数据库、记忆、Workspace、Artifact、时间、定位、剪贴板、通知、日历、设备信息、WebView、Skill 和 MCP 的 Capability 定义。
 - Artifact 中心。
 - 全局长期记忆和会话上下文。
-- 模型设置页，支持阿里云百炼 `qwen3.6-flash-2026-04-16` API Key 保存和连接测试。
+- 模型设置页，支持阿里云百炼 API Key 保存、自定义模型名称、恢复默认模型和连接测试。
 - 正式对话的最小 Agent Loop：模型流式输出、自动发起工具调用、Capability Runtime 执行工具、工具结果回传模型、模型继续回答。
 - Agent Loop 必须具备可调任务预算，并在日志中暴露当前工具调用消耗，方便定位过早停止或循环调用。
 - Agent Loop 必须携带同一会话的近期原文上下文，并在上下文过长时携带较早内容的压缩摘要。
-- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`device.info`、`time.get_current`、`clipboard.read`、`clipboard.write`、`location.get_current`、`notification.schedule` 和 `calendar.event.create`。
+- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`file.apply_text_patch`、`project.create_web_app`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`device.info`、`time.get_current`、`clipboard.read`、`clipboard.write`、`location.get_current`、`notification.schedule` 和 `calendar.event.create`。
 - 当用户要求新建或切换工作区时，Agent 可以调用 `workspace.create` 或 `workspace.switch`；创建成功后当前 Workspace 必须切换到新工作区，切换目标不存在时必须返回结构化错误。
 - 当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，Agent 可以调用 `db.note.create` 或 `db.note.query` 读写当前 Workspace 的 Note。
 - `db.note.create` 写入的 Note 必须落到设备本地数据库，而不是只停留在当前进程内存。
 - 当用户要求创建、保存、读取或修改当前工作区文件时，Agent 可以调用 `file.write_app_file` 或 `file.read_app_file` 读写当前 Workspace 的 App File。
 - `file.write_app_file` 写入的文件必须落到当前 Workspace 的应用沙箱文件目录；`file.read_app_file` 只能读取同一 Workspace 的 App File。
+- 当用户要求创建小游戏、交互网页、Web App、原型或本地可维护项目时，Agent 必须把真实项目文件写入当前 Workspace 文件区，并创建可预览的 Web App Artifact 作为本地索引；不能只输出代码块或自然语言承诺。
+- 当用户要求维护或迭代已生成的本地项目时，Agent 应先读取相关文件，再用精确文本补丁修改文件；补丁原文无法唯一匹配时必须返回结构化错误，避免盲目覆盖。
+- 当前 Workspace 的 App File 必须有可发现入口；用户可以在运行时区域查看当前 Workspace 文件列表，点击预览文本内容，并通过系统分享或保存入口导出文件。
 - 当用户要求查看当前设备环境、读取剪贴板或复制内容时，Agent 可以调用 `device.info`、`clipboard.read` 或 `clipboard.write`；剪贴板读取不应在用户未明确要求时主动触发。
 - 每轮对话必须把设备当前本地时间、UTC 时间或时区语义提供给 Agent；当用户询问当前时间，或安排通知/日历前需要校准相对时间时，Agent 可以调用 `time.get_current` 获取设备当前时间。
 - 当用户明确要求使用当前位置时，Agent 可以调用 `location.get_current`；定位服务关闭、权限拒绝、永久拒绝或平台异常时必须返回结构化错误。
 - 当用户明确要求稍后提醒或安排本地通知时，Agent 可以调用 `notification.schedule`；相对时间必须基于设备当前本地时间换算；本地通知不是系统时钟闹钟，也不写入系统日历；通知权限拒绝、初始化失败、无效时间或平台异常时必须返回结构化错误。
 - 当用户明确要求加入日历、创建日程、安排会议或保存日历事件时，Agent 可以调用 `calendar.event.create`；相对时间必须基于设备当前本地时间换算；该能力必须进入系统日历添加事件流程，由用户确认保存；时间无效、用户取消、平台不可用或平台异常时必须返回结构化结果。
-- 当 Agent 生成报告、文档、任务清单、文件摘要或 Web App 等可复用产物时，可以调用 `artifact.create` 写入当前 Workspace 的 Artifact，并在对话中展示 Artifact 卡片或 Web App 卡片。
+- 当 Agent 生成报告、文档、任务清单、文件摘要或 Web App 等可复用产物时，可以调用 `artifact.create` 写入当前 Workspace 的 Artifact，并在对话中展示 Artifact 卡片或 Web App 卡片；需要卡片或预览入口时，Agent 不得只在 Markdown 正文中伪造 Artifact/Web App 链接。
 - `artifact.query` 只能查询当前 Workspace 的 Artifact，不能把其它 Workspace 的产物混入当前工作区结果。
 - `web.search` 和 `web.fetch` 必须通过 Capability Runtime 接入 Agent Loop；搜索返回结构化结果，网页读取返回适合模型继续处理的正文文本。
 - `web.search` 第一优先级使用阿里云百炼 WebSearch MCP，并复用用户已经保存的百炼通用 API Key；如果未配置 API Key，必须返回结构化未配置错误。
@@ -165,14 +175,19 @@
 - `web.search` 和 `web.fetch` 的对话展示必须包含状态、Provider、查询或 URL、正文摘要和可识别的来源链接；失败时必须清晰展示错误原因。
 - WebView 小应用运行时、manifest 语义和 JSBridge 语义。
 - Web App Artifact 可以从应用库打开；本地 Web App 通过 `window.PhoneAgent.getManifest()` 获取 manifest，通过 `window.PhoneAgent.callCapability(id, input)` 调用 manifest 已声明权限内的 Capability。
+- Web App 运行时必须向页面暴露可发现的 JSBridge 契约，至少包括 manifest 读取、可用 Capability 列表和 Capability 调用入口，便于 AI 生成的网页自检权限和能力。
+- Web App JSBridge 必须提供设备信息等常用能力的可发现调用方式；页面需要设备信息时应通过已声明权限的 JSBridge 调用，而不是依赖浏览器伪造的设备环境。
 - 对话中的 Web App 卡片必须能直接打开同一个 Web App 预览页面。
 - Web App Artifact 必须保存可运行入口内容；第一阶段至少要保存完整单文件 HTML、内联 CSS 和内联 JS。缺少可运行 HTML 时不得展示成“已加载”的假预览，必须返回结构化错误或可诊断提示。
 - Web App 打开前必须向用户展示 manifest 声明的能力权限；用户拒绝后 Web App 仍可打开，但 JSBridge 能力调用必须返回结构化权限错误。
 - Web App JSBridge 调用必须回到 Capability Runtime；未在 manifest 权限中声明的能力必须返回结构化拒绝错误。
+- Web App 内网页请求相机、麦克风、定位、文件选择或媒体自动播放时，运行时只能在用户已批准该 Web App 权限门后放行；用户未批准时必须拒绝或返回空结果。
 - Web App JSBridge 发起的 `db.note.create`、`db.note.query`、`file.write_app_file` 和 `file.read_app_file` 必须落到该 Web App 的独立 namespace。
+- Web App 运行日志必须写入当前 Workspace 的普通项目文件区，使用户和 Agent 能在后续维护中通过文件列表或 `file.read_app_file` 查看；日志写入失败不能阻断 Web App 打开。
 - Agent Skills / Claude Code 风格 Skill 的安装、扫描、索引和受控调用语义。
 - HTTP/SSE 类 MCP 连接语义和失败处理。
 - 权限三档、权限请求、权限拒绝和审计日志。
+- 统一系统权限管理页和统一系统权限申请服务；当前覆盖已接入手机原生能力需要的定位和通知权限，并能展示这些权限影响的 Capability。
 
 当前阶段不包含：
 
@@ -195,9 +210,10 @@
 - 用户能查看、编辑、删除全局长期记忆。
 - 用户上传文件后，AI 能总结、问答，并生成 Artifact。
 - 用户上传图片后，AI 能识别图片内容或提取文字。
-- 用户能在模型设置页只填写阿里云百炼 API Key，并使用内置 `qwen3.6-flash-2026-04-16` 默认配置测试连接。
-- 用户保存阿里云百炼 API Key 后，普通对话能调用内置 `qwen3.6-flash-2026-04-16` 配置获得模型回复。
-- 普通对话回复应在生成过程中持续更新到对话流中，并在用户仍停留在底部附近时自动滚动到最新内容；如果用户主动向上浏览历史消息，当前流式输出不得强制抢回滚动位置，直到用户重新回到底部附近才恢复自动追底。
+- 用户能在模型设置页填写阿里云百炼 API Key，并可使用内置默认模型或自定义模型名称测试连接。
+- 用户保存阿里云百炼 API Key 后，普通对话能调用当前配置的模型名称获得模型回复；未自定义时使用内置 `qwen3.6-flash-2026-04-16` 默认配置。
+- 普通对话回复应在生成过程中持续更新到对话流中，并在用户仍停留在底部附近时自动滚动到最新内容；首次进入聊天界面默认定位到最近消息底部；聊天区域默认只加载最近一批会话消息，用户上滑到历史顶部时继续加载更早消息，避免一次性渲染完整历史；如果用户主动向上浏览历史消息，当前流式输出不得强制抢回滚动位置，直到用户重新回到底部附近才恢复自动追底；“滚动到底部”按钮只应在用户离底部较远时出现。
+- 单次用户请求中的多轮 Agent 中间过程默认折叠展示；用户可展开查看工具调用、工具结果和中间输出，最终回答不应被中间过程淹没；Markdown 代码围栏在流式展示中应以折叠代码块呈现，避免网页源码、脚本或工具参数持续占据大面积会话空间。
 - AI 能自动调用 `web.search` 和 `web.fetch` 回答需要联网的问题，并展示调用轨迹和来源。
 - AI 在复杂任务中能连续完成超过三轮的工具调用；除非达到任务预算、连续失败保护、权限拒绝或模型自然结束，系统不得过早停止工具链。
 - `web.search` 或 `web.fetch` 的网络请求、解析或读取失败时，系统必须向 Agent 返回结构化错误，不能导致对话或应用崩溃。
@@ -206,17 +222,26 @@
 - AI 能调用 `workspace.create` 创建 Workspace 并切换过去，也能调用 `workspace.switch` 切换到已有 Workspace；目标不存在时不得崩溃。
 - AI 能调用 `file.write_app_file` 和 `file.read_app_file` 在当前 Workspace 应用沙箱内写入和读取文本文件；切换 Workspace 后不能读取其它 Workspace 的文件。
 - `file.write_app_file` 和 `file.read_app_file` 对空路径、绝对路径、路径穿越、文件不存在和覆盖冲突必须返回结构化错误。
+- AI 能创建一个可维护的本地 Web 项目：项目文件出现在当前 Workspace 文件列表中，同时生成可点击预览的 Web App Artifact。
+- AI 能通过精确文本补丁维护当前 Workspace 内的项目文件；补丁目标不存在、不唯一或文件过大时不应修改文件，并返回可读错误。
+- 用户反馈已生成 Web App 的运行问题时，AI 应优先读取该 Web App 的运行日志和相关项目文件，再定位并修复，而不是只根据用户描述猜测。
+- 用户能在运行时页查看当前 Workspace 的 App File 列表；点击文件可预览文本内容，并可通过系统分享或保存入口导出到用户选择的位置。
 - AI 能在用户明确要求时读取设备基础信息、读取剪贴板纯文本或写入剪贴板，并在对话中展示工具轨迹。
 - AI 能基于设备当前本地时间回答当前时间问题，并在安排通知或日历事件时用该时间解释今天、明天、今晚、几分钟后等相对表达。
 - AI 能在用户明确要求时获取当前位置；定位服务关闭或用户拒绝授权时，系统不崩溃，并把结构化失败原因返回给 Agent。
 - AI 能在用户明确要求时安排本地系统通知；通知权限拒绝、无效提醒时间或平台不可用时，系统不崩溃，并把结构化失败原因返回给 Agent。
+- 用户能进入统一权限管理页查看定位和通知等系统权限状态；可申请的权限能在页内触发系统申请，无法在 App 内恢复的状态能跳转到系统设置。
 - AI 能在用户明确要求时创建日历事件；系统必须打开平台日历添加事件流程，由用户确认保存，并在取消、时间无效或平台不可用时把结构化结果返回给 Agent。
 - AI 能调用 `artifact.create` 创建当前 Workspace 的 Artifact，并在对话中展示对应 Artifact 卡片；`artifact.query` 只返回当前 Workspace 的 Artifact。
 - AI 能生成一个本地 Web App，该 App 出现在应用库并可单独打开。
 - AI 生成 Web App 后，对话中展示的 Web App 卡片可以点击进入预览页面。
 - Web App 预览必须渲染 Artifact 中保存的真实 HTML/CSS/JS 内容；如果 Artifact 缺少入口 HTML，系统必须明确提示缺失内容，不能只展示标题和“已加载”占位文案。
+- Web App 预览打开时可启动仅绑定本机回环地址的临时本地服务来加载入口 HTML 和同项目相对资源；该服务只在预览页生命周期内存在，关闭预览页后必须停止，并且不得允许跨 Workspace 或路径穿越读取文件。
 - Web App 首次运行时按 manifest 请求权限，拒绝后 JSBridge 调用返回结构化错误。
 - Web App 能通过 JSBridge 调用已授权的内建 Capability；未授权 Capability 调用必须被拒绝，不能绕过 Capability Runtime。
+- Web App 生成结果默认符合手机竖屏可用性：触摸目标足够大，内容在窄屏不横向溢出，关键操作不依赖 hover、键盘快捷键或桌面窗口尺寸。
+- Web App 中的 HTML5 音视频、Web Audio、文件选择、摄像头、麦克风和定位请求在平台 WebView 支持时可按权限门运行；平台 WebView 本身不支持的浏览器 API 必须表现为明确不可用或页面侧可诊断失败，而不是伪造成功。
+- Web App 运行时产生的 warning、error 和未捕获异常能被记录到项目文件夹中的运行日志；用户回到会话反馈问题后，AI 能读取该日志辅助修复。
 - 两个 Web App 不能互相读取文件目录和数据库 namespace。
 - Skill 可从目录、zip 或 Git URL 安装、扫描、索引、触发。
 - 含 `scripts/` 的 Skill 不会绕过权限层执行。
@@ -230,9 +255,11 @@
 - MCP 连接失败时，保留配置和失败原因，不影响其他 Capability。
 - Skill 格式错误时，阻止安装或标记不可用，并暴露可读错误。
 - Web App 调用未授权 Capability 时，JSBridge 返回拒绝错误，不暴露底层异常。
+- 平台 WebView 内核缺少某个浏览器 API 时，系统不承诺通过应用代码补齐浏览器内核能力；应暴露为可诊断限制，并优先引导网页改用 Phone Agent JSBridge 或已接入的 Capability。
 - 文件、Artifact 或 Workspace 不存在时，返回明确的 not found 错误。
 - 模型 API Key 缺失时，模型连接测试必须提示用户先填写 API Key。
 - 模型连接失败时，系统必须展示 HTTP 状态或可读错误原因，不泄露完整密钥。
+- 模型流式连接因应用切到后台、网络切换或系统关闭连接而中断时，系统必须展示可读错误；如果尚未收到任何模型正文或工具调用增量，可自动重试一次；一旦已收到正文或工具调用增量，不得自动重放同一轮模型请求，避免重复工具执行或重复内容。
 - 搜索服务不可达、搜索结果解析失败、网页读取超时、目标 URL 无效或目标网页不可读时，联网能力必须返回结构化错误，并允许 Agent 解释限制或尝试替代方案。
 - 应用日志初始化失败不能阻断应用启动；日志文件写入失败时至少保留控制台错误。
 
@@ -243,6 +270,7 @@
 - Workspace 不能阻断全局长期记忆的默认可用性。
 - Web App 默认只加载本地沙箱内容；任意外部网页默认不能调用手机能力。
 - Web App 之间默认文件目录和数据库 namespace 隔离。
+- Web App 运行时的网页平台权限必须受 Web App 权限门约束；允许媒体播放和文件选择不等于绕过 Capability Runtime 或系统权限。
 - Skill 格式必须跟随 Agent Skills / Claude Code 生态，不能为了移动端自定义不兼容格式。
 - 对话中的可复用产物必须进入 Artifact Store，不能只存在于消息文本。
 
@@ -256,7 +284,7 @@
 - Skill 遵循 Agent Skills / Claude Code 当前规范。
 - 第一版本不实现远程终端和云端运行时。
 - 第一版本不实现语音输入或输出。
-- 第一版本默认以阿里云百炼 `qwen3.6-flash-2026-04-16` 作为模型联调入口，普通用户只配置百炼通用 API Key。
+- 第一版本默认以阿里云百炼 `qwen3.6-flash-2026-04-16` 作为模型联调入口，同时允许用户在设置页覆盖模型名称以切换同一接口下的可用模型。
 - 第一版先以记忆工具验证自动多轮工具调用闭环，再把同一机制扩展到联网搜索、文件、数据库、Skill、MCP 和手机原生能力。
 - 联网搜索和网页读取复用同一 Agent Loop 与 Capability Runtime，不走 UI 层或 controller 的特殊分支。
 - 阿里云百炼 WebSearch MCP 是第一版默认搜索 Provider，因为它能复用百炼通用 API Key、国内可用性更好，并与后续 MCP 架构一致。
@@ -276,4 +304,4 @@
 ## 开放问题
 
 - 图片理解/OCR、PDF 解析和网页搜索的具体 provider 可以随实现阶段选择，但不得改变本规格定义的业务能力。
-- 多厂商模型参数暴露方式后续实现模型编排时再确认；普通设置页当前只暴露 API Key。
+- 多厂商模型参数暴露方式后续实现模型编排时再确认；普通设置页当前只暴露 API Key 和模型名称，不暴露温度、top_p、top_k 等高级生成参数。

@@ -69,9 +69,13 @@ class ConversationContextBuilder {
         return '工具调用 ${block.data['capabilityId']}: ${block.data['input']}';
       case MessageBlockType.toolResult:
         return '工具结果 ${block.data['capabilityId']}: ${block.data['output']}';
+      case MessageBlockType.image:
+        return '图片附件: ${_attachmentSummary(block)}';
+      case MessageBlockType.fileAttachment:
+        return '文件附件: ${_attachmentSummary(block)}';
       case MessageBlockType.todoList:
-        final items = block.data['items'];
-        if (items is! List<String>) {
+        final items = MessageBlock.stringList(block.data['items']);
+        if (items.isEmpty) {
           return '';
         }
         return 'TODO:\n${items.map((item) => '- $item').join('\n')}';
@@ -80,13 +84,33 @@ class ConversationContextBuilder {
         return 'Artifact ${block.data['title']}: ${block.data['artifactId']}';
       case MessageBlockType.errorCard:
         return '错误 ${block.data['title']}: ${block.data['detail']}';
-      case MessageBlockType.image:
-      case MessageBlockType.fileAttachment:
       case MessageBlockType.approvalRequest:
       case MessageBlockType.taskProgress:
       case MessageBlockType.citation:
         return '${block.type.name}: ${block.data}';
     }
+  }
+
+  String _attachmentSummary(MessageBlock block) {
+    final name = block.data['name'] as String? ?? '未命名附件';
+    final uri = block.data['uri'] as String? ?? '';
+    final bytes = block.data['bytes'];
+    final mimeType = block.data['mimeType'];
+    final extension = block.data['extension'];
+    final parts = <String>[name];
+    if (bytes is int) {
+      parts.add('$bytes bytes');
+    }
+    if (mimeType is String && mimeType.isNotEmpty) {
+      parts.add(mimeType);
+    }
+    if (extension is String && extension.isNotEmpty) {
+      parts.add('扩展名 .$extension');
+    }
+    if (uri.isNotEmpty) {
+      parts.add(uri);
+    }
+    return parts.join(' · ');
   }
 
   String _compactOlderEntries(List<ConversationContextEntry> entries) {

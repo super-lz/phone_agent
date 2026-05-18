@@ -1,0 +1,109 @@
+enum AppPermissionId { location, notifications }
+
+enum AppPermissionStatusKind {
+  granted,
+  denied,
+  permanentlyDenied,
+  restricted,
+  limited,
+  provisional,
+  serviceDisabled,
+  unavailable,
+}
+
+class AppPermissionDescriptor {
+  const AppPermissionDescriptor({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.affectedCapabilities,
+    this.canRequestInApp = true,
+    this.checksSystemService = false,
+  });
+
+  final AppPermissionId id;
+  final String title;
+  final String description;
+  final List<String> affectedCapabilities;
+  final bool canRequestInApp;
+  final bool checksSystemService;
+}
+
+class AppPermissionSnapshot {
+  const AppPermissionSnapshot({
+    required this.descriptor,
+    required this.status,
+    required this.detail,
+    this.canOpenSettings = true,
+  });
+
+  final AppPermissionDescriptor descriptor;
+  final AppPermissionStatusKind status;
+  final String detail;
+  final bool canOpenSettings;
+
+  bool get granted {
+    return status == AppPermissionStatusKind.granted ||
+        status == AppPermissionStatusKind.limited ||
+        status == AppPermissionStatusKind.provisional;
+  }
+
+  bool get canRequestInApp {
+    return descriptor.canRequestInApp &&
+        (status == AppPermissionStatusKind.denied ||
+            status == AppPermissionStatusKind.unavailable);
+  }
+
+  bool get shouldOpenSettings {
+    return status == AppPermissionStatusKind.permanentlyDenied ||
+        status == AppPermissionStatusKind.restricted ||
+        status == AppPermissionStatusKind.serviceDisabled;
+  }
+}
+
+class AppPermissionRegistry {
+  const AppPermissionRegistry._();
+
+  static const descriptors = [
+    AppPermissionDescriptor(
+      id: AppPermissionId.location,
+      title: '位置',
+      description: '用于用户明确要求基于当前位置处理任务时获取当前定位。',
+      affectedCapabilities: ['location.get_current'],
+      checksSystemService: true,
+    ),
+    AppPermissionDescriptor(
+      id: AppPermissionId.notifications,
+      title: '通知',
+      description: '用于用户明确要求稍后提醒时发送本地系统通知。',
+      affectedCapabilities: ['notification.schedule'],
+    ),
+  ];
+
+  static AppPermissionDescriptor byId(AppPermissionId id) {
+    return descriptors.firstWhere((descriptor) => descriptor.id == id);
+  }
+}
+
+extension AppPermissionStatusKindLabel on AppPermissionStatusKind {
+  String get label {
+    switch (this) {
+      case AppPermissionStatusKind.granted:
+        return '已允许';
+      case AppPermissionStatusKind.denied:
+        return '未允许';
+      case AppPermissionStatusKind.permanentlyDenied:
+        return '已永久拒绝';
+      case AppPermissionStatusKind.restricted:
+        return '受系统限制';
+      case AppPermissionStatusKind.limited:
+        return '部分允许';
+      case AppPermissionStatusKind.provisional:
+        return '临时允许';
+      case AppPermissionStatusKind.serviceDisabled:
+        return '系统服务关闭';
+      case AppPermissionStatusKind.unavailable:
+        return '状态不可用';
+    }
+  }
+}

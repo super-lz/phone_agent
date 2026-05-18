@@ -4,10 +4,12 @@ import 'package:phone_agent/data/capabilities/native_capability_adapter.dart';
 import 'package:phone_agent/data/capabilities/web_capability_adapter.dart';
 import 'package:phone_agent/data/models/openai_compatible_chat_client.dart';
 import 'package:phone_agent/domain/artifacts/artifact.dart';
+import 'package:phone_agent/domain/capabilities/capability.dart';
 import 'package:phone_agent/domain/files/app_file_store.dart';
 import 'package:phone_agent/domain/memory/memory.dart';
 import 'package:phone_agent/domain/notes/note.dart';
 import 'package:phone_agent/domain/notes/note_store.dart';
+import 'package:phone_agent/domain/permissions/permission_policy.dart';
 import 'package:phone_agent/domain/workspace/workspace.dart';
 
 void main() {
@@ -127,6 +129,49 @@ void main() {
     expect(result.output['ok'], isFalse);
     expect(memories.single.id, 'memory-one');
   });
+
+  test(
+    'permission policy blocks high risk capability before execution',
+    () async {
+      final runtime = CapabilityRuntime();
+      final memories = [
+        AgentMemory(
+          id: 'memory-one',
+          content: '不能静默删除',
+          createdAt: DateTime(2026),
+        ),
+      ];
+
+      final result = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-delete-needs-confirmation',
+          name: 'memory_delete',
+          arguments: {'memory_id': 'memory-one'},
+        ),
+        workspaceId: 'default',
+        memories: memories,
+        notes: const [],
+        artifacts: const [],
+        capabilities: const [
+          CapabilityDefinition(
+            id: 'memory.delete',
+            description: 'delete memory',
+            inputSchema: {'type': 'object'},
+            outputSchema: {'type': 'object'},
+            risk: CapabilityRisk.high,
+            requiredPermissions: [],
+            adapter: CapabilityAdapter.memory,
+          ),
+        ],
+        permissionMode: PermissionMode.defaultMode,
+      );
+
+      expect(result.capabilityId, 'memory.delete');
+      expect(result.output['ok'], isFalse);
+      expect(result.output['error'], 'permission_confirmation_required');
+      expect(memories.single.id, 'memory-one');
+    },
+  );
 
   test('db_note_create writes a workspace note', () async {
     final runtime = CapabilityRuntime();
@@ -277,6 +322,105 @@ void main() {
       expect(readResult.capabilityId, 'file.read_app_file');
       expect(readResult.output['ok'], isTrue);
       expect(readResult.output['content'], contains('Phone Agent 文件能力'));
+      final files = await fileStore.listFiles(workspaceId: 'work');
+      expect(files.single.path, 'reports/summary.md');
+      expect(files.single.bytes, greaterThan(0));
+    },
+  );
+
+  test('file_apply_text_patch updates an existing workspace file', () async {
+    final runtime = CapabilityRuntime();
+    final fileStore = InMemoryAppFileStore();
+
+    await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-file-write-before-patch',
+        name: 'file_write_app_file',
+        arguments: {
+          'path': 'games/gold-miner/index.html',
+          'content': '<h1>黄金矿工</h1><p>旧版玩法</p>',
+        },
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      fileStore: fileStore,
+    );
+    final patchResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-file-patch',
+        name: 'file_apply_text_patch',
+        arguments: {
+          'path': 'games/gold-miner/index.html',
+          'old_text': '旧版玩法',
+          'new_text': '新版玩法',
+        },
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      fileStore: fileStore,
+    );
+    final readResult = await fileStore.readText(
+      workspaceId: 'work',
+      path: 'games/gold-miner/index.html',
+      maxChars: 12000,
+    );
+
+    expect(patchResult.capabilityId, 'file.apply_text_patch');
+    expect(patchResult.output['ok'], isTrue);
+    expect(readResult.content, contains('新版玩法'));
+    expect(readResult.content, isNot(contains('旧版玩法')));
+  });
+
+  test(
+    'project_create_web_app writes files and creates web app artifact',
+    () async {
+      final runtime = CapabilityRuntime();
+      final fileStore = InMemoryAppFileStore();
+      final artifacts = <AgentArtifact>[];
+
+      final result = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-project-create',
+          name: 'project_create_web_app',
+          arguments: {
+            'title': '黄金矿工小游戏',
+            'summary': '一个可维护的本地 HTML 小游戏。',
+            'entry_path': 'games/gold-miner/index.html',
+            'files': [
+              {
+                'path': 'games/gold-miner/index.html',
+                'content': '<!doctype html><html><body>黄金矿工</body></html>',
+              },
+            ],
+          },
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: artifacts,
+        fileStore: fileStore,
+      );
+      final storedFile = await fileStore.readText(
+        workspaceId: 'work',
+        path: 'games/gold-miner/index.html',
+        maxChars: 12000,
+      );
+
+      expect(result.capabilityId, 'project.create_web_app');
+      expect(result.output['ok'], isTrue);
+      expect(result.output['artifactId'], artifacts.single.id);
+      expect(artifacts.single.type, ArtifactType.webApp);
+      expect(artifacts.single.metadata['entry'], 'games/gold-miner/index.html');
+      expect(artifacts.single.metadata['html'], contains('黄金矿工'));
+      expect(
+        artifacts.single.metadata['runtimeLogPath'],
+        'games/gold-miner/.phone-agent/runtime.log',
+      );
+      expect(storedFile.content, contains('黄金矿工'));
     },
   );
 

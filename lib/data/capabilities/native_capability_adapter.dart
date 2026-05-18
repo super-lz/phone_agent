@@ -10,16 +10,21 @@ import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../core/logging/app_logger.dart';
+import '../../domain/permissions/app_permission.dart';
+import '../permissions/app_permission_service.dart';
 
 class NativeCapabilityAdapter {
   NativeCapabilityAdapter({
     DeviceInfoPlugin? deviceInfo,
     FlutterLocalNotificationsPlugin? notifications,
+    AppPermissionService? permissionService,
   }) : _deviceInfo = deviceInfo ?? DeviceInfoPlugin(),
-       _notifications = notifications ?? FlutterLocalNotificationsPlugin();
+       _notifications = notifications ?? FlutterLocalNotificationsPlugin(),
+       _permissionService = permissionService ?? const AppPermissionService();
 
   final DeviceInfoPlugin _deviceInfo;
   final FlutterLocalNotificationsPlugin _notifications;
+  final AppPermissionService _permissionService;
   Future<bool>? _notificationInitialization;
 
   Future<Map<String, Object?>> getDeviceInfo() async {
@@ -70,32 +75,14 @@ class NativeCapabilityAdapter {
 
   Future<Map<String, Object?>> getCurrentLocation() async {
     try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        return const {
-          'ok': false,
-          'error': 'location_service_disabled',
-          'detail': 'location service is disabled',
-        };
-      }
-
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied) {
-        return const {
-          'ok': false,
-          'error': 'permission_denied',
-          'detail': 'location permission denied',
-        };
-      }
-      if (permission == LocationPermission.deniedForever) {
-        return const {
-          'ok': false,
-          'error': 'permission_denied_forever',
-          'detail': 'location permission denied forever',
-        };
+      final permission = await _permissionService.ensureGranted(
+        AppPermissionId.location,
+      );
+      if (!permission.granted) {
+        return _permissionErrorOutput(
+          permission,
+          serviceDisabledError: 'location_service_disabled',
+        );
       }
 
       final position = await Geolocator.getCurrentPosition(
@@ -141,13 +128,11 @@ class NativeCapabilityAdapter {
           'error': 'notification_initialization_failed',
         };
       }
-      final permissionGranted = await _requestNotificationPermission();
-      if (!permissionGranted) {
-        return const {
-          'ok': false,
-          'error': 'permission_denied',
-          'detail': 'notification permission denied',
-        };
+      final permission = await _permissionService.ensureGranted(
+        AppPermissionId.notifications,
+      );
+      if (!permission.granted) {
+        return _permissionErrorOutput(permission);
       }
 
       final id = DateTime.now().microsecondsSinceEpoch.remainder(1 << 31);
@@ -258,28 +243,6 @@ class NativeCapabilityAdapter {
     return initialized ?? true;
   }
 
-  Future<bool> _requestNotificationPermission() async {
-    final android = _notifications
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
-    final androidGranted = await android?.requestNotificationsPermission();
-    if (androidGranted == false) {
-      return false;
-    }
-
-    final ios = _notifications
-        .resolvePlatformSpecificImplementation<
-          IOSFlutterLocalNotificationsPlugin
-        >();
-    final iosGranted = await ios?.requestPermissions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-    return iosGranted ?? true;
-  }
-
   NotificationDetails _notificationDetails() {
     return const NotificationDetails(
       android: AndroidNotificationDetails(
@@ -291,5 +254,43 @@ class NativeCapabilityAdapter {
       ),
       iOS: DarwinNotificationDetails(),
     );
+  }
+
+  Map<String, Object?> _permissionErrorOutput(
+    AppPermissionSnapshot permission, {
+    String? serviceDisabledError,
+  }) {
+    return {
+      'ok': false,
+      'error': _permissionErrorCode(
+        permission.status,
+        serviceDisabledError: serviceDisabledError,
+      ),
+      'detail': permission.detail,
+      'permissionId': permission.descriptor.id.name,
+      'permissionStatus': permission.status.name,
+      'canOpenSettings': permission.canOpenSettings,
+    };
+  }
+
+  String _permissionErrorCode(
+    AppPermissionStatusKind status, {
+    String? serviceDisabledError,
+  }) {
+    switch (status) {
+      case AppPermissionStatusKind.serviceDisabled:
+        return serviceDisabledError ?? 'permission_service_disabled';
+      case AppPermissionStatusKind.permanentlyDenied:
+        return 'permission_denied_forever';
+      case AppPermissionStatusKind.restricted:
+        return 'permission_restricted';
+      case AppPermissionStatusKind.unavailable:
+        return 'permission_unavailable';
+      case AppPermissionStatusKind.granted:
+      case AppPermissionStatusKind.limited:
+      case AppPermissionStatusKind.provisional:
+      case AppPermissionStatusKind.denied:
+        return 'permission_denied';
+    }
   }
 }

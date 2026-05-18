@@ -2,11 +2,14 @@ import '../../application/capabilities/capability_runtime.dart';
 import '../../data/models/model_api_key_store.dart';
 import '../../data/models/openai_compatible_chat_client.dart';
 import '../../domain/artifacts/artifact.dart';
+import '../../domain/capabilities/capability.dart';
 import '../../domain/files/app_file_store.dart';
 import '../../domain/memory/memory.dart';
 import '../../domain/models/model_provider_config.dart';
 import '../../domain/notes/note.dart';
 import '../../domain/notes/note_store.dart';
+import '../../domain/permissions/permission_policy.dart';
+import '../../domain/workbench/workbench_store.dart';
 import '../../domain/workspace/workspace.dart';
 
 class WebAppRuntimeDefaults {
@@ -17,7 +20,19 @@ class WebAppRuntimeDefaults {
     'db.note.query',
     'file.read_app_file',
     'file.write_app_file',
+    'artifact.create',
+    'artifact.query',
     'device.info',
+    'time.get_current',
+    'clipboard.read',
+    'clipboard.write',
+    'location.get_current',
+    'notification.schedule',
+    'calendar.event.create',
+    'web.search',
+    'web.fetch',
+    'memory.query',
+    'workspace.switch',
   ];
 
   static const html = '''
@@ -29,10 +44,15 @@ class WebAppRuntimeDefaults {
 <main>
   <h1>Phone Agent Web App</h1>
   <p>这个本地 Web App 可以通过 JSBridge 调用允许的手机能力。</p>
+  <p>可用能力：<code id="capabilities"></code></p>
+  <p>WebView 视口可通过 <code>window.PhoneAgent.getRuntimeInfo()</code> 读取；设备信息、时间和定位可通过 <code>window.PhoneAgent.getDeviceInfo()</code> 等 helper 读取。</p>
   <button onclick="saveNote()">保存一条 Note</button>
   <button onclick="deviceInfo()">读取设备信息</button>
   <pre id="out">等待操作...</pre>
   <script>
+    document.getElementById('capabilities').textContent =
+      window.PhoneAgent.getAvailableCapabilities().join(', ');
+
     async function saveNote() {
       const result = await window.PhoneAgent.callCapability('db.note.create', {
         title: 'Web App Note',
@@ -41,7 +61,7 @@ class WebAppRuntimeDefaults {
       document.getElementById('out').textContent = JSON.stringify(result, null, 2);
     }
     async function deviceInfo() {
-      const result = await window.PhoneAgent.callCapability('device.info', {});
+      const result = await window.PhoneAgent.getDeviceInfo();
       document.getElementById('out').textContent = JSON.stringify(result, null, 2);
     }
   </script>
@@ -114,15 +134,18 @@ class WebAppCapabilityBridge {
     required ModelApiKeyStore apiKeyStore,
     required AgentNoteStore noteStore,
     required AppFileStore fileStore,
+    required WorkbenchStore workbenchStore,
   }) : _capabilityRuntime = capabilityRuntime,
        _apiKeyStore = apiKeyStore,
        _noteStore = noteStore,
-       _fileStore = fileStore;
+       _fileStore = fileStore,
+       _workbenchStore = workbenchStore;
 
   final CapabilityRuntime _capabilityRuntime;
   final ModelApiKeyStore _apiKeyStore;
   final AgentNoteStore _noteStore;
   final AppFileStore _fileStore;
+  final WorkbenchStore _workbenchStore;
 
   Future<Map<String, Object?>> callCapability({
     required AgentArtifact webApp,
@@ -133,6 +156,7 @@ class WebAppCapabilityBridge {
     required List<AgentNote> notes,
     required List<AgentArtifact> artifacts,
     required List<AgentWorkspace> workspaces,
+    required List<CapabilityDefinition> capabilities,
   }) async {
     if (webApp.type != ArtifactType.webApp) {
       return const {'ok': false, 'error': 'artifact is not a web app'};
@@ -176,11 +200,14 @@ class WebAppCapabilityBridge {
       notes: notes,
       artifacts: artifacts,
       workspaces: workspaces,
+      capabilities: capabilities,
       noteStore: _noteStore,
       fileStore: _fileStore,
+      workbenchStore: _workbenchStore,
       apiKey: await _apiKeyStore.readApiKey(
         ModelProviders.aliyunBailianQwenFlash.id,
       ),
+      permissionMode: PermissionMode.defaultMode,
     );
     return {
       'ok': result.output['ok'] == true,
@@ -213,12 +240,26 @@ class WebAppCapabilityBridge {
         return 'artifact_query';
       case 'device.info':
         return 'device_info';
+      case 'time.get_current':
+        return 'time_get_current';
+      case 'clipboard.read':
+        return 'clipboard_read';
       case 'clipboard.write':
         return 'clipboard_write';
       case 'location.get_current':
         return 'location_get_current';
       case 'notification.schedule':
         return 'notification_schedule';
+      case 'calendar.event.create':
+        return 'calendar_event_create';
+      case 'web.search':
+        return 'web_search';
+      case 'web.fetch':
+        return 'web_fetch';
+      case 'memory.query':
+        return 'memory_query';
+      case 'workspace.switch':
+        return 'workspace_switch';
       default:
         return null;
     }

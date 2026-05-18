@@ -126,6 +126,118 @@ class FileCapabilityHandler {
     }
   }
 
+  Future<CapabilityExecutionResult> applyTextPatch({
+    required String workspaceId,
+    required Map<String, Object?> arguments,
+    required AppFileStore? fileStore,
+  }) async {
+    final store = fileStore;
+    if (store == null) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'file.apply_text_patch',
+        output: {'ok': false, 'error': 'file store unavailable'},
+      );
+    }
+    final rawPath = arguments['path'];
+    final oldText = arguments['old_text'];
+    final newText = arguments['new_text'];
+    if (rawPath is! String || rawPath.trim().isEmpty) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'file.apply_text_patch',
+        output: {'ok': false, 'error': 'path is required'},
+      );
+    }
+    if (oldText is! String || oldText.isEmpty) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'file.apply_text_patch',
+        output: {'ok': false, 'error': 'old_text is required'},
+      );
+    }
+    if (newText is! String) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'file.apply_text_patch',
+        output: {'ok': false, 'error': 'new_text is required'},
+      );
+    }
+    final replaceAll = arguments['replace_all'] == true;
+
+    try {
+      final readResult = await store.readText(
+        workspaceId: workspaceId,
+        path: rawPath,
+        maxChars: 5 * 1024 * 1024,
+      );
+      if (readResult.truncated) {
+        return const CapabilityExecutionResult(
+          capabilityId: 'file.apply_text_patch',
+          output: {
+            'ok': false,
+            'error': 'file too large',
+            'detail': '文件超过当前补丁能力可安全处理的大小。',
+          },
+        );
+      }
+      final matches = oldText.allMatches(readResult.content).length;
+      if (matches == 0) {
+        return const CapabilityExecutionResult(
+          capabilityId: 'file.apply_text_patch',
+          output: {
+            'ok': false,
+            'error': 'old_text_not_found',
+            'detail': '未在目标文件中找到要替换的原文。',
+          },
+        );
+      }
+      if (matches > 1 && !replaceAll) {
+        return CapabilityExecutionResult(
+          capabilityId: 'file.apply_text_patch',
+          output: {
+            'ok': false,
+            'error': 'old_text_not_unique',
+            'detail':
+                '原文在目标文件中出现 $matches 次；请提供更精确的 old_text，或设置 replace_all=true。',
+            'matches': matches,
+          },
+        );
+      }
+      final patched = replaceAll
+          ? readResult.content.replaceAll(oldText, newText)
+          : readResult.content.replaceFirst(oldText, newText);
+      final writeResult = await store.writeText(
+        workspaceId: workspaceId,
+        path: readResult.path,
+        content: patched,
+        overwrite: true,
+      );
+      return CapabilityExecutionResult(
+        capabilityId: 'file.apply_text_patch',
+        output: {
+          'ok': true,
+          'workspaceId': workspaceId,
+          'path': writeResult.path,
+          'uri': writeResult.uri.toString(),
+          'bytes': writeResult.bytes,
+          'replacements': replaceAll ? matches : 1,
+        },
+      );
+    } on AppFileStoreException catch (error) {
+      return _errorResult('file.apply_text_patch', error);
+    } on Object catch (error) {
+      AppLogger.warning('file.apply_text_patch.failed', {
+        'workspaceId': workspaceId,
+        'error': error.toString(),
+      });
+      return CapabilityExecutionResult(
+        capabilityId: 'file.apply_text_patch',
+        output: {
+          'ok': false,
+          'error': 'file patch failed',
+          'detail': error.toString(),
+        },
+      );
+    }
+  }
+
   CapabilityExecutionResult _errorResult(
     String capabilityId,
     AppFileStoreException error,

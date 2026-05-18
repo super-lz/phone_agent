@@ -20,6 +20,16 @@ void main() {
     expect(provider.defaultParameters['stream'], isTrue);
   });
 
+  test('provider can override model name without changing defaults', () {
+    final provider = ModelProviders.aliyunBailianQwenFlash.copyWith(
+      model: 'qwen3.6-flash',
+    );
+
+    expect(provider.model, 'qwen3.6-flash');
+    expect(provider.id, ModelProviders.aliyunBailianQwenFlash.id);
+    expect(provider.defaultParameters['enable_thinking'], isFalse);
+  });
+
   test('chat client has a finite request timeout', () {
     final client = OpenAiCompatibleChatClient();
 

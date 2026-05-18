@@ -2,13 +2,20 @@ import 'package:flutter/material.dart';
 
 import '../../core/logging/app_logger.dart';
 import '../../data/models/model_api_key_store.dart';
+import '../../data/models/model_settings_store.dart';
 import '../../data/models/openai_compatible_chat_client.dart';
 import '../../domain/models/model_provider_config.dart';
 
 class ModelSettingsPage extends StatefulWidget {
-  const ModelSettingsPage({super.key, this.apiKeyStore, this.chatClient});
+  const ModelSettingsPage({
+    super.key,
+    this.apiKeyStore,
+    this.modelSettingsStore,
+    this.chatClient,
+  });
 
   final ModelApiKeyStore? apiKeyStore;
+  final ModelSettingsStore? modelSettingsStore;
   final OpenAiCompatibleChatClient? chatClient;
 
   @override
@@ -17,8 +24,10 @@ class ModelSettingsPage extends StatefulWidget {
 
 class _ModelSettingsPageState extends State<ModelSettingsPage> {
   late final ModelApiKeyStore _apiKeyStore;
+  late final ModelSettingsStore _modelSettingsStore;
   late final OpenAiCompatibleChatClient _chatClient;
   late final TextEditingController _apiKeyController;
+  late final TextEditingController _modelController;
   ModelProviderConfig _provider = ModelProviders.aliyunBailianQwenFlash;
   bool _obscureApiKey = true;
   bool _loading = true;
@@ -29,39 +38,53 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
   void initState() {
     super.initState();
     _apiKeyStore = widget.apiKeyStore ?? ModelApiKeyStore();
+    _modelSettingsStore =
+        widget.modelSettingsStore ?? SecureModelSettingsStore();
     _chatClient =
         widget.chatClient ??
         OpenAiCompatibleChatClient(requestTimeout: const Duration(seconds: 15));
     _apiKeyController = TextEditingController();
-    _loadApiKey();
+    _modelController = TextEditingController();
+    _loadSettings();
   }
 
   @override
   void dispose() {
     _apiKeyController.dispose();
+    _modelController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadApiKey() async {
+  Future<void> _loadSettings() async {
     final apiKey = await _apiKeyStore.readApiKey(_provider.id);
+    final modelName = await _modelSettingsStore.readModelName(_provider.id);
     if (!mounted) {
       return;
     }
     _apiKeyController.text = apiKey ?? '';
+    _modelController.text = modelName?.trim().isNotEmpty == true
+        ? modelName!.trim()
+        : _provider.model;
     setState(() => _loading = false);
   }
 
-  Future<void> _saveApiKey() async {
+  Future<void> _saveSettings() async {
     final apiKey = _apiKeyController.text.trim();
+    final modelName = _modelController.text.trim();
     if (apiKey.isEmpty) {
       setState(() => _status = 'API Key 不能为空。');
       return;
     }
+    if (modelName.isEmpty) {
+      setState(() => _status = '模型名称不能为空。');
+      return;
+    }
     await _apiKeyStore.saveApiKey(_provider.id, apiKey);
+    await _modelSettingsStore.saveModelName(_provider.id, modelName);
     if (!mounted) {
       return;
     }
-    setState(() => _status = '已保存 ${_provider.vendorName} API Key。');
+    setState(() => _status = '已保存 ${_provider.vendorName} API Key 和模型名称。');
   }
 
   Future<void> _clearApiKey() async {
@@ -71,6 +94,15 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
     }
     _apiKeyController.clear();
     setState(() => _status = '已清除 API Key。');
+  }
+
+  Future<void> _restoreDefaultModel() async {
+    await _modelSettingsStore.deleteModelName(_provider.id);
+    if (!mounted) {
+      return;
+    }
+    _modelController.text = _provider.model;
+    setState(() => _status = '已恢复默认模型：${_provider.model}');
   }
 
   Future<void> _testConnection() async {
@@ -85,8 +117,9 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
       _status = '正在测试 ${_provider.displayName}，最多等待 15 秒...';
     });
 
+    final provider = _effectiveProvider();
     final result = await _chatClient.testConnection(
-      provider: _provider,
+      provider: provider,
       apiKey: apiKey,
     );
     if (!mounted) {
@@ -107,7 +140,15 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
       _loading = true;
       _status = null;
     });
-    _loadApiKey();
+    _loadSettings();
+  }
+
+  ModelProviderConfig _effectiveProvider() {
+    final modelName = _modelController.text.trim();
+    if (modelName.isEmpty || modelName == _provider.model) {
+      return _provider;
+    }
+    return _provider.copyWith(model: modelName);
   }
 
   @override
@@ -132,15 +173,30 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
             onSelectionChanged: (selection) => _setProvider(selection.first),
           ),
           const SizedBox(height: 16),
-          _ProviderSummary(provider: _provider),
+          _ProviderSummary(provider: _effectiveProvider()),
           const SizedBox(height: 16),
+          TextField(
+            controller: _modelController,
+            enabled: !_loading,
+            decoration: InputDecoration(
+              labelText: '模型名称',
+              helperText: '填写百炼控制台里的模型名，例如 qwen3.6-flash。',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                tooltip: '恢复默认模型',
+                icon: const Icon(Icons.restore),
+                onPressed: _loading ? null : _restoreDefaultModel,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           TextField(
             controller: _apiKeyController,
             enabled: !_loading,
             obscureText: _obscureApiKey,
             decoration: InputDecoration(
               labelText: '${_provider.vendorName} API Key',
-              helperText: '当前只需要填写 API Key，其它参数使用推荐默认值。',
+              helperText: 'API Key 和模型名称会保存在本机。',
               border: const OutlineInputBorder(),
               suffixIcon: IconButton(
                 tooltip: _obscureApiKey ? '显示 API Key' : '隐藏 API Key',
@@ -163,7 +219,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
               FilledButton.icon(
                 icon: const Icon(Icons.save_outlined),
                 label: const Text('保存'),
-                onPressed: _loading ? null : _saveApiKey,
+                onPressed: _loading ? null : _saveSettings,
               ),
               OutlinedButton.icon(
                 icon: const Icon(Icons.network_check),

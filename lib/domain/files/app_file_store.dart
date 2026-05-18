@@ -38,6 +38,20 @@ class AppFileReadResult {
   final bool truncated;
 }
 
+class AppFileEntry {
+  const AppFileEntry({
+    required this.path,
+    required this.uri,
+    required this.bytes,
+    required this.modifiedAt,
+  });
+
+  final String path;
+  final Uri uri;
+  final int bytes;
+  final DateTime modifiedAt;
+}
+
 abstract class AppFileStore {
   Future<AppFileWriteResult> writeText({
     required String workspaceId,
@@ -51,10 +65,12 @@ abstract class AppFileStore {
     required String path,
     required int maxChars,
   });
+
+  Future<List<AppFileEntry>> listFiles({required String workspaceId});
 }
 
 class InMemoryAppFileStore implements AppFileStore {
-  final Map<String, String> _files = {};
+  final Map<String, _InMemoryAppFile> _files = {};
 
   @override
   Future<AppFileWriteResult> writeText({
@@ -68,7 +84,7 @@ class InMemoryAppFileStore implements AppFileStore {
     if (!overwrite && _files.containsKey(key)) {
       throw const AppFileStoreException('file_exists', 'file already exists');
     }
-    _files[key] = content;
+    _files[key] = _InMemoryAppFile(content, DateTime.now());
     return AppFileWriteResult(
       path: normalizedPath,
       uri: Uri(path: '/memory/$workspaceId/$normalizedPath'),
@@ -83,10 +99,11 @@ class InMemoryAppFileStore implements AppFileStore {
     required int maxChars,
   }) async {
     final normalizedPath = normalizeAppFilePath(path);
-    final content = _files[_key(workspaceId, normalizedPath)];
-    if (content == null) {
+    final file = _files[_key(workspaceId, normalizedPath)];
+    if (file == null) {
       throw const AppFileStoreException('not_found', 'file not found');
     }
+    final content = file.content;
     final limit = maxChars <= 0 ? 12000 : maxChars;
     final truncated = content.length > limit;
     return AppFileReadResult(
@@ -97,9 +114,38 @@ class InMemoryAppFileStore implements AppFileStore {
     );
   }
 
+  @override
+  Future<List<AppFileEntry>> listFiles({required String workspaceId}) async {
+    final prefix = '$workspaceId::';
+    final entries = <AppFileEntry>[];
+    for (final entry in _files.entries) {
+      if (!entry.key.startsWith(prefix)) {
+        continue;
+      }
+      final path = entry.key.substring(prefix.length);
+      entries.add(
+        AppFileEntry(
+          path: path,
+          uri: Uri(path: '/memory/$workspaceId/$path'),
+          bytes: utf8.encode(entry.value.content).length,
+          modifiedAt: entry.value.modifiedAt,
+        ),
+      );
+    }
+    entries.sort((a, b) => a.path.compareTo(b.path));
+    return entries;
+  }
+
   String _key(String workspaceId, String path) {
     return '$workspaceId::$path';
   }
+}
+
+class _InMemoryAppFile {
+  const _InMemoryAppFile(this.content, this.modifiedAt);
+
+  final String content;
+  final DateTime modifiedAt;
 }
 
 String normalizeAppFilePath(String path) {

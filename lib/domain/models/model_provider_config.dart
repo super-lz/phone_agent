@@ -16,6 +16,17 @@ class ModelProviderConfig {
   final Map<String, Object?> defaultParameters;
 
   Uri get chatCompletionsEndpoint => baseUrl.resolve('chat/completions');
+
+  ModelProviderConfig copyWith({String? model}) {
+    return ModelProviderConfig(
+      id: id,
+      vendorName: vendorName,
+      displayName: displayName,
+      baseUrl: baseUrl,
+      model: model ?? this.model,
+      defaultParameters: defaultParameters,
+    );
+  }
 }
 
 class ModelProviders {

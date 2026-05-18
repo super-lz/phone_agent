@@ -1,4 +1,5 @@
 import '../../domain/artifacts/artifact.dart';
+import '../../domain/artifacts/web_app_runtime_log.dart';
 import 'capability_execution_result.dart';
 
 class ArtifactCapabilityHandler {
@@ -25,7 +26,8 @@ class ArtifactCapabilityHandler {
     }
 
     final type = _parseType(arguments['type']);
-    final metadata = _metadataFor(arguments);
+    final artifactId = 'artifact-${DateTime.now().microsecondsSinceEpoch}';
+    final metadata = _metadataFor(arguments, artifactId: artifactId);
     if (type == ArtifactType.webApp && !_hasRunnableHtml(metadata)) {
       return const CapabilityExecutionResult(
         capabilityId: 'artifact.create',
@@ -39,7 +41,7 @@ class ArtifactCapabilityHandler {
     }
 
     final artifact = AgentArtifact(
-      id: 'artifact-${DateTime.now().microsecondsSinceEpoch}',
+      id: artifactId,
       workspaceId: workspaceId,
       type: type,
       title: rawTitle.trim(),
@@ -126,7 +128,10 @@ class ArtifactCapabilityHandler {
     }
   }
 
-  Map<String, Object?> _metadataFor(Map<String, Object?> arguments) {
+  Map<String, Object?> _metadataFor(
+    Map<String, Object?> arguments, {
+    required String artifactId,
+  }) {
     final rawMetadata = arguments['metadata'];
     final metadata = rawMetadata is Map<String, Object?>
         ? Map<String, Object?>.of(rawMetadata)
@@ -134,6 +139,13 @@ class ArtifactCapabilityHandler {
     if (_parseType(arguments['type']) == ArtifactType.webApp) {
       metadata.putIfAbsent('entry', () => 'index.html');
       metadata.putIfAbsent('permissions', () => <String>[]);
+      metadata.putIfAbsent(
+        'runtimeLogPath',
+        () => WebAppRuntimeLogPaths.forMetadata(
+          artifactId: artifactId,
+          metadata: metadata,
+        ),
+      );
       final contentHtml = arguments['content_html'];
       if (contentHtml is String && contentHtml.trim().isNotEmpty) {
         metadata['html'] = contentHtml;

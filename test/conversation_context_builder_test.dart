@@ -27,6 +27,27 @@ void main() {
     ]);
   });
 
+  test('keeps todo list restored from json in transcript context', () {
+    final restoredItems = <dynamic>['补齐本地会话', '切换工作区'];
+    final context = const ConversationContextBuilder(maxRecentChars: 1000)
+        .build([
+          AgentMessage(
+            id: 'assistant-todo',
+            role: MessageRole.assistant,
+            createdAt: DateTime(2026),
+            blocks: [
+              MessageBlock(
+                type: MessageBlockType.todoList,
+                data: {'items': restoredItems},
+              ),
+            ],
+          ),
+        ]);
+
+    expect(context.recentEntries.single.content, contains('- 补齐本地会话'));
+    expect(context.recentEntries.single.content, contains('- 切换工作区'));
+  });
+
   test('compacts older entries when recent context budget is full', () {
     final messages = List.generate(8, (index) {
       return AgentMessage(

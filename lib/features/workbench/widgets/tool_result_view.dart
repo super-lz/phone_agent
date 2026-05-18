@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
+import 'message_block_cards.dart';
+
 class ToolResultView extends StatelessWidget {
   const ToolResultView({
     required this.capabilityId,
@@ -16,34 +18,41 @@ class ToolResultView extends StatelessWidget {
     if (capabilityId == 'web.search' || capabilityId == 'web.fetch') {
       return _WebToolResultCard(capabilityId: capabilityId, output: output);
     }
-    return _StructuredResultCard(
+    return StructuredBlock(
       icon: Icons.check_circle_outline,
       title: 'Tool Result · $capabilityId',
       body: output.toString(),
+      initiallyExpanded: false,
     );
   }
 }
 
-class _WebToolResultCard extends StatelessWidget {
+class _WebToolResultCard extends StatefulWidget {
   const _WebToolResultCard({required this.capabilityId, required this.output});
 
   final String capabilityId;
   final Map<String, Object?> output;
 
   @override
+  State<_WebToolResultCard> createState() => _WebToolResultCardState();
+}
+
+class _WebToolResultCardState extends State<_WebToolResultCard> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
-    final ok = output['ok'] == true;
-    final content = output['content'];
-    final error = output['error'];
-    final provider = output['provider'];
-    final url = output['url'];
-    final query = output['query'];
-    final title = capabilityId == 'web.fetch' ? '网页解析结果' : '联网搜索结果';
+    final ok = widget.output['ok'] == true;
+    final content = widget.output['content'];
+    final error = widget.output['error'];
+    final provider = widget.output['provider'];
+    final url = widget.output['url'];
+    final query = widget.output['query'];
+    final title = widget.capabilityId == 'web.fetch' ? '网页解析结果' : '联网搜索结果';
 
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: ok ? const Color(0xFFF1F6F2) : const Color(0xFFFFF4F2),
         borderRadius: BorderRadius.circular(8),
@@ -51,38 +60,65 @@ class _WebToolResultCard extends StatelessWidget {
           color: ok ? const Color(0xFFD2E2D7) : const Color(0xFFF0C8C0),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: InkWell(
+        onTap: () => setState(() => _expanded = !_expanded),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(ok ? Icons.public : Icons.error_outline, size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  title,
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
+              Row(
+                children: [
+                  Icon(ok ? Icons.public : Icons.error_outline, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                  ),
+                  _StatusPill(ok: ok),
+                  const SizedBox(width: 4),
+                  Icon(_expanded ? Icons.expand_less : Icons.expand_more),
+                ],
               ),
-              _StatusPill(ok: ok),
+              const SizedBox(height: 8),
+              if (provider is String && provider.isNotEmpty)
+                _MetaLine(label: 'Provider', value: provider),
+              if (query is String && query.isNotEmpty)
+                _MetaLine(label: 'Query', value: query),
+              if (url is String && url.isNotEmpty)
+                _MetaLine(label: 'URL', value: url),
+              if (error is String && error.isNotEmpty)
+                _ErrorText(error: error)
+              else if (_expanded && content is String && content.isNotEmpty)
+                _SearchContent(content: content)
+              else if (!_expanded && content is String && content.isNotEmpty)
+                Text(
+                  _preview(content),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                )
+              else
+                const Text('工具没有返回可展示内容。'),
             ],
           ),
-          const SizedBox(height: 8),
-          if (provider is String && provider.isNotEmpty)
-            _MetaLine(label: 'Provider', value: provider),
-          if (query is String && query.isNotEmpty)
-            _MetaLine(label: 'Query', value: query),
-          if (url is String && url.isNotEmpty)
-            _MetaLine(label: 'URL', value: url),
-          if (error is String && error.isNotEmpty)
-            _ErrorText(error: error)
-          else if (content is String && content.isNotEmpty)
-            _SearchContent(content: content)
-          else
-            const Text('工具没有返回可展示内容。'),
-        ],
+        ),
       ),
     );
+  }
+
+  String _preview(String content) {
+    final normalized = content.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.isEmpty) {
+      return '工具返回了空内容。';
+    }
+    if (normalized.length > 180) {
+      return '${normalized.substring(0, 180)}...';
+    }
+    return normalized;
   }
 }
 
@@ -172,49 +208,6 @@ class _StatusPill extends StatelessWidget {
           ok ? 'OK' : 'ERR',
           style: Theme.of(context).textTheme.labelSmall,
         ),
-      ),
-    );
-  }
-}
-
-class _StructuredResultCard extends StatelessWidget {
-  const _StructuredResultCard({
-    required this.icon,
-    required this.title,
-    required this.body,
-  });
-
-  final IconData icon;
-  final String title;
-  final String body;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF1F4EF),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFD7DED2)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 4),
-                Text(body),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

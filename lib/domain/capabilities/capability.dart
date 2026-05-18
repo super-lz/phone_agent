@@ -36,17 +36,23 @@ class CapabilityDefinition {
 class CapabilityInvocation {
   const CapabilityInvocation({
     required this.id,
+    required this.workspaceId,
     required this.capabilityId,
     required this.input,
     required this.status,
+    required this.createdAt,
+    this.permissionDecision,
     this.output,
     this.error,
   });
 
   final String id;
+  final String workspaceId;
   final String capabilityId;
   final Map<String, Object?> input;
   final CapabilityInvocationStatus status;
+  final DateTime createdAt;
+  final String? permissionDecision;
   final Map<String, Object?>? output;
   final String? error;
 }

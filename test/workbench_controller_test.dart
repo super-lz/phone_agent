@@ -1,12 +1,18 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone_agent/application/capabilities/capability_runtime.dart';
 import 'package:phone_agent/data/capabilities/native_capability_adapter.dart';
 import 'package:phone_agent/data/capabilities/web_capability_adapter.dart';
 import 'package:phone_agent/data/models/model_api_key_store.dart';
+import 'package:phone_agent/data/models/model_settings_store.dart';
 import 'package:phone_agent/data/models/openai_compatible_chat_client.dart';
 import 'package:phone_agent/domain/artifacts/artifact.dart';
+import 'package:phone_agent/domain/artifacts/web_app_runtime_log.dart';
 import 'package:phone_agent/domain/conversation/message_block.dart';
 import 'package:phone_agent/domain/models/model_provider_config.dart';
+import 'package:phone_agent/domain/workbench/workbench_store.dart';
 import 'package:phone_agent/features/workbench/controllers/workbench_controller.dart';
 
 void main() {
@@ -25,6 +31,128 @@ void main() {
     await controller.sendPrompt('你好');
 
     expect(controller.messages.last.blocks.first.data['text'], '真实模型回复');
+  });
+
+  test(
+    'retries transient model stream failure before receiving content',
+    () async {
+      final chatClient = _RetryOnceChatClient();
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+      );
+
+      await controller.sendPrompt('你好');
+
+      expect(chatClient.callCount, 2);
+      expect(controller.messages.last.blocks.first.data['text'], '重试成功');
+    },
+  );
+
+  test(
+    'normal prompt uses configured model name from settings store',
+    () async {
+      final settingsStore = InMemoryModelSettingsStore();
+      await settingsStore.saveModelName(
+        ModelProviders.aliyunBailianQwenFlash.id,
+        'qwen3.6-flash',
+      );
+      final chatClient = _FakeChatClient([
+        [const ChatStreamEvent(contentDelta: '模型已切换')],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        modelSettingsStore: settingsStore,
+        chatClient: chatClient,
+      );
+
+      await controller.sendPrompt('你好');
+
+      expect(chatClient.capturedModels.single, 'qwen3.6-flash');
+    },
+  );
+
+  test('prompt can include local attachment summaries', () async {
+    final chatClient = _FakeChatClient([
+      [const ChatStreamEvent(contentDelta: '已看到附件摘要。')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt(
+      '帮我看看附件',
+      attachments: [
+        MessageBlock.fileAttachment(
+          name: '需求.md',
+          uri: 'file:///tmp/requirements.md',
+          bytes: 2048,
+          extension: 'md',
+        ),
+      ],
+    );
+
+    final userMessage = controller.messages.firstWhere(
+      (message) => message.role == MessageRole.user,
+    );
+    expect(
+      userMessage.blocks.any(
+        (block) => block.type == MessageBlockType.fileAttachment,
+      ),
+      isTrue,
+    );
+    final sentPrompt = chatClient.capturedMessages.single.last['content'];
+    expect(sentPrompt, contains('需求.md'));
+    expect(sentPrompt, contains('file:///tmp/requirements.md'));
+    expect(controller.messages.last.blocks.first.data['text'], '已看到附件摘要。');
+  });
+
+  test('prompt sends local image attachments as multimodal content', () async {
+    final tempDir = await Directory.systemTemp.createTemp('phone-agent-image-');
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+    final imageFile = File('${tempDir.path}/sample.png');
+    await imageFile.writeAsBytes([137, 80, 78, 71, 13, 10, 26, 10]);
+    final chatClient = _FakeChatClient([
+      [const ChatStreamEvent(contentDelta: '已读取图片。')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt(
+      '看看这张图',
+      attachments: [
+        MessageBlock.image(
+          name: 'sample.png',
+          uri: imageFile.uri.toString(),
+          bytes: await imageFile.length(),
+          mimeType: 'image/png',
+        ),
+      ],
+    );
+
+    final sentContent = chatClient.capturedMessages.single.last['content'];
+    expect(sentContent, isA<List<Object?>>());
+    final parts = sentContent! as List<Object?>;
+    expect(parts, hasLength(2));
+    expect(parts.first, isA<Map<Object?, Object?>>());
+    expect(parts.last, isA<Map<Object?, Object?>>());
+    final textPart = parts.first! as Map<Object?, Object?>;
+    expect(textPart['type'], 'text');
+    expect(textPart['text'], contains('已作为多模态 image_url 输入发送给模型'));
+    final imagePart = parts.last! as Map<Object?, Object?>;
+    expect(imagePart['type'], 'image_url');
+    expect(
+      jsonEncode(imagePart),
+      contains('data:image/png;base64,iVBORw0KGgo='),
+    );
+    expect(controller.messages.last.blocks.first.data['text'], '已读取图片。');
   });
 
   test('next prompt includes earlier conversation context', () async {
@@ -61,6 +189,35 @@ void main() {
     expect(controller.messages.last.blocks.first.data['title'], '缺少模型 API Key');
   });
 
+  test('conversation messages persist through workbench store', () async {
+    final store = InMemoryWorkbenchStore();
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: _FakeChatClient([
+        [const ChatStreamEvent(contentDelta: '持久回复')],
+      ]),
+      workbenchStore: store,
+    );
+
+    await controller.sendPrompt('记住这轮会话');
+
+    final restored = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore(null),
+      workbenchStore: store,
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(
+      restored.messages.any(
+        (message) => message.blocks.any(
+          (block) => block.data.values.any((value) => value == '持久回复'),
+        ),
+      ),
+      isTrue,
+    );
+  });
+
   test('model tool call can create memory and continue answer', () async {
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),
@@ -89,6 +246,49 @@ void main() {
     );
     expect(controller.messages.last.blocks.first.data['text'], '已记住。');
   });
+
+  test(
+    'default permission mode blocks high risk memory delete tool call',
+    () async {
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: _FakeChatClient([
+          [
+            const ChatStreamEvent(
+              toolCallDeltas: [
+                ToolCallDelta(
+                  index: 0,
+                  id: 'call-memory-delete',
+                  name: 'memory_delete',
+                  argumentsDelta: '{"memory_id":"mem-global-1"}',
+                ),
+              ],
+            ),
+          ],
+          [const ChatStreamEvent(contentDelta: '删除需要确认。')],
+        ]),
+      );
+
+      await controller.sendPrompt('忘记第一条记忆');
+
+      expect(
+        controller.visibleMemories.any((memory) => memory.id == 'mem-global-1'),
+        isTrue,
+      );
+      final deleteResultBlocks = controller.messages
+          .expand((message) => message.blocks)
+          .where(
+            (block) =>
+                block.type == MessageBlockType.toolResult &&
+                block.data['capabilityId'] == 'memory.delete',
+          );
+      expect(deleteResultBlocks, isNotEmpty);
+      final output =
+          deleteResultBlocks.first.data['output']! as Map<String, Object?>;
+      expect(output['error'], 'permission_confirmation_required');
+      expect(controller.messages.last.blocks.first.data['text'], '删除需要确认。');
+    },
+  );
 
   test('model tool call can search web through capability runtime', () async {
     final controller = WorkbenchController(
@@ -316,7 +516,53 @@ void main() {
                   block.data['capabilityId'] == 'file.read_app_file'),
         );
     expect(fileBlocks.length, 2);
+    expect(controller.workspaceFiles.map((file) => file.path), [
+      'reports/today.md',
+    ]);
     expect(controller.messages.last.blocks.first.data['text'], '文件已保存并读回。');
+  });
+
+  test('model tool call can create maintainable web project card', () async {
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: _FakeChatClient([
+        [
+          ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-project-create',
+                name: 'project_create_web_app',
+                argumentsDelta: jsonEncode({
+                  'title': '黄金矿工小游戏',
+                  'summary': '可打开并后续维护的本地小游戏。',
+                  'entry_path': 'games/gold-miner/index.html',
+                  'files': [
+                    {
+                      'path': 'games/gold-miner/index.html',
+                      'content':
+                          '<!doctype html><html><body><h1>黄金矿工</h1></body></html>',
+                    },
+                  ],
+                }),
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '已创建。')],
+      ]),
+    );
+
+    await controller.sendPrompt('创建黄金矿工小游戏');
+
+    expect(controller.workspaceFiles.map((file) => file.path), [
+      'games/gold-miner/index.html',
+    ]);
+    expect(controller.workspaceArtifacts.last.title, '黄金矿工小游戏');
+    final webAppCards = controller.messages
+        .expand((message) => message.blocks)
+        .where((block) => block.type == MessageBlockType.webAppCard);
+    expect(webAppCards, isNotEmpty);
   });
 
   test('model tool call can use native clipboard capability', () async {
@@ -492,7 +738,7 @@ void main() {
   });
 
   test('web app bridge can call allowed capability', () async {
-    final controller = WorkbenchController(apiKeyStore: _FakeApiKeyStore(null));
+    final controller = _controllerWithWebAppCreationRounds(1);
 
     final webApp = await _createWebApp(controller);
     final result = await controller.callCapabilityFromWebApp(
@@ -518,7 +764,7 @@ void main() {
   });
 
   test('web app bridge denies undeclared capability', () async {
-    final controller = WorkbenchController(apiKeyStore: _FakeApiKeyStore(null));
+    final controller = _controllerWithWebAppCreationRounds(1);
 
     final webApp = await _createWebApp(controller);
     final result = await controller.callCapabilityFromWebApp(
@@ -532,7 +778,7 @@ void main() {
   });
 
   test('web app bridge keeps note namespaces isolated', () async {
-    final controller = WorkbenchController(apiKeyStore: _FakeApiKeyStore(null));
+    final controller = _controllerWithWebAppCreationRounds(2);
     final firstWebApp = await _createWebApp(controller);
     final secondWebApp = await _createWebApp(controller);
 
@@ -554,7 +800,7 @@ void main() {
   });
 
   test('web app bridge keeps file namespaces isolated', () async {
-    final controller = WorkbenchController(apiKeyStore: _FakeApiKeyStore(null));
+    final controller = _controllerWithWebAppCreationRounds(2);
     final firstWebApp = await _createWebApp(controller);
     final secondWebApp = await _createWebApp(controller);
 
@@ -572,6 +818,68 @@ void main() {
     final output = result['output']! as Map<String, Object?>;
     expect(result['ok'], isFalse);
     expect(output['error'], 'not_found');
+  });
+
+  test('web app runtime logs are written to project folder', () async {
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: _FakeChatClient([
+        [
+          ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-project-create-log',
+                name: 'project_create_web_app',
+                argumentsDelta: jsonEncode({
+                  'title': '日志测试 Web App',
+                  'summary': '用于验证运行日志写入项目目录。',
+                  'entry_path': 'apps/log-test/index.html',
+                  'files': [
+                    {
+                      'path': 'apps/log-test/index.html',
+                      'content':
+                          '<!doctype html><html><body><script>console.error("boom")</script></body></html>',
+                    },
+                  ],
+                }),
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '已创建。')],
+      ]),
+    );
+
+    await controller.sendPrompt('创建日志测试 Web App');
+    final webApp = controller.workspaceArtifacts.lastWhere(
+      (artifact) => artifact.type == ArtifactType.webApp,
+    );
+    await controller.recordWebAppRuntimeLog(
+      webApp: webApp,
+      entry: WebAppRuntimeLogEntry(
+        timestamp: DateTime.utc(2026, 5, 18, 10),
+        level: 'error',
+        source: 'console.error',
+        message: 'boom',
+        url: 'https://phone-agent.local/artifact/',
+      ),
+    );
+
+    expect(
+      webApp.metadata['runtimeLogPath'],
+      'apps/log-test/.phone-agent/runtime.log',
+    );
+    expect(
+      controller.workspaceFiles.map((file) => file.path),
+      contains('apps/log-test/.phone-agent/runtime.log'),
+    );
+    final logFile = controller.workspaceFiles.firstWhere(
+      (file) => file.path == 'apps/log-test/.phone-agent/runtime.log',
+    );
+    final logContent = await controller.readWorkspaceFile(logFile);
+    expect(logContent.content, contains('"source":"console.error"'));
+    expect(logContent.content, contains('"message":"boom"'));
   });
 
   test('model tool call can create and switch workspace', () async {
@@ -809,6 +1117,48 @@ ChatStreamEvent _toolCallRound(int index, String id) {
   );
 }
 
+WorkbenchController _controllerWithWebAppCreationRounds(int webAppCount) {
+  final rounds = <List<ChatStreamEvent>>[];
+  for (var index = 0; index < webAppCount; index += 1) {
+    rounds
+      ..add([_webAppToolCallRound(index)])
+      ..add([const ChatStreamEvent(contentDelta: '已生成 Web App。')]);
+  }
+  return WorkbenchController(
+    apiKeyStore: _FakeApiKeyStore('test-key'),
+    chatClient: _FakeChatClient(rounds),
+  );
+}
+
+ChatStreamEvent _webAppToolCallRound(int index) {
+  return ChatStreamEvent(
+    toolCallDeltas: [
+      ToolCallDelta(
+        index: 0,
+        id: 'call-webapp-$index',
+        name: 'artifact_create',
+        argumentsDelta: jsonEncode({
+          'type': 'web_app',
+          'title': '测试 Web App $index',
+          'summary': '用于验证 JSBridge 能力隔离。',
+          'content_html':
+              '<main><h1>测试 Web App $index</h1><button>Run</button></main>',
+          'metadata': {
+            'entry': 'index.html',
+            'permissions': [
+              'db.note.create',
+              'db.note.query',
+              'file.read_app_file',
+              'file.write_app_file',
+              'device.info',
+            ],
+          },
+        }),
+      ),
+    ],
+  );
+}
+
 Future<AgentArtifact> _createWebApp(WorkbenchController controller) async {
   await controller.sendPrompt('创建一个本地 Web App');
   return controller.workspaceArtifacts.lastWhere(
@@ -855,6 +1205,7 @@ class _FakeChatClient extends OpenAiCompatibleChatClient {
 
   final List<List<ChatStreamEvent>> rounds;
   final List<List<Map<String, Object?>>> capturedMessages = [];
+  final List<String> capturedModels = [];
   int callCount = 0;
 
   @override
@@ -865,10 +1216,29 @@ class _FakeChatClient extends OpenAiCompatibleChatClient {
     List<Map<String, Object?>> tools = const [],
   }) async* {
     capturedMessages.add(messages);
+    capturedModels.add(provider.model);
     final events = rounds[callCount];
     callCount += 1;
     for (final event in events) {
       yield event;
     }
+  }
+}
+
+class _RetryOnceChatClient extends OpenAiCompatibleChatClient {
+  int callCount = 0;
+
+  @override
+  Stream<ChatStreamEvent> streamChat({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+    List<Map<String, Object?>> tools = const [],
+  }) async* {
+    callCount += 1;
+    if (callCount == 1) {
+      throw const ModelRequestException('模型流式连接中断', isRetryable: true);
+    }
+    yield const ChatStreamEvent(contentDelta: '重试成功');
   }
 }

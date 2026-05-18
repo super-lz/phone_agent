@@ -39,9 +39,44 @@ class MessageBlock {
   factory MessageBlock.markdown(String text) =>
       MessageBlock(type: MessageBlockType.markdownText, data: {'text': text});
 
+  factory MessageBlock.intermediateMarkdown(String text) => MessageBlock(
+    type: MessageBlockType.markdownText,
+    data: {'text': text, 'intermediate': true},
+  );
+
   factory MessageBlock.code(String language, String code) => MessageBlock(
     type: MessageBlockType.codeBlock,
     data: {'language': language, 'code': code},
+  );
+
+  factory MessageBlock.image({
+    required String name,
+    required String uri,
+    int? bytes,
+    String? mimeType,
+  }) => MessageBlock(
+    type: MessageBlockType.image,
+    data: {
+      'name': name,
+      'uri': uri,
+      'bytes': ?bytes,
+      if (mimeType != null && mimeType.isNotEmpty) 'mimeType': mimeType,
+    },
+  );
+
+  factory MessageBlock.fileAttachment({
+    required String name,
+    required String uri,
+    int? bytes,
+    String? extension,
+  }) => MessageBlock(
+    type: MessageBlockType.fileAttachment,
+    data: {
+      'name': name,
+      'uri': uri,
+      'bytes': ?bytes,
+      if (extension != null && extension.isNotEmpty) 'extension': extension,
+    },
   );
 
   factory MessageBlock.toolCall(
@@ -58,6 +93,26 @@ class MessageBlock {
   ) => MessageBlock(
     type: MessageBlockType.toolResult,
     data: {'capabilityId': capabilityId, 'output': output},
+  );
+
+  factory MessageBlock.approvalRequest({
+    required String requestId,
+    required String toolName,
+    required String capabilityId,
+    required String workspaceId,
+    required Map<String, Object?> input,
+    required String detail,
+  }) => MessageBlock(
+    type: MessageBlockType.approvalRequest,
+    data: {
+      'requestId': requestId,
+      'toolName': toolName,
+      'capabilityId': capabilityId,
+      'workspaceId': workspaceId,
+      'input': input,
+      'detail': detail,
+      'status': 'pending',
+    },
   );
 
   factory MessageBlock.artifactCard(String artifactId, String title) =>
@@ -79,4 +134,11 @@ class MessageBlock {
     type: MessageBlockType.errorCard,
     data: {'title': title, 'detail': detail},
   );
+
+  static List<String> stringList(Object? value) {
+    if (value is! Iterable<Object?>) {
+      return const [];
+    }
+    return value.whereType<String>().toList(growable: false);
+  }
 }

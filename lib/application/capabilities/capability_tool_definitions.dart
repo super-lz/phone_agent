@@ -119,9 +119,84 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'file_apply_text_patch',
+          'description':
+              '对当前 Workspace 应用沙箱内的文本文件做精确补丁修改。用于维护 AI 已生成的项目文件，必须提供能唯一匹配的 old_text，避免整文件覆盖。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'path': {
+                'type': 'string',
+                'description': '当前 Workspace 文件区内的相对路径。',
+              },
+              'old_text': {
+                'type': 'string',
+                'description': '要被替换的原文，默认必须在文件中唯一出现。',
+              },
+              'new_text': {'type': 'string', 'description': '替换后的新文本。'},
+              'replace_all': {
+                'type': 'boolean',
+                'description': '是否替换所有匹配项，默认 false。',
+              },
+            },
+            'required': ['path', 'old_text', 'new_text'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'project_create_web_app',
+          'description':
+              '创建一个可维护的本地 Web 项目并生成可预览 Web App 卡片。用户要求创建小游戏、交互网页、Web App、原型、HTML 页面或“下面给我卡片/能打开体验”时优先使用本工具；必须写入真实文件，不能只在正文中说已创建。默认按手机竖屏设计，适配 360-430px 宽度、触摸操作和安全区域，避免桌面优先布局。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'title': {'type': 'string', 'description': '项目/Artifact 标题。'},
+              'summary': {'type': 'string', 'description': '项目摘要。'},
+              'entry_path': {
+                'type': 'string',
+                'description': '入口 HTML 文件相对路径，例如 games/gold-miner/index.html。',
+              },
+              'files': {
+                'type': 'array',
+                'description': '要写入当前 Workspace 文件区的项目文件。',
+                'items': {
+                  'type': 'object',
+                  'properties': {
+                    'path': {
+                      'type': 'string',
+                      'description': '相对路径，不能是绝对路径或包含 ..。',
+                    },
+                    'content': {
+                      'type': 'string',
+                      'description':
+                          '完整文件内容。入口文件应是完整可运行 HTML，默认移动端竖屏布局；需要 WebView 视口信息时用 window.PhoneAgent.getRuntimeInfo()，需要手机能力时通过 window.PhoneAgent.callCapability 或 window.PhoneAgent.getDeviceInfo 等 JSBridge helper 调用。',
+                    },
+                  },
+                  'required': ['path', 'content'],
+                },
+              },
+              'permissions': {
+                'type': 'array',
+                'description': 'Web App 需要通过 JSBridge 调用的 capability id 列表。',
+                'items': {'type': 'string'},
+              },
+              'metadata': {
+                'type': 'object',
+                'description': '额外元数据，例如 tags、kind、framework。',
+              },
+            },
+            'required': ['title', 'summary', 'files'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'artifact_create',
           'description':
-              '当产出需要后续复用、作为卡片展示或创建本地 Web App 时，把结果保存为当前 Workspace 的 Artifact。创建 web_app 时必须同时提供 content_html，且应包含完整 HTML、内联 CSS 和内联 JS。',
+              '当产出需要后续复用、作为卡片展示或创建本地 Web App 时，把结果保存为当前 Workspace 的 Artifact。只要用户要求卡片、预览入口、打开体验或本地 Web App，就必须调用本工具，不能只在 Markdown 中输出假链接。创建 web_app 时必须同时提供 content_html，且应包含完整 HTML、内联 CSS 和内联 JS；Web App 默认按手机竖屏设计。如果网页脚本调用 window.PhoneAgent.callCapability 或 JSBridge helper，metadata.permissions 必须声明每个精确 capability id。',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -135,12 +210,12 @@ class CapabilityToolDefinitions {
               'content_html': {
                 'type': 'string',
                 'description':
-                    '仅 web_app 使用：完整可运行 HTML 文档或片段，必须包含页面真实内容、样式和交互脚本。优先内联 CSS/JS，避免依赖外部资源。',
+                    '仅 web_app 使用：完整可运行 HTML 文档或片段，必须包含页面真实内容、样式和交互脚本。优先内联 CSS/JS，避免依赖外部资源。默认移动端竖屏布局，使用 viewport、touch-friendly 控件和安全区域。WebView 视口可用 window.PhoneAgent.getRuntimeInfo()；调用手机能力时使用 window.PhoneAgent.callCapability 或 helper，例如 await window.PhoneAgent.getDeviceInfo()。',
               },
               'metadata': {
                 'type': 'object',
                 'description':
-                    '可选元数据。Web App 可声明 entry、permissions；也兼容 metadata.html，但优先使用 content_html。',
+                    '可选元数据。Web App 可声明 entry、permissions；也兼容 metadata.html，但优先使用 content_html。permissions 示例：["device.info","db.note.create","file.write_app_file","time.get_current","web.search"]。',
               },
             },
             'required': ['title', 'summary'],
@@ -322,6 +397,56 @@ class CapabilityToolDefinitions {
               'max_chars': {
                 'type': 'integer',
                 'description': '最多返回字符数，默认 12000。',
+              },
+            },
+            'required': ['url'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'skill_install',
+          'description': '从本地目录安装并索引 Agent Skill。脚本执行仍必须走 Capability Runtime。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'source': {
+                'type': 'string',
+                'description': '本地 Skill 目录路径；zip 和 Git URL 会返回当前不可用原因。',
+              },
+            },
+            'required': ['source'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'skill_invoke',
+          'description': '调用已安装 Skill。当前无安全脚本执行后端时返回明确不可用。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'skill_id': {'type': 'string', 'description': 'Skill ID。'},
+              'input': {'type': 'object', 'description': '调用参数。'},
+            },
+            'required': ['skill_id'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'mcp_connect',
+          'description': '保存并测试 HTTP/SSE MCP 连接配置；失败时返回可读原因。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'url': {'type': 'string', 'description': 'HTTP/SSE MCP 服务 URL。'},
+              'transport': {
+                'type': 'string',
+                'description': 'http 或 sse。stdio 当前仅保留扩展入口。',
               },
             },
             'required': ['url'],

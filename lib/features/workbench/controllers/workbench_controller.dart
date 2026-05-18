@@ -1,14 +1,19 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
 import '../../../application/agent/agent_loop.dart';
+import '../../../application/capabilities/capability_execution_result.dart';
 import '../../../application/capabilities/capability_runtime.dart';
 import '../../../core/logging/app_logger.dart';
 import '../../../data/bootstrap/phone_agent_seed.dart';
 import '../../../data/models/model_api_key_store.dart';
+import '../../../data/models/model_settings_store.dart';
 import '../../../data/models/openai_compatible_chat_client.dart';
 import '../../../domain/artifacts/artifact.dart';
+import '../../../domain/artifacts/web_app_runtime_log.dart';
 import '../../../domain/capabilities/capability.dart';
 import '../../../domain/conversation/message_block.dart';
 import '../../../domain/files/app_file_store.dart';
@@ -17,6 +22,7 @@ import '../../../domain/models/model_provider_config.dart';
 import '../../../domain/notes/note.dart';
 import '../../../domain/notes/note_store.dart';
 import '../../../domain/permissions/permission_policy.dart';
+import '../../../domain/workbench/workbench_store.dart';
 import '../../../domain/workspace/workspace.dart';
 import '../../web_app_runtime/web_app_capability_bridge.dart';
 
@@ -25,23 +31,30 @@ class WorkbenchController extends ChangeNotifier {
     ModelApiKeyStore? apiKeyStore,
     OpenAiCompatibleChatClient? chatClient,
     CapabilityRuntime? capabilityRuntime,
+    ModelSettingsStore? modelSettingsStore,
     AgentNoteStore? noteStore,
     AppFileStore? fileStore,
+    WorkbenchStore? workbenchStore,
   }) : this._(
          apiKeyStore: apiKeyStore ?? ModelApiKeyStore(),
          chatClient: chatClient ?? OpenAiCompatibleChatClient(),
          capabilityRuntime: capabilityRuntime ?? CapabilityRuntime(),
+         modelSettingsStore: modelSettingsStore ?? InMemoryModelSettingsStore(),
          noteStore: noteStore ?? InMemoryAgentNoteStore(PhoneAgentSeed.notes()),
          fileStore: fileStore ?? InMemoryAppFileStore(),
+         workbenchStore: workbenchStore ?? InMemoryWorkbenchStore(),
        );
 
   WorkbenchController._({
     required ModelApiKeyStore apiKeyStore,
     required OpenAiCompatibleChatClient chatClient,
     required CapabilityRuntime capabilityRuntime,
+    required ModelSettingsStore modelSettingsStore,
     required AgentNoteStore noteStore,
     required AppFileStore fileStore,
+    required WorkbenchStore workbenchStore,
   }) : _apiKeyStore = apiKeyStore,
+       _modelSettingsStore = modelSettingsStore,
        _agentLoop = AgentLoop(
          chatClient: chatClient,
          capabilityRuntime: capabilityRuntime,
@@ -51,9 +64,11 @@ class WorkbenchController extends ChangeNotifier {
          apiKeyStore: apiKeyStore,
          noteStore: noteStore,
          fileStore: fileStore,
+         workbenchStore: workbenchStore,
        ),
        _noteStore = noteStore,
        _fileStore = fileStore,
+       _workbenchStore = workbenchStore,
        _workspaces = PhoneAgentSeed.workspaces(),
        _capabilities = PhoneAgentSeed.capabilities(),
        _messages = PhoneAgentSeed.messages(),
@@ -61,24 +76,30 @@ class WorkbenchController extends ChangeNotifier {
        _artifacts = PhoneAgentSeed.artifacts(),
        _notes = PhoneAgentSeed.notes() {
     unawaited(_loadNotes());
+    _stateReady = _loadWorkbenchState();
+    unawaited(_stateReady);
   }
 
   final ModelApiKeyStore _apiKeyStore;
+  final ModelSettingsStore _modelSettingsStore;
   final AgentLoop _agentLoop;
   final WebAppCapabilityBridge _webAppBridge;
   final AgentNoteStore _noteStore;
   final AppFileStore _fileStore;
+  final WorkbenchStore _workbenchStore;
   final List<AgentWorkspace> _workspaces;
   final List<CapabilityDefinition> _capabilities;
   final List<AgentMessage> _messages;
   final List<AgentMemory> _memories;
   final List<AgentArtifact> _artifacts;
   final List<AgentNote> _notes;
+  final List<AppFileEntry> _workspaceFiles = [];
 
   PermissionMode _permissionMode = PermissionMode.defaultMode;
   String _workspaceId = 'default';
   bool _isSending = false;
   bool _isDisposed = false;
+  Future<void> _stateReady = Future<void>.value();
 
   List<AgentWorkspace> get workspaces => List.unmodifiable(_workspaces);
   List<CapabilityDefinition> get capabilities =>
@@ -99,6 +120,8 @@ class WorkbenchController extends ChangeNotifier {
         .where((note) => note.workspaceId == _workspaceId)
         .toList(growable: false);
   }
+
+  List<AppFileEntry> get workspaceFiles => List.unmodifiable(_workspaceFiles);
 
   AgentArtifact? artifactById(String artifactId) {
     for (final artifact in _artifacts) {
@@ -122,7 +145,66 @@ class WorkbenchController extends ChangeNotifier {
   void dispose() {
     _isDisposed = true;
     unawaited(_noteStore.close());
+    unawaited(_workbenchStore.close());
     super.dispose();
+  }
+
+  Future<void> _loadWorkbenchState() async {
+    try {
+      const defaultWorkspaceId = 'default';
+      await _workbenchStore.initialize(
+        seedWorkspaces: PhoneAgentSeed.workspaces(),
+        seedMemories: PhoneAgentSeed.memories(),
+        seedArtifacts: PhoneAgentSeed.artifacts(),
+        seedMessages: PhoneAgentSeed.messages(),
+        defaultWorkspaceId: defaultWorkspaceId,
+      );
+      final loadedWorkspaces = await _workbenchStore.loadWorkspaces();
+      final loadedMemories = await _workbenchStore.loadMemories();
+      final loadedArtifacts = await _workbenchStore.loadArtifacts();
+      final storedWorkspaceId = await _workbenchStore.loadCurrentWorkspaceId();
+      final nextWorkspaceId =
+          loadedWorkspaces.any((workspace) => workspace.id == storedWorkspaceId)
+          ? storedWorkspaceId!
+          : defaultWorkspaceId;
+      final loadedMessages = await _workbenchStore.loadMessages(
+        nextWorkspaceId,
+      );
+
+      _workspaces
+        ..clear()
+        ..addAll(loadedWorkspaces);
+      _memories
+        ..clear()
+        ..addAll(loadedMemories);
+      _artifacts
+        ..clear()
+        ..addAll(loadedArtifacts);
+      _workspaceId = nextWorkspaceId;
+      _messages
+        ..clear()
+        ..addAll(loadedMessages);
+      if (_messages.isEmpty && _workspaceId == defaultWorkspaceId) {
+        _messages.addAll(PhoneAgentSeed.messages());
+        await _persistCurrentMessages();
+      }
+      await _workbenchStore.saveCurrentWorkspaceId(_workspaceId);
+      await _refreshWorkspaceFiles(notify: false);
+      AppLogger.info('workbench.state.loaded', {
+        'workspaceCount': _workspaces.length,
+        'memoryCount': _memories.length,
+        'artifactCount': _artifacts.length,
+        'messageCount': _messages.length,
+        'workspaceId': _workspaceId,
+      });
+      if (!_isDisposed) {
+        notifyListeners();
+      }
+    } on Object catch (error) {
+      AppLogger.warning('workbench.state.load_failed', {
+        'error': error.toString(),
+      });
+    }
   }
 
   Future<void> _loadNotes() async {
@@ -146,6 +228,37 @@ class WorkbenchController extends ChangeNotifier {
     }
   }
 
+  Future<void> _persistCurrentMessages() async {
+    for (final message in _messages) {
+      await _workbenchStore.upsertMessage(
+        workspaceId: _workspaceId,
+        message: message,
+      );
+    }
+  }
+
+  void _persistMessage(AgentMessage message, {String? workspaceId}) {
+    unawaited(
+      _workbenchStore.upsertMessage(
+        workspaceId: workspaceId ?? _workspaceId,
+        message: message,
+      ),
+    );
+  }
+
+  void _persistCollections() {
+    for (final workspace in _workspaces) {
+      unawaited(_workbenchStore.upsertWorkspace(workspace));
+    }
+    for (final memory in _memories) {
+      unawaited(_workbenchStore.upsertMemory(memory));
+    }
+    for (final artifact in _artifacts) {
+      unawaited(_workbenchStore.upsertArtifact(artifact));
+    }
+    unawaited(_workbenchStore.saveCurrentWorkspaceId(_workspaceId));
+  }
+
   void setPermissionMode(PermissionMode? mode) {
     if (mode == null || mode == _permissionMode) {
       return;
@@ -158,8 +271,35 @@ class WorkbenchController extends ChangeNotifier {
     if (workspaceId == _workspaceId) {
       return;
     }
+    final exists = _workspaces.any((workspace) => workspace.id == workspaceId);
+    if (!exists) {
+      return;
+    }
     _workspaceId = workspaceId;
+    _messages.clear();
+    _workspaceFiles.clear();
+    unawaited(_workbenchStore.saveCurrentWorkspaceId(workspaceId));
+    unawaited(_loadMessagesForWorkspace(workspaceId));
+    unawaited(_refreshWorkspaceFiles());
     notifyListeners();
+  }
+
+  Future<void> _loadMessagesForWorkspace(String workspaceId) async {
+    try {
+      final loadedMessages = await _workbenchStore.loadMessages(workspaceId);
+      if (_isDisposed || workspaceId != _workspaceId) {
+        return;
+      }
+      _messages
+        ..clear()
+        ..addAll(loadedMessages);
+      notifyListeners();
+    } on Object catch (error) {
+      AppLogger.warning('workbench.messages.load_failed', {
+        'workspaceId': workspaceId,
+        'error': error.toString(),
+      });
+    }
   }
 
   void createWorkspace() {
@@ -172,14 +312,18 @@ class WorkbenchController extends ChangeNotifier {
     );
     _workspaces.add(workspace);
     _workspaceId = workspace.id;
-    _messages.add(
-      AgentMessage(
-        id: 'msg-workspace-$next',
-        role: MessageRole.system,
-        createdAt: DateTime.now(),
-        blocks: [MessageBlock.markdown('已创建并切换到 **${workspace.name}**。')],
-      ),
+    _messages.clear();
+    _workspaceFiles.clear();
+    final message = AgentMessage(
+      id: 'msg-workspace-$next',
+      role: MessageRole.system,
+      createdAt: DateTime.now(),
+      blocks: [MessageBlock.markdown('已创建并切换到 **${workspace.name}**。')],
     );
+    _messages.add(message);
+    unawaited(_workbenchStore.upsertWorkspace(workspace));
+    unawaited(_workbenchStore.saveCurrentWorkspaceId(workspace.id));
+    _persistMessage(message, workspaceId: workspace.id);
     notifyListeners();
   }
 
@@ -195,6 +339,7 @@ class WorkbenchController extends ChangeNotifier {
       createdAt: DateTime.now(),
     );
     _memories.add(memory);
+    unawaited(_workbenchStore.upsertMemory(memory));
     AppLogger.info('workbench.memory.create', {'memoryId': memory.id});
     notifyListeners();
   }
@@ -211,6 +356,7 @@ class WorkbenchController extends ChangeNotifier {
     }
 
     _memories[index] = _memories[index].copyWith(content: normalized);
+    unawaited(_workbenchStore.upsertMemory(_memories[index]));
     AppLogger.info('workbench.memory.update', {'memoryId': memoryId});
     notifyListeners();
   }
@@ -221,7 +367,105 @@ class WorkbenchController extends ChangeNotifier {
       return;
     }
     _memories.removeAt(index);
+    unawaited(_workbenchStore.deleteMemory(memoryId));
     AppLogger.info('workbench.memory.delete', {'memoryId': memoryId});
+    notifyListeners();
+  }
+
+  Future<void> approveCapabilityRequest(Map<String, Object?> data) async {
+    final requestId = data['requestId'];
+    final toolName = data['toolName'];
+    final workspaceId = data['workspaceId'];
+    final rawInput = data['input'];
+    if (requestId is! String ||
+        toolName is! String ||
+        workspaceId is! String ||
+        rawInput is! Map<Object?, Object?>) {
+      return;
+    }
+    _setApprovalStatus(requestId, 'approved');
+    final input = rawInput.map((key, value) => MapEntry(key.toString(), value));
+    final apiKey = await _apiKeyStore.readApiKey(
+      ModelProviders.aliyunBailianQwenFlash.id,
+    );
+    final result = await _agentLoop.executeApprovedTool(
+      toolCall: ToolCallRequest(
+        id: requestId,
+        name: toolName,
+        arguments: input,
+      ),
+      workspaceId: workspaceId,
+      allMemories: _memories,
+      allNotes: _notes,
+      allArtifacts: _artifacts,
+      allWorkspaces: _workspaces,
+      allCapabilities: _capabilities,
+      noteStore: _noteStore,
+      fileStore: _fileStore,
+      workbenchStore: _workbenchStore,
+      apiKey: apiKey,
+      permissionMode: _permissionMode,
+      switchWorkspace: _switchWorkspaceFromAgent,
+    );
+    _addMessage(
+      AgentMessage(
+        id: 'msg-approved-${DateTime.now().microsecondsSinceEpoch}',
+        role: MessageRole.assistant,
+        createdAt: DateTime.now(),
+        blocks: [
+          MessageBlock.toolCall(toolName, input),
+          MessageBlock.toolResult(result.capabilityId, result.output),
+          ..._artifactBlocksFor(result),
+        ],
+      ),
+    );
+    _persistCollections();
+    await _refreshWorkspaceFiles(notify: false);
+    notifyListeners();
+  }
+
+  void denyCapabilityRequest(Map<String, Object?> data) {
+    final requestId = data['requestId'];
+    final toolName = data['toolName'];
+    final capabilityId = data['capabilityId'];
+    final rawInput = data['input'];
+    if (requestId is! String ||
+        toolName is! String ||
+        capabilityId is! String ||
+        rawInput is! Map<Object?, Object?>) {
+      return;
+    }
+    _setApprovalStatus(requestId, 'denied');
+    final input = rawInput.map((key, value) => MapEntry(key.toString(), value));
+    unawaited(
+      _workbenchStore.recordInvocation(
+        CapabilityInvocation(
+          id: 'invocation-${DateTime.now().microsecondsSinceEpoch}',
+          workspaceId: _workspaceId,
+          capabilityId: capabilityId,
+          input: input,
+          status: CapabilityInvocationStatus.denied,
+          permissionDecision: 'denied_by_user',
+          output: const {'ok': false, 'error': 'permission_denied'},
+          error: 'permission_denied',
+          createdAt: DateTime.now(),
+        ),
+      ),
+    );
+    _addMessage(
+      AgentMessage(
+        id: 'msg-denied-${DateTime.now().microsecondsSinceEpoch}',
+        role: MessageRole.assistant,
+        createdAt: DateTime.now(),
+        blocks: [
+          MessageBlock.toolResult(capabilityId, const {
+            'ok': false,
+            'error': 'permission_denied',
+            'detail': '用户已拒绝执行该能力。',
+          }),
+        ],
+      ),
+    );
     notifyListeners();
   }
 
@@ -239,61 +483,298 @@ class WorkbenchController extends ChangeNotifier {
       notes: _notes,
       artifacts: _artifacts,
       workspaces: _workspaces,
+      capabilities: _capabilities,
     );
   }
 
-  Future<void> sendPrompt(String prompt) async {
+  Future<void> sendPrompt(
+    String prompt, {
+    List<MessageBlock> attachments = const [],
+  }) async {
+    await _stateReady;
     if (_isSending) {
       return;
     }
 
     final now = DateTime.now();
     final priorMessages = List<AgentMessage>.unmodifiable(_messages);
+    final modelPrompt = await _promptWithAttachmentContext(prompt, attachments);
     AppLogger.info('workbench.prompt.send', {
       'workspaceId': _workspaceId,
       'length': prompt.length,
+      'attachmentCount': attachments.length,
     });
-    _messages.add(
+    _addMessage(
       AgentMessage(
         id: 'msg-user-${now.microsecondsSinceEpoch}',
         role: MessageRole.user,
         createdAt: now,
-        blocks: [MessageBlock.markdown(prompt)],
+        blocks: [MessageBlock.markdown(prompt), ...attachments],
       ),
     );
     notifyListeners();
 
-    final localResponse = _tryHandleLocalPrompt(prompt);
-    if (localResponse != null) {
-      _messages.add(localResponse);
-      notifyListeners();
-      return;
-    }
-
-    await _runConfiguredModel(prompt, priorMessages: priorMessages);
+    await _runConfiguredModel(modelPrompt, priorMessages: priorMessages);
   }
 
-  AgentMessage? _tryHandleLocalPrompt(String prompt) {
-    final normalized = prompt.toLowerCase();
-    if (prompt.contains('应用') ||
-        normalized.contains('web app') ||
-        normalized.contains('app')) {
-      return _createWebAppArtifact(prompt);
+  Future<void> refreshWorkspaceFiles() async {
+    await _refreshWorkspaceFiles();
+  }
+
+  Future<AppFileReadResult> readWorkspaceFile(AppFileEntry entry) {
+    return _fileStore.readText(
+      workspaceId: _workspaceId,
+      path: entry.path,
+      maxChars: 5 * 1024 * 1024,
+    );
+  }
+
+  Future<AppFileReadResult> readWebAppResource({
+    required AgentArtifact webApp,
+    required String path,
+    required int maxChars,
+  }) {
+    return _fileStore.readText(
+      workspaceId: webApp.workspaceId,
+      path: path,
+      maxChars: maxChars,
+    );
+  }
+
+  Future<void> recordWebAppRuntimeLog({
+    required AgentArtifact webApp,
+    required WebAppRuntimeLogEntry entry,
+  }) async {
+    final logPath = WebAppRuntimeLogPaths.forArtifact(webApp);
+    try {
+      final existing = await _readExistingRuntimeLog(
+        workspaceId: webApp.workspaceId,
+        path: logPath,
+      );
+      await _fileStore.writeText(
+        workspaceId: webApp.workspaceId,
+        path: logPath,
+        content: _runtimeLogContent(existing, entry.toJsonLine()),
+        overwrite: true,
+      );
+      if (webApp.workspaceId == _workspaceId &&
+          !_workspaceFiles.any((file) => file.path == logPath)) {
+        await _refreshWorkspaceFiles(notify: false);
+      }
+    } on Object catch (error, stackTrace) {
+      AppLogger.warning('webapp.runtime_log.write_failed', {
+        'workspaceId': webApp.workspaceId,
+        'artifactId': webApp.id,
+        'path': logPath,
+        'error': error.toString(),
+      });
+      AppLogger.error(
+        'webapp.runtime_log.write_failed.stack',
+        error,
+        stackTrace,
+      );
     }
-    return null;
+  }
+
+  Future<String> _readExistingRuntimeLog({
+    required String workspaceId,
+    required String path,
+  }) async {
+    try {
+      final result = await _fileStore.readText(
+        workspaceId: workspaceId,
+        path: path,
+        maxChars: 96 * 1024,
+      );
+      return result.content;
+    } on AppFileStoreException catch (error) {
+      if (error.code == 'not_found') {
+        return '';
+      }
+      rethrow;
+    }
+  }
+
+  String _runtimeLogContent(String existing, String nextLine) {
+    const maxChars = 96 * 1024;
+    final combined = '$existing$nextLine';
+    if (combined.length <= maxChars) {
+      return combined;
+    }
+    return combined.substring(combined.length - maxChars);
+  }
+
+  Future<Object> _promptWithAttachmentContext(
+    String prompt,
+    List<MessageBlock> attachments,
+  ) async {
+    if (attachments.isEmpty) {
+      return prompt;
+    }
+    final lines = <String>[];
+    final imageParts = <Map<String, Object?>>[];
+    for (final attachment in attachments) {
+      final imagePart = await _imagePromptPart(attachment);
+      if (imagePart.contentPart != null) {
+        imageParts.add(imagePart.contentPart!);
+      }
+      lines.add(
+        await _attachmentContextLine(attachment, imageDetail: imagePart.detail),
+      );
+    }
+    final textPrompt =
+        '$prompt\n\n用户随消息附加了以下本地附件摘要；文本类文件已尽量读取正文摘录；'
+        '图片类附件会尽量作为多模态 image_url 输入提供给模型，失败时会明确写明原因：\n'
+        '${lines.join('\n')}';
+    if (imageParts.isEmpty) {
+      return textPrompt;
+    }
+    return <Map<String, Object?>>[
+      {'type': 'text', 'text': textPrompt},
+      ...imageParts,
+    ];
+  }
+
+  Future<String> _attachmentContextLine(
+    MessageBlock block, {
+    String? imageDetail,
+  }) async {
+    final type = block.type == MessageBlockType.image ? '图片' : '文件';
+    final name = block.data['name'] as String? ?? '未命名附件';
+    final uri = block.data['uri'] as String? ?? '';
+    final bytes = block.data['bytes'];
+    final mimeType = block.data['mimeType'];
+    final extension = block.data['extension'];
+    final parts = <String>['- $type: $name'];
+    if (bytes is int) {
+      parts.add('$bytes bytes');
+    }
+    if (mimeType is String && mimeType.isNotEmpty) {
+      parts.add(mimeType);
+    }
+    if (extension is String && extension.isNotEmpty) {
+      parts.add('扩展名 .$extension');
+    }
+    if (uri.isNotEmpty) {
+      parts.add(uri);
+    }
+    final textPreview = await _textPreviewForAttachment(block);
+    if (textPreview != null && textPreview.isNotEmpty) {
+      parts.add('正文摘录：$textPreview');
+    } else if (block.type == MessageBlockType.image) {
+      parts.add(imageDetail ?? '图片内容：unavailable');
+    }
+    return parts.join(' · ');
+  }
+
+  Future<_ImagePromptPart> _imagePromptPart(MessageBlock block) async {
+    if (block.type != MessageBlockType.image) {
+      return const _ImagePromptPart();
+    }
+    final uri = block.data['uri'];
+    if (uri is! String || uri.isEmpty) {
+      return const _ImagePromptPart(detail: '图片内容：缺少本地 URI，无法发送给模型。');
+    }
+    try {
+      final fileUri = Uri.parse(uri);
+      if (!fileUri.isScheme('file')) {
+        return _ImagePromptPart(detail: '图片内容：非本地 file URI，无法发送给模型：$uri');
+      }
+      final file = File(fileUri.toFilePath());
+      if (!await file.exists()) {
+        return _ImagePromptPart(detail: '图片内容：本地文件不存在，无法发送给模型：$uri');
+      }
+      final length = await file.length();
+      const maxImageBytes = 8 * 1024 * 1024;
+      if (length > maxImageBytes) {
+        return _ImagePromptPart(detail: '图片内容：文件超过 8 MB，未发送给模型；请压缩后重试。');
+      }
+      final bytes = await file.readAsBytes();
+      final mimeType = _imageMimeTypeForModel(block, fileUri);
+      return _ImagePromptPart(
+        detail: '图片内容：已作为多模态 image_url 输入发送给模型。',
+        contentPart: {
+          'type': 'image_url',
+          'image_url': {'url': 'data:$mimeType;base64,${base64Encode(bytes)}'},
+        },
+      );
+    } on Object catch (error) {
+      return _ImagePromptPart(detail: '图片内容：读取失败：$error');
+    }
+  }
+
+  String _imageMimeTypeForModel(MessageBlock block, Uri fileUri) {
+    final explicitMimeType = block.data['mimeType'];
+    if (explicitMimeType is String && explicitMimeType.isNotEmpty) {
+      return explicitMimeType;
+    }
+    final path = fileUri.path.toLowerCase();
+    if (path.endsWith('.jpg') || path.endsWith('.jpeg')) {
+      return 'image/jpeg';
+    }
+    if (path.endsWith('.gif')) {
+      return 'image/gif';
+    }
+    if (path.endsWith('.webp')) {
+      return 'image/webp';
+    }
+    return 'image/png';
+  }
+
+  Future<String?> _textPreviewForAttachment(MessageBlock block) async {
+    if (block.type != MessageBlockType.fileAttachment) {
+      return null;
+    }
+    final uri = block.data['uri'];
+    if (uri is! String || uri.isEmpty) {
+      return null;
+    }
+    final extension = (block.data['extension'] as String? ?? '').toLowerCase();
+    const textExtensions = {
+      'txt',
+      'md',
+      'json',
+      'csv',
+      'log',
+      'yaml',
+      'yml',
+      'xml',
+      'html',
+      'css',
+      'js',
+      'ts',
+      'dart',
+    };
+    if (!textExtensions.contains(extension)) {
+      return null;
+    }
+    try {
+      final fileUri = Uri.parse(uri);
+      if (!fileUri.isScheme('file')) {
+        return null;
+      }
+      final content = await File(fileUri.toFilePath()).readAsString();
+      final normalized = content.replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (normalized.length <= 4000) {
+        return normalized;
+      }
+      return '${normalized.substring(0, 4000)}...';
+    } on Object catch (error) {
+      return '读取失败：$error';
+    }
   }
 
   Future<void> _runConfiguredModel(
-    String prompt, {
+    Object prompt, {
     required List<AgentMessage> priorMessages,
   }) async {
-    final provider = ModelProviders.aliyunBailianQwenFlash;
+    final provider = await _configuredProvider();
     final apiKey = await _apiKeyStore.readApiKey(provider.id);
     if (apiKey == null || apiKey.trim().isEmpty) {
       AppLogger.warning('workbench.model_api_key.missing', {
         'provider': provider.id,
       });
-      _messages.add(_missingApiKeyResponse());
+      _addMessage(_missingApiKeyResponse());
       notifyListeners();
       return;
     }
@@ -313,20 +794,55 @@ class WorkbenchController extends ChangeNotifier {
         allNotes: _notes,
         allArtifacts: _artifacts,
         allWorkspaces: _workspaces,
+        allCapabilities: _capabilities,
         noteStore: _noteStore,
         fileStore: _fileStore,
+        workbenchStore: _workbenchStore,
+        permissionMode: _permissionMode,
         priorMessages: priorMessages,
-        addMessage: _messages.add,
+        addMessage: _addMessage,
         replaceMessage: _replaceMessage,
         notifyChange: notifyListeners,
         switchWorkspace: _switchWorkspaceFromAgent,
       );
     } on Object catch (error) {
-      _messages.add(_modelErrorResponse(error.toString()));
+      _addMessage(_modelErrorResponse(error.toString()));
     } finally {
+      _persistCollections();
+      await _refreshWorkspaceFiles(notify: false);
       _isSending = false;
       notifyListeners();
     }
+  }
+
+  Future<void> _refreshWorkspaceFiles({bool notify = true}) async {
+    try {
+      final files = await _fileStore.listFiles(workspaceId: _workspaceId);
+      if (_isDisposed) {
+        return;
+      }
+      _workspaceFiles
+        ..clear()
+        ..addAll(files);
+      if (notify) {
+        notifyListeners();
+      }
+    } on Object catch (error) {
+      AppLogger.warning('workbench.files.load_failed', {
+        'workspaceId': _workspaceId,
+        'error': error.toString(),
+      });
+    }
+  }
+
+  Future<ModelProviderConfig> _configuredProvider() async {
+    final provider = ModelProviders.aliyunBailianQwenFlash;
+    final modelName = await _modelSettingsStore.readModelName(provider.id);
+    final normalized = modelName?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return provider;
+    }
+    return provider.copyWith(model: normalized);
   }
 
   AgentMessage _missingApiKeyResponse() {
@@ -352,15 +868,82 @@ class WorkbenchController extends ChangeNotifier {
     );
   }
 
+  void _addMessage(AgentMessage message) {
+    _messages.add(message);
+    _persistMessage(message);
+  }
+
+  void _setApprovalStatus(String requestId, String status) {
+    for (
+      var messageIndex = 0;
+      messageIndex < _messages.length;
+      messageIndex++
+    ) {
+      final message = _messages[messageIndex];
+      var changed = false;
+      final blocks = message.blocks
+          .map((block) {
+            if (block.type != MessageBlockType.approvalRequest ||
+                block.data['requestId'] != requestId) {
+              return block;
+            }
+            changed = true;
+            return MessageBlock(
+              type: MessageBlockType.approvalRequest,
+              data: {...block.data, 'status': status},
+            );
+          })
+          .toList(growable: false);
+      if (!changed) {
+        continue;
+      }
+      final updated = AgentMessage(
+        id: message.id,
+        role: message.role,
+        createdAt: message.createdAt,
+        blocks: blocks,
+      );
+      _messages[messageIndex] = updated;
+      _persistMessage(updated);
+      return;
+    }
+  }
+
+  List<MessageBlock> _artifactBlocksFor(CapabilityExecutionResult result) {
+    if (result.output['ok'] != true ||
+        result.capabilityId != 'artifact.create' &&
+            result.capabilityId != 'project.create_web_app') {
+      return const [];
+    }
+    final artifactId = result.output['artifactId'];
+    final title = result.output['title'];
+    final type = result.output['type'];
+    if (artifactId is! String || title is! String) {
+      return const [];
+    }
+    if (_isWebAppArtifactType(type)) {
+      return [MessageBlock.webAppCard(artifactId, title)];
+    }
+    return [MessageBlock.artifactCard(artifactId, title)];
+  }
+
+  bool _isWebAppArtifactType(Object? type) {
+    return type is String &&
+        type.trim().replaceAll('_', '').replaceAll('-', '').toLowerCase() ==
+            'webapp';
+  }
+
   void _replaceMessage(String messageId, AgentMessage message) {
     final index = _messages.indexWhere(
       (candidate) => candidate.id == messageId,
     );
     if (index < 0) {
       _messages.add(message);
+      _persistMessage(message);
       return;
     }
     _messages[index] = message;
+    _persistMessage(message);
   }
 
   void _switchWorkspaceFromAgent(String workspaceId) {
@@ -369,56 +952,16 @@ class WorkbenchController extends ChangeNotifier {
       return;
     }
     _workspaceId = workspaceId;
+    unawaited(_workbenchStore.saveCurrentWorkspaceId(workspaceId));
     AppLogger.info('workbench.workspace.switch_by_agent', {
       'workspaceId': workspaceId,
     });
   }
+}
 
-  AgentMessage _createWebAppArtifact(String prompt) {
-    final artifactId =
-        'artifact-webapp-${DateTime.now().microsecondsSinceEpoch}';
-    final artifact = AgentArtifact(
-      id: artifactId,
-      workspaceId: _workspaceId,
-      type: ArtifactType.webApp,
-      title: 'AI 生成的本地 Web 小应用',
-      summary: '包含 manifest、独立沙箱、JSBridge 和 Capability 权限声明。',
-      createdAt: DateTime.now(),
-      metadata: {
-        'entry': 'index.html',
-        'permissions': WebAppRuntimeDefaults.permissions,
-        'html': WebAppRuntimeDefaults.html,
-        'databaseNamespace': WebAppDataNamespace.databaseForId(
-          workspaceId: _workspaceId,
-          webAppId: artifactId,
-        ),
-        'fileNamespace': WebAppDataNamespace.filesForId(
-          workspaceId: _workspaceId,
-          webAppId: artifactId,
-        ),
-      },
-    );
-    _artifacts.add(artifact);
+class _ImagePromptPart {
+  const _ImagePromptPart({this.detail, this.contentPart});
 
-    return AgentMessage(
-      id: 'msg-webapp-${artifact.id}',
-      role: MessageRole.assistant,
-      createdAt: DateTime.now(),
-      blocks: [
-        MessageBlock.toolCall('artifact.create', {
-          'type': 'web_app',
-          'prompt': prompt,
-        }),
-        MessageBlock.toolResult('artifact.create', {
-          'ok': true,
-          'artifactId': artifact.id,
-        }),
-        MessageBlock.markdown(
-          '已创建 Web App Artifact。后续实现会把 HTML/CSS/JS 写入本地应用库，'
-          '并通过 `window.PhoneAgent.callCapability(id, input)` 调用手机能力。',
-        ),
-        MessageBlock.webAppCard(artifact.id, artifact.title),
-      ],
-    );
-  }
+  final String? detail;
+  final Map<String, Object?>? contentPart;
 }
