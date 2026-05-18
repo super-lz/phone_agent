@@ -32,6 +32,7 @@ void main() {
     expect(route.selectedToolNames, contains('file_read_app_file'));
     expect(route.selectedToolNames, contains('file_apply_text_patch'));
     expect(route.selectedToolNames, contains('artifact_create'));
+    expect(route.requiredToolNames, contains('project_create_web_app'));
   });
 
   test('create app intent routes to local web project tools', () {
@@ -39,6 +40,14 @@ void main() {
 
     expect(route.selectedToolNames, contains('project_create_web_app'));
     expect(route.selectedToolNames, contains('artifact_create'));
+    expect(route.requiredToolNames, contains('project_create_web_app'));
+  });
+
+  test('write personal web page requires real web project creation tool', () {
+    final route = router.route(prompt: '写一个个人网页', allTools: tools);
+
+    expect(route.selectedToolNames, contains('project_create_web_app'));
+    expect(route.requiredToolNames, ['project_create_web_app']);
   });
 
   test('phone capability intent exposes matching native tools', () {

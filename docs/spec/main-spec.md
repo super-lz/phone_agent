@@ -164,6 +164,7 @@
 - `file.write_app_file` 写入的文件必须落到当前 Workspace 的应用沙箱文件目录；`file.read_app_file` 只能读取同一 Workspace 的 App File。
 - `file.read_app_file` 必须支持只读取文件局部行范围；`file.search_app_files` 必须返回带文件路径、行号和上下文片段的搜索结果，使 Agent 能先定位问题再读取和修改。
 - 当用户要求创建小游戏、交互网页、Web App、原型或本地可维护项目时，Agent 必须把真实项目文件写入当前 Workspace 文件区，并创建可预览的 Web App Artifact 作为本地索引；不能只输出代码块或自然语言承诺。Web App 默认按本地工程组织，包含入口文件和工程 manifest；除极小页面外，应拆分入口 HTML、样式和脚本文件，便于后续定位和修复。
+- 对创建网页、网站、小游戏、Web App、原型或本地可维护项目这类真实产物请求，系统必须把真实创建 Capability 视为必需工具；在必需工具成功执行前，Agent 不得声称产物已经创建、已保存或可预览。若模型只用自然语言声称完成，系统必须拦截并重新要求调用必需工具；重试后仍未完成时，必须返回未创建的结构化错误。
 - 当用户要求维护或迭代已生成的本地项目时，Agent 应先搜索或读取相关文件片段，再用精确文本补丁修改文件；补丁原文无法唯一匹配时必须返回结构化错误，避免盲目覆盖。
 - 当前 Workspace 的 App File 必须有可发现入口；用户可以在运行时区域查看当前 Workspace 文件列表，点击预览文本内容，并通过系统分享或保存入口导出文件。
 - 第一版 Office/PDF 能力必须支持上传或导入后的 Word、Excel、PPT、PDF 文件内容提取，并让 Agent 基于提取文本完成总结、问答和审阅；扫描版 PDF 的 OCR 不作为第一版承诺。
@@ -238,6 +239,7 @@
 - AI 能调用 `file.write_app_file` 和 `file.read_app_file` 在当前 Workspace 应用沙箱内写入和读取文本文件；切换 Workspace 后不能读取其它 Workspace 的文件。
 - `file.write_app_file` 和 `file.read_app_file` 对空路径、绝对路径、路径穿越、文件不存在和覆盖冲突必须返回结构化错误。
 - AI 能创建一个可维护的本地 Web 项目：项目文件出现在当前 Workspace 文件列表中，同时生成可点击预览的 Web App Artifact。
+- 用户要求创建个人网页、网站、小游戏、Web App 或原型时，如果 Agent 未成功调用真实创建 Capability，系统不得展示“已创建”类最终回答或 Web App 卡片；成功时必须能看到项目文件和可点击 Web App Artifact。
 - AI 能通过精确文本补丁维护当前 Workspace 内的项目文件；补丁目标不存在、不唯一或文件过大时不应修改文件，并返回可读错误。
 - 用户反馈已生成 Web App 的运行问题时，AI 应优先读取该 Web App 的运行日志和相关项目文件，再定位并修复，而不是只根据用户描述猜测。
 - 用户能在运行时页查看当前 Workspace 的 App File 列表；点击文件可预览文本内容，并可通过系统分享或保存入口导出到用户选择的位置。

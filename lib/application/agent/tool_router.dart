@@ -9,6 +9,7 @@ class AgentToolRouter {
   }) {
     final promptText = _extractPromptText(prompt).toLowerCase();
     final selectedNames = <String>{};
+    final requiredNames = <String>{};
 
     void add(Iterable<String> names) {
       selectedNames.addAll(names);
@@ -26,10 +27,16 @@ class AgentToolRouter {
     if (_matchesAny(promptText, _webTerms) || _hasUrl(promptText)) {
       add(_webTools);
     }
-    if (_matchesAny(promptText, _projectTerms) ||
-        _matchesAny(promptText, _creationTerms) &&
-            _matchesAny(promptText, _appTerms)) {
+    final hasProjectIntent = _matchesAny(promptText, _projectTerms);
+    final hasCreationIntent = _matchesAny(promptText, _creationTerms);
+    final hasAppCreationIntent =
+        hasCreationIntent && _matchesAny(promptText, _appTerms);
+    if (hasProjectIntent || hasAppCreationIntent) {
       add(_projectTools);
+      if (hasCreationIntent &&
+          _matchesAny(promptText, _projectCreationTargetTerms)) {
+        requiredNames.add('project_create_web_app');
+      }
     }
     if (_matchesAny(promptText, _fileTerms)) {
       add(_fileTools);
@@ -77,11 +84,13 @@ class AgentToolRouter {
       'selectedToolCount': selectedTools.length,
       'availableToolCount': allTools.length,
       'selectedTools': selectedNames.toList(growable: false)..sort(),
+      'requiredTools': requiredNames.toList(growable: false)..sort(),
     });
     return ToolRoute(
       tools: selectedTools,
-      index: _toolIndexFor(selectedNames),
+      index: _toolIndexFor(selectedNames, requiredNames),
       selectedToolNames: selectedNames.toList(growable: false)..sort(),
+      requiredToolNames: requiredNames.toList(growable: false)..sort(),
     );
   }
 
@@ -146,7 +155,7 @@ class AgentToolRouter {
     return text.contains('http://') || text.contains('https://');
   }
 
-  String _toolIndexFor(Set<String> selectedNames) {
+  String _toolIndexFor(Set<String> selectedNames, Set<String> requiredNames) {
     if (selectedNames.isEmpty) {
       return '本轮未暴露工具 schema；如果用户只是普通聊天，直接回答。';
     }
@@ -180,8 +189,11 @@ class AgentToolRouter {
           .followedBy(_screenTools),
     );
     addGroup('Skill/MCP', _extensionTools);
+    final requiredText = requiredNames.isEmpty
+        ? ''
+        : ' 本轮用户请求需要真实产物，必须成功调用这些工具后才能声称完成：${requiredNames.join('、')}。';
     return '本轮按用户意图只暴露以下工具组：${groups.join('、')}。'
-        '未暴露的工具组视为本轮不可用，不要臆造调用。';
+        '未暴露的工具组视为本轮不可用，不要臆造调用。$requiredText';
   }
 }
 
@@ -190,11 +202,13 @@ class ToolRoute {
     required this.tools,
     required this.index,
     required this.selectedToolNames,
+    required this.requiredToolNames,
   });
 
   final List<Map<String, Object?>> tools;
   final String index;
   final List<String> selectedToolNames;
+  final List<String> requiredToolNames;
 }
 
 const _memoryTools = ['memory_create', 'memory_query', 'memory_delete'];
@@ -279,8 +293,34 @@ const _projectTerms = [
   '修复bug',
   '修 bug',
 ];
-const _creationTerms = ['创建', '生成', '做一个', '开发', '实现'];
+const _creationTerms = [
+  '创建',
+  '生成',
+  '做一个',
+  '做个',
+  '开发',
+  '实现',
+  '写一个',
+  '写个',
+  '写一',
+  '制作',
+  '搭建',
+  '设计一个',
+  '设计个',
+];
 const _appTerms = ['应用', 'app', '小程序'];
+const _projectCreationTargetTerms = [
+  'web app',
+  'webapp',
+  '网页',
+  '网站',
+  '小游戏',
+  '原型',
+  '页面',
+  '应用',
+  'app',
+  '小程序',
+];
 const _fileTerms = [
   '文件',
   '读取',

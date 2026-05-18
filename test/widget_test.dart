@@ -100,16 +100,18 @@ ChatStreamEvent _webAppToolCallRound() {
       ToolCallDelta(
         index: 0,
         id: 'call-webapp-widget',
-        name: 'artifact_create',
+        name: 'project_create_web_app',
         argumentsDelta: jsonEncode({
-          'type': 'web_app',
           'title': '测试备忘录 Web App',
           'summary': '用于验证聊天卡片可以打开预览。',
-          'content_html': '<main><h1>测试备忘录</h1></main>',
-          'metadata': {
-            'entry': 'index.html',
-            'permissions': ['db.note.create', 'db.note.query'],
-          },
+          'entry_path': 'memo-app/index.html',
+          'files': [
+            {
+              'path': 'memo-app/index.html',
+              'content': '<main><h1>测试备忘录</h1></main>',
+            },
+          ],
+          'permissions': ['db.note.create', 'db.note.query'],
         }),
       ),
     ],

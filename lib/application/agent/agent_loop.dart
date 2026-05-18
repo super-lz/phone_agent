@@ -112,6 +112,8 @@ class AgentLoop {
       toolIndex: toolRoute.index,
     );
     final currentTurnToolResults = <CapabilityExecutionResult>[];
+    final currentTurnToolNames = <String>[];
+    var requiredToolReprompts = 0;
 
     for (var round = 0; round < budget.maxModelRounds; round += 1) {
       final assistantMessageId =
@@ -205,6 +207,44 @@ class AgentLoop {
 
       final requests = toolCalls.toRequests();
       if (requests.isEmpty) {
+        final missingRequiredTools = _missingRequiredTools(
+          toolRoute: toolRoute,
+          executedToolNames: currentTurnToolNames,
+        );
+        if (missingRequiredTools.isNotEmpty && runState.canUseTools) {
+          if (requiredToolReprompts < 2) {
+            requiredToolReprompts += 1;
+            _repromptForRequiredTools(
+              missingToolNames: missingRequiredTools,
+              modelMessages: modelMessages,
+            );
+            replaceMessage(
+              assistantMessageId,
+              _assistantIntermediateMessage(
+                assistantMessageId,
+                '这个请求需要创建真实本地产物，刚才没有完成必需工具调用，正在重新发起。',
+              ),
+            );
+            notifyChange();
+            continue;
+          }
+          replaceMessage(
+            assistantMessageId,
+            AgentMessage(
+              id: assistantMessageId,
+              role: MessageRole.assistant,
+              createdAt: DateTime.now(),
+              blocks: [
+                MessageBlock.error(
+                  '未创建真实产物',
+                  '模型没有发起必需工具调用：${missingRequiredTools.join('、')}。为了避免假装完成，本轮已停止。',
+                ),
+              ],
+            ),
+          );
+          notifyChange();
+          return;
+        }
         if (contentBuffer.isEmpty) {
           replaceMessage(
             assistantMessageId,
@@ -242,6 +282,7 @@ class AgentLoop {
             permissionMode: permissionMode,
             runState: runState,
             currentTurnToolResults: currentTurnToolResults,
+            currentTurnToolNames: currentTurnToolNames,
             replaceMessage: replaceMessage,
             switchWorkspace: switchWorkspace,
           ) ??
@@ -392,6 +433,33 @@ class AgentLoop {
     return error.isRetryable && retryAttempts < 1 && !hasReceivedModelDelta;
   }
 
+  List<String> _missingRequiredTools({
+    required ToolRoute toolRoute,
+    required List<String> executedToolNames,
+  }) {
+    if (toolRoute.requiredToolNames.isEmpty) {
+      return const [];
+    }
+    final executed = executedToolNames.toSet();
+    return toolRoute.requiredToolNames
+        .where((name) => !executed.contains(name))
+        .toList(growable: false);
+  }
+
+  void _repromptForRequiredTools({
+    required List<String> missingToolNames,
+    required List<Map<String, Object?>> modelMessages,
+  }) {
+    modelMessages.add({
+      'role': 'system',
+      'content':
+          '上一轮回答没有完成真实产物创建，因此不能告诉用户已经完成。'
+          '现在必须调用缺失工具：${missingToolNames.join('、')}。'
+          '调用成功前不要输出“已创建”“可预览”“文件已保存”等完成性结论；'
+          '如果工具参数较长，仍然必须放进工具参数，不要只在正文描述。',
+    });
+  }
+
   Future<String?> _appendAssistantToolMessage({
     required String messageId,
     required String content,
@@ -410,6 +478,7 @@ class AgentLoop {
     required PermissionMode permissionMode,
     required AgentLoopRunState runState,
     required List<CapabilityExecutionResult> currentTurnToolResults,
+    required List<String> currentTurnToolNames,
     required ReplaceAgentMessage replaceMessage,
     required SwitchAgentWorkspace switchWorkspace,
   }) async {
@@ -420,6 +489,7 @@ class AgentLoop {
     var activeWorkspaceId = workspaceId;
 
     for (final request in requests) {
+      currentTurnToolNames.add(request.name);
       blocks.add(MessageBlock.toolCall(request.name, request.arguments));
       final result = runState.canStartToolCall
           ? await _capabilityRuntime.execute(

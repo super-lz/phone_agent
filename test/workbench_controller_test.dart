@@ -576,6 +576,54 @@ void main() {
     expect(webAppCards, isNotEmpty);
   });
 
+  test(
+    'web page request cannot be completed without real project tool',
+    () async {
+      final chatClient = _FakeChatClient([
+        [const ChatStreamEvent(contentDelta: '个人网站已创建！点击上方卡片预览。')],
+        [
+          ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-project-create',
+                name: 'project_create_web_app',
+                argumentsDelta: jsonEncode({
+                  'title': '个人网页',
+                  'summary': '个人介绍网页。',
+                  'entry_path': 'personal-site/index.html',
+                  'files': [
+                    {
+                      'path': 'personal-site/index.html',
+                      'content':
+                          '<!doctype html><html><body><h1>个人网页</h1></body></html>',
+                    },
+                  ],
+                }),
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '个人网页已创建，可以从卡片打开预览。')],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+      );
+
+      await controller.sendPrompt('写一个个人网页');
+
+      expect(chatClient.callCount, 3);
+      expect(controller.workspaceFiles.map((file) => file.path), [
+        'personal-site/.phone-agent/manifest.json',
+        'personal-site/index.html',
+      ]);
+      expect(controller.workspaceArtifacts.last.title, '个人网页');
+      final finalText = controller.messages.last.blocks.first.data['text'];
+      expect(finalText, '个人网页已创建，可以从卡片打开预览。');
+    },
+  );
+
   test('model tool call can use native clipboard capability', () async {
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),
@@ -1187,23 +1235,25 @@ ChatStreamEvent _webAppToolCallRound(int index) {
       ToolCallDelta(
         index: 0,
         id: 'call-webapp-$index',
-        name: 'artifact_create',
+        name: 'project_create_web_app',
         argumentsDelta: jsonEncode({
-          'type': 'web_app',
           'title': '测试 Web App $index',
           'summary': '用于验证 JSBridge 能力隔离。',
-          'content_html':
-              '<main><h1>测试 Web App $index</h1><button>Run</button></main>',
-          'metadata': {
-            'entry': 'index.html',
-            'permissions': [
-              'db.note.create',
-              'db.note.query',
-              'file.read_app_file',
-              'file.write_app_file',
-              'device.info',
-            ],
-          },
+          'entry_path': 'test-web-app-$index/index.html',
+          'files': [
+            {
+              'path': 'test-web-app-$index/index.html',
+              'content':
+                  '<main><h1>测试 Web App $index</h1><button>Run</button></main>',
+            },
+          ],
+          'permissions': [
+            'db.note.create',
+            'db.note.query',
+            'file.read_app_file',
+            'file.write_app_file',
+            'device.info',
+          ],
         }),
       ),
     ],
