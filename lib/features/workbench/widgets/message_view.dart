@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../../../domain/conversation/message_block.dart';
+import 'agent_process_block.dart';
 import 'approval_block.dart';
+import 'markdown_block_view.dart';
 import 'message_block_cards.dart';
+import 'todo_block.dart';
 import 'tool_result_view.dart';
 
 class MessageView extends StatelessWidget {
@@ -175,7 +177,7 @@ class MessageBlockView extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (block.type) {
       case MessageBlockType.markdownText:
-        return _MarkdownBlockView(text: block.data['text']! as String);
+        return MarkdownBlockView(text: block.data['text']! as String);
       case MessageBlockType.codeBlock:
         return CodeBlockCard(
           language: block.data['language']! as String,
@@ -194,7 +196,7 @@ class MessageBlockView extends StatelessWidget {
           output: block.data['output']! as Map<String, Object?>,
         );
       case MessageBlockType.todoList:
-        return _TodoBlock(items: MessageBlock.stringList(block.data['items']));
+        return TodoBlock(items: MessageBlock.stringList(block.data['items']));
       case MessageBlockType.image:
         return AttachmentBlock(
           icon: Icons.image_outlined,
@@ -215,10 +217,9 @@ class MessageBlockView extends StatelessWidget {
         );
       case MessageBlockType.webAppCard:
         final artifactId = block.data['artifactId']! as String;
-        return StructuredBlock(
-          icon: Icons.web_asset,
+        return WebAppArtifactCard(
           title: block.data['title']! as String,
-          body: '点击预览 · Artifact ID: $artifactId',
+          artifactId: artifactId,
           onTap: () => onOpenWebAppArtifact(artifactId),
         );
       case MessageBlockType.errorCard:
@@ -237,9 +238,12 @@ class MessageBlockView extends StatelessWidget {
         return AgentProcessBlock(
           blocks: _processBlocks(block.data['blocks']),
           status: block.data['status'] as String? ?? 'completed',
-          onOpenWebAppArtifact: onOpenWebAppArtifact,
-          onApproveCapability: onApproveCapability,
-          onDenyCapability: onDenyCapability,
+          blockBuilder: (block) => MessageBlockView(
+            block: block,
+            onOpenWebAppArtifact: onOpenWebAppArtifact,
+            onApproveCapability: onApproveCapability,
+            onDenyCapability: onDenyCapability,
+          ),
         );
       case MessageBlockType.citation:
         return StructuredBlock(
@@ -288,245 +292,5 @@ class MessageBlockView extends StatelessWidget {
     }
     final mb = kb / 1024;
     return '${mb.toStringAsFixed(mb < 10 ? 1 : 0)} MB';
-  }
-}
-
-class _MarkdownBlockView extends StatelessWidget {
-  const _MarkdownBlockView({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final segments = _splitFencedCode(text);
-    if (segments.length == 1 && !segments.first.isCode) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: MarkdownBody(data: segments.first.content),
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final segment in segments)
-          if (segment.isCode)
-            CodeBlockCard(
-              language: segment.language,
-              code: segment.content,
-              initiallyExpanded: false,
-              showCollapsedPreview: false,
-            )
-          else if (segment.content.trim().isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: MarkdownBody(data: segment.content),
-            ),
-      ],
-    );
-  }
-
-  List<_MarkdownSegment> _splitFencedCode(String value) {
-    final segments = <_MarkdownSegment>[];
-    final textBuffer = StringBuffer();
-    final codeBuffer = StringBuffer();
-    var inCode = false;
-    var language = '';
-
-    for (final line in value.split('\n')) {
-      final trimmedLeft = line.trimLeft();
-      if (trimmedLeft.startsWith('```')) {
-        if (inCode) {
-          segments.add(
-            _MarkdownSegment.code(language, _withoutTrailingLine(codeBuffer)),
-          );
-          codeBuffer.clear();
-          language = '';
-          inCode = false;
-        } else {
-          final text = _withoutTrailingLine(textBuffer);
-          if (text.trim().isNotEmpty) {
-            segments.add(_MarkdownSegment.text(text));
-          }
-          textBuffer.clear();
-          language = trimmedLeft.substring(3).trim();
-          inCode = true;
-        }
-        continue;
-      }
-
-      if (inCode) {
-        codeBuffer.writeln(line);
-      } else {
-        textBuffer.writeln(line);
-      }
-    }
-
-    if (inCode) {
-      segments.add(
-        _MarkdownSegment.code(language, _withoutTrailingLine(codeBuffer)),
-      );
-    } else {
-      final text = _withoutTrailingLine(textBuffer);
-      if (text.trim().isNotEmpty || segments.isEmpty) {
-        segments.add(_MarkdownSegment.text(text));
-      }
-    }
-    return segments;
-  }
-
-  String _withoutTrailingLine(StringBuffer buffer) {
-    final value = buffer.toString();
-    return value.endsWith('\n') ? value.substring(0, value.length - 1) : value;
-  }
-}
-
-class _MarkdownSegment {
-  const _MarkdownSegment.text(this.content) : isCode = false, language = '';
-
-  const _MarkdownSegment.code(this.language, this.content) : isCode = true;
-
-  final bool isCode;
-  final String language;
-  final String content;
-}
-
-class AgentProcessBlock extends StatefulWidget {
-  const AgentProcessBlock({
-    required this.blocks,
-    required this.status,
-    required this.onOpenWebAppArtifact,
-    this.onApproveCapability,
-    this.onDenyCapability,
-    super.key,
-  });
-
-  final List<MessageBlock> blocks;
-  final String status;
-  final ValueChanged<String> onOpenWebAppArtifact;
-  final ValueChanged<Map<String, Object?>>? onApproveCapability;
-  final ValueChanged<Map<String, Object?>>? onDenyCapability;
-
-  @override
-  State<AgentProcessBlock> createState() => _AgentProcessBlockState();
-}
-
-class _AgentProcessBlockState extends State<AgentProcessBlock> {
-  bool _expanded = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final summary = _summary(widget.blocks);
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF6F8F5),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFDCE3D8)),
-      ),
-      child: InkWell(
-        onTap: () => setState(() => _expanded = !_expanded),
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(_statusIcon(), size: 18, color: const Color(0xFF787F76)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _statusTitle(),
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: const Color(0xFF6F766D),
-                      ),
-                    ),
-                  ),
-                  Text(summary, style: Theme.of(context).textTheme.bodySmall),
-                  const SizedBox(width: 4),
-                  Icon(_expanded ? Icons.expand_less : Icons.expand_more),
-                ],
-              ),
-              if (_expanded) ...[
-                const SizedBox(height: 10),
-                for (final block in widget.blocks)
-                  MessageBlockView(
-                    block: block,
-                    onOpenWebAppArtifact: widget.onOpenWebAppArtifact,
-                    onApproveCapability: widget.onApproveCapability,
-                    onDenyCapability: widget.onDenyCapability,
-                  ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  IconData _statusIcon() {
-    return widget.status == 'processing'
-        ? Icons.more_horiz
-        : Icons.check_circle_outline;
-  }
-
-  String _statusTitle() {
-    return widget.status == 'processing' ? '处理中' : '已处理';
-  }
-
-  String _summary(List<MessageBlock> blocks) {
-    final toolCalls = blocks
-        .where((block) => block.type == MessageBlockType.toolCall)
-        .length;
-    final toolResults = blocks
-        .where((block) => block.type == MessageBlockType.toolResult)
-        .length;
-    final contentBlocks = blocks
-        .where(
-          (block) =>
-              block.type == MessageBlockType.markdownText ||
-              block.type == MessageBlockType.codeBlock ||
-              block.type == MessageBlockType.todoList,
-        )
-        .length;
-    final parts = <String>[];
-    if (toolCalls > 0) {
-      parts.add('$toolCalls 次调用');
-    }
-    if (toolResults > 0) {
-      parts.add('$toolResults 个结果');
-    }
-    if (contentBlocks > 0) {
-      parts.add('$contentBlocks 段中间输出');
-    }
-    return parts.isEmpty ? '详情' : parts.join(' · ');
-  }
-}
-
-class _TodoBlock extends StatelessWidget {
-  const _TodoBlock({required this.items});
-
-  final List<String> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final item in items)
-            Row(
-              children: [
-                const Icon(Icons.check, size: 16),
-                const SizedBox(width: 8),
-                Expanded(child: Text(item)),
-              ],
-            ),
-        ],
-      ),
-    );
   }
 }

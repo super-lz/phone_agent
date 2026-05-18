@@ -144,6 +144,7 @@
 - Android/iOS Flutter 项目骨架。
 - 默认 Workspace 和用户新建 Workspace。
 - 多轮对话、流式输出语义、Markdown、代码块、表格和基础消息块。
+- Markdown 渲染必须对流式输出中的临时未闭合标记具备容错能力，例如未闭合的粗体或行内代码标记，避免把明显的 Markdown 控制符直接暴露给用户。
 - 图片输入、文件输入和系统分享入口的业务入口。
 - 联网搜索和网页读取能力的 Capability 定义。
 - 文件、数据库、记忆、Workspace、Artifact、时间、定位、剪贴板、通知、日历、设备信息、WebView、Skill 和 MCP 的 Capability 定义。
@@ -177,7 +178,7 @@
 - Web App Artifact 可以从应用库打开；本地 Web App 通过 `window.PhoneAgent.getManifest()` 获取 manifest，通过 `window.PhoneAgent.callCapability(id, input)` 调用 manifest 已声明权限内的 Capability。
 - Web App 运行时必须向页面暴露可发现的 JSBridge 契约，至少包括 manifest 读取、可用 Capability 列表和 Capability 调用入口，便于 AI 生成的网页自检权限和能力。
 - Web App JSBridge 必须提供设备信息等常用能力的可发现调用方式；页面需要设备信息时应通过已声明权限的 JSBridge 调用，而不是依赖浏览器伪造的设备环境。
-- 对话中的 Web App 卡片必须能直接打开同一个 Web App 预览页面。
+- 对话中的 Web App 卡片必须能直接打开同一个 Web App 预览页面，并以清晰的本地应用入口样式展示标题、类型和打开操作。
 - Web App Artifact 必须保存可运行入口内容；第一阶段至少要保存完整单文件 HTML、内联 CSS 和内联 JS。缺少可运行 HTML 时不得展示成“已加载”的假预览，必须返回结构化错误或可诊断提示。
 - Web App 打开前必须向用户展示 manifest 声明的能力权限；用户拒绝后 Web App 仍可打开，但 JSBridge 能力调用必须返回结构化权限错误。
 - Web App JSBridge 调用必须回到 Capability Runtime；未在 manifest 权限中声明的能力必须返回结构化拒绝错误。

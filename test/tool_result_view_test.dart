@@ -293,4 +293,47 @@ $repeatedScript
 
     expect(find.textContaining('<!doctype html>'), findsOneWidget);
   });
+
+  testWidgets('repairs unmatched bold markers in markdown output', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessageBlockView(
+            onOpenWebAppArtifact: (_) {},
+            block: MessageBlock.markdown('这是 **关键结论'),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('关键结论'), findsOneWidget);
+    expect(find.textContaining('**'), findsNothing);
+  });
+
+  testWidgets('renders web app artifact as a preview card', (tester) async {
+    var openedArtifactId = '';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessageBlockView(
+            onOpenWebAppArtifact: (artifactId) {
+              openedArtifactId = artifactId;
+            },
+            block: MessageBlock.webAppCard('artifact-webapp-1', '美食网页'),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('美食网页'), findsOneWidget);
+    expect(find.text('本地 Web App · 点击预览'), findsOneWidget);
+
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+
+    expect(openedArtifactId, 'artifact-webapp-1');
+  });
 }

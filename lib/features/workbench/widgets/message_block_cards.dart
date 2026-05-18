@@ -154,6 +154,92 @@ class AttachmentBlock extends StatelessWidget {
   }
 }
 
+class WebAppArtifactCard extends StatelessWidget {
+  const WebAppArtifactCard({
+    required this.title,
+    required this.artifactId,
+    required this.onTap,
+    super.key,
+  });
+
+  final String title;
+  final String artifactId;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: const Color(0xFFF7FBF8),
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFC7DCCB)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDFF3E5),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.web_asset, color: Color(0xFF227A45)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '本地 Web App · 点击预览',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF58705F),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        artifactId,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: const Color(0xFF78877B),
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: onTap,
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: const Text('打开'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class StructuredBlock extends StatelessWidget {
   const StructuredBlock({
     required this.icon,
