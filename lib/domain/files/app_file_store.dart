@@ -95,6 +95,8 @@ abstract class AppFileStore {
   });
 
   Future<List<AppFileEntry>> listFiles({required String workspaceId});
+
+  Future<void> clearAll();
 }
 
 class InMemoryAppFileStore implements AppFileStore {
@@ -206,6 +208,11 @@ class InMemoryAppFileStore implements AppFileStore {
     }
     entries.sort((a, b) => a.path.compareTo(b.path));
     return entries;
+  }
+
+  @override
+  Future<void> clearAll() async {
+    _files.clear();
   }
 
   String _key(String workspaceId, String path) {

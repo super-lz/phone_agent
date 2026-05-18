@@ -19,6 +19,7 @@ class SqliteAgentNoteStore implements AgentNoteStore {
   final List<AgentNote> _seedNotes;
   final String? _dbPath;
   Database? _database;
+  static const _resetMarkerKey = 'local_data_reset_at';
 
   @override
   Future<List<AgentNote>> loadAll() async {
@@ -62,6 +63,19 @@ class SqliteAgentNoteStore implements AgentNoteStore {
             orderBy: 'created_at DESC',
           );
     return rows.map(_rowToNote).toList(growable: false);
+  }
+
+  @override
+  Future<void> resetLocalData() async {
+    final db = await _open();
+    await db.transaction((transaction) async {
+      await transaction.delete('notes');
+      await transaction.delete('note_store_state');
+      await transaction.insert('note_store_state', {
+        'key': _resetMarkerKey,
+        'value': DateTime.now().toIso8601String(),
+      });
+    });
   }
 
   @override
@@ -112,10 +126,19 @@ class SqliteAgentNoteStore implements AgentNoteStore {
       'CREATE INDEX IF NOT EXISTS idx_notes_workspace '
       'ON notes(workspace_id, created_at)',
     );
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS note_store_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
   }
 
   Future<void> _seedIfEmpty(Database db) async {
     if (_seedNotes.isEmpty) {
+      return;
+    }
+    if (await _hasResetMarker(db)) {
       return;
     }
     final countRows = await db.rawQuery('SELECT COUNT(*) AS count FROM notes');
@@ -132,6 +155,17 @@ class SqliteAgentNoteStore implements AgentNoteStore {
         );
       }
     });
+  }
+
+  Future<bool> _hasResetMarker(Database db) async {
+    final rows = await db.query(
+      'note_store_state',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [_resetMarkerKey],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
   }
 
   Map<String, Object?> _noteToRow(AgentNote note) {

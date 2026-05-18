@@ -14,6 +14,7 @@ import '../../domain/workspace/workspace.dart';
 import '../capabilities/capability_execution_result.dart';
 import '../capabilities/capability_runtime.dart';
 import 'agent_loop_budget.dart';
+import 'agent_run_state.dart';
 import 'conversation_context_builder.dart';
 import 'tool_call_accumulator.dart';
 import 'tool_router.dart';
@@ -23,6 +24,9 @@ typedef ReplaceAgentMessage =
     void Function(String messageId, AgentMessage message);
 typedef NotifyAgentLoopChange = void Function();
 typedef SwitchAgentWorkspace = void Function(String workspaceId);
+typedef IsAgentAppForeground = bool Function();
+typedef WaitUntilAgentAppForeground = Future<void> Function();
+typedef ReportAgentRunSnapshot = void Function(AgentRunSnapshot snapshot);
 
 class AgentLoop {
   AgentLoop({
@@ -96,13 +100,41 @@ class AgentLoop {
     required ReplaceAgentMessage replaceMessage,
     required NotifyAgentLoopChange notifyChange,
     required SwitchAgentWorkspace switchWorkspace,
+    IsAgentAppForeground? isForeground,
+    WaitUntilAgentAppForeground? waitUntilForeground,
+    AgentRunControl? runControl,
+    ReportAgentRunSnapshot? reportRunSnapshot,
   }) async {
+    final startedAt = DateTime.now();
     final runState = AgentLoopRunState(budget);
     var activeWorkspaceId = workspaceId;
+    void report(AgentRunPhase phase, String detail, {String? currentToolName}) {
+      reportRunSnapshot?.call(
+        AgentRunSnapshot(
+          phase: phase,
+          detail: detail,
+          toolCallsUsed: runState.toolCallsUsed,
+          maxToolCalls: budget.maxToolCalls,
+          startedAt: startedAt,
+          currentToolName: currentToolName,
+        ),
+      );
+    }
+
+    void throwIfCancelled() {
+      runControl?.throwIfCancelled();
+    }
+
+    report(AgentRunPhase.routing, '正在选择本轮需要暴露的工具集合。');
     final toolRoute = _toolRouter.route(
-      prompt: prompt,
+      prompt: _routingPromptText(prompt: prompt, priorMessages: priorMessages),
       allTools: _capabilityRuntime.toolDefinitions,
     );
+    AppLogger.info('agent_loop.route.selected', {
+      'workspaceId': workspaceId,
+      'selectedTools': toolRoute.selectedToolNames,
+      'requiredTools': toolRoute.requiredToolNames,
+    });
     final modelMessages = _buildModelMessages(
       prompt: prompt,
       workspace: workspace,
@@ -111,10 +143,11 @@ class AgentLoop {
       toolIndex: toolRoute.index,
     );
     final currentTurnToolResults = <CapabilityExecutionResult>[];
-    final currentTurnToolNames = <String>[];
+    final currentTurnSuccessfulToolNames = <String>[];
     var requiredToolReprompts = 0;
 
     for (var round = 0; round < budget.maxModelRounds; round += 1) {
+      throwIfCancelled();
       final assistantMessageId =
           'msg-model-${DateTime.now().microsecondsSinceEpoch}-$round';
       addMessage(_emptyAssistantMessage(assistantMessageId));
@@ -126,6 +159,8 @@ class AgentLoop {
       var retryAttempts = 0;
       var hasReceivedModelDelta = false;
       while (true) {
+        throwIfCancelled();
+        report(AgentRunPhase.modelStreaming, '正在等待模型输出或工具调用。');
         AppLogger.info('agent_loop.model_stream.start', {
           'round': round,
           'workspaceId': activeWorkspaceId,
@@ -140,9 +175,11 @@ class AgentLoop {
             messages: modelMessages,
             tools: runState.canUseTools ? toolRoute.tools : const [],
           )) {
+            throwIfCancelled();
             if (event.toolCallDeltas.isNotEmpty) {
               hasReceivedModelDelta = true;
               isPreparingToolCall = true;
+              report(AgentRunPhase.waitingForToolCall, '模型正在生成工具调用参数。');
               toolCalls.applyAll(event.toolCallDeltas);
               replaceMessage(
                 assistantMessageId,
@@ -156,6 +193,7 @@ class AgentLoop {
             }
             if (event.contentDelta.isNotEmpty) {
               hasReceivedModelDelta = true;
+              report(AgentRunPhase.modelStreaming, '模型正在流式输出文本。');
               contentBuffer.write(event.contentDelta);
               replaceMessage(
                 assistantMessageId,
@@ -174,12 +212,21 @@ class AgentLoop {
           }
           break;
         } on ModelRequestException catch (error) {
+          throwIfCancelled();
           if (_shouldRetryModelStream(
             error: error,
             retryAttempts: retryAttempts,
             hasReceivedModelDelta: hasReceivedModelDelta,
           )) {
             retryAttempts += 1;
+            await _waitForForegroundBeforeRetryIfNeeded(
+              isForeground: isForeground,
+              waitUntilForeground: waitUntilForeground,
+              messageId: assistantMessageId,
+              replaceMessage: replaceMessage,
+              notifyChange: notifyChange,
+              report: report,
+            );
             AppLogger.warning('agent_loop.model_stream.retry', {
               'round': round,
               'workspaceId': activeWorkspaceId,
@@ -190,25 +237,37 @@ class AgentLoop {
           }
           replaceMessage(
             assistantMessageId,
-            _modelErrorResponse(error.message),
+            _modelInterruptedResponse(
+              assistantMessageId,
+              contentBuffer.toString(),
+              error.message,
+            ),
           );
           notifyChange();
           return;
         } on Object catch (error) {
+          if (error is AgentRunCancelledException) {
+            rethrow;
+          }
           replaceMessage(
             assistantMessageId,
-            _modelErrorResponse(error.toString()),
+            _modelInterruptedResponse(
+              assistantMessageId,
+              contentBuffer.toString(),
+              error.toString(),
+            ),
           );
           notifyChange();
           return;
         }
       }
 
+      throwIfCancelled();
       final requests = toolCalls.toRequests();
       if (requests.isEmpty) {
         final missingRequiredTools = _missingRequiredTools(
           toolRoute: toolRoute,
-          executedToolNames: currentTurnToolNames,
+          succeededToolNames: currentTurnSuccessfulToolNames,
         );
         if (missingRequiredTools.isNotEmpty && runState.canUseTools) {
           if (requiredToolReprompts < 2) {
@@ -236,7 +295,7 @@ class AgentLoop {
               blocks: [
                 MessageBlock.error(
                   '未创建真实产物',
-                  '模型没有发起必需工具调用：${missingRequiredTools.join('、')}。为了避免假装完成，本轮已停止。',
+                  '必需工具没有成功完成：${missingRequiredTools.join('、')}。为了避免假装完成，本轮已停止。',
                 ),
               ],
             ),
@@ -283,9 +342,11 @@ class AgentLoop {
             permissionMode: permissionMode,
             runState: runState,
             currentTurnToolResults: currentTurnToolResults,
-            currentTurnToolNames: currentTurnToolNames,
+            currentTurnSuccessfulToolNames: currentTurnSuccessfulToolNames,
             replaceMessage: replaceMessage,
             switchWorkspace: switchWorkspace,
+            throwIfCancelled: throwIfCancelled,
+            report: report,
           ) ??
           activeWorkspaceId;
       notifyChange();
@@ -300,7 +361,12 @@ class AgentLoop {
           replaceMessage: replaceMessage,
           notifyChange: notifyChange,
           toolResults: currentTurnToolResults,
+          isForeground: isForeground,
+          waitUntilForeground: waitUntilForeground,
+          throwIfCancelled: throwIfCancelled,
+          report: report,
         );
+        report(AgentRunPhase.completed, '本轮任务已完成。');
         return;
       }
     }
@@ -314,7 +380,71 @@ class AgentLoop {
       replaceMessage: replaceMessage,
       notifyChange: notifyChange,
       toolResults: currentTurnToolResults,
+      isForeground: isForeground,
+      waitUntilForeground: waitUntilForeground,
+      throwIfCancelled: throwIfCancelled,
+      report: report,
     );
+    report(AgentRunPhase.completed, '本轮任务已完成。');
+  }
+
+  String _routingPromptText({
+    required Object prompt,
+    required List<AgentMessage> priorMessages,
+  }) {
+    final current = _extractTextForRouting(prompt);
+    final recentMessages = priorMessages
+        .where((message) => message.id != 'msg-welcome')
+        .toList(growable: false);
+    final recent = recentMessages.reversed
+        .take(6)
+        .toList(growable: false)
+        .reversed
+        .map(_messageTextForRouting)
+        .where((text) => text.trim().isNotEmpty)
+        .join('\n');
+    if (recent.trim().isEmpty) {
+      return current;
+    }
+    return '近期对话：\n$recent\n\n用户最新消息：\n$current';
+  }
+
+  String _messageTextForRouting(AgentMessage message) {
+    final role = _modelRole(message.role);
+    final text = message.blocks
+        .where((block) => block.type == MessageBlockType.markdownText)
+        .map((block) => block.data['text'])
+        .whereType<String>()
+        .join('\n')
+        .trim();
+    return text.isEmpty ? '' : '$role: $text';
+  }
+
+  String _extractTextForRouting(Object prompt) {
+    if (prompt is String) {
+      return prompt;
+    }
+    if (prompt is Iterable<Object?>) {
+      return prompt.map(_extractPromptPartText).join('\n');
+    }
+    return prompt.toString();
+  }
+
+  String _extractPromptPartText(Object? part) {
+    if (part is String) {
+      return part;
+    }
+    if (part is Map<String, Object?>) {
+      final text = part['text'];
+      if (text is String) {
+        return text;
+      }
+      return part.values.map(_extractPromptPartText).join('\n');
+    }
+    if (part is Iterable<Object?>) {
+      return part.map(_extractPromptPartText).join('\n');
+    }
+    return '';
   }
 
   List<Map<String, Object?>> _buildModelMessages({
@@ -434,16 +564,44 @@ class AgentLoop {
     return error.isRetryable && retryAttempts < 1 && !hasReceivedModelDelta;
   }
 
+  Future<void> _waitForForegroundBeforeRetryIfNeeded({
+    required IsAgentAppForeground? isForeground,
+    required WaitUntilAgentAppForeground? waitUntilForeground,
+    required String messageId,
+    required ReplaceAgentMessage replaceMessage,
+    required NotifyAgentLoopChange notifyChange,
+    required void Function(
+      AgentRunPhase phase,
+      String detail, {
+      String? currentToolName,
+    })
+    report,
+  }) async {
+    if (isForeground?.call() != false || waitUntilForeground == null) {
+      return;
+    }
+    report(AgentRunPhase.waitingForeground, '应用在后台，等待回到前台后重试模型连接。');
+    replaceMessage(
+      messageId,
+      _assistantIntermediateMessage(
+        messageId,
+        '应用已进入后台，模型流式连接可能被系统中断；回到前台后会自动重试一次。',
+      ),
+    );
+    notifyChange();
+    await waitUntilForeground();
+  }
+
   List<String> _missingRequiredTools({
     required ToolRoute toolRoute,
-    required List<String> executedToolNames,
+    required List<String> succeededToolNames,
   }) {
     if (toolRoute.requiredToolNames.isEmpty) {
       return const [];
     }
-    final executed = executedToolNames.toSet();
+    final succeeded = succeededToolNames.toSet();
     return toolRoute.requiredToolNames
-        .where((name) => !executed.contains(name))
+        .where((name) => !succeeded.contains(name))
         .toList(growable: false);
   }
 
@@ -456,7 +614,7 @@ class AgentLoop {
       'content':
           '上一轮回答没有完成真实产物创建，因此不能告诉用户已经完成。'
           '现在必须调用缺失工具：${missingToolNames.join('、')}。'
-          '调用成功前不要输出“已创建”“可预览”“文件已保存”等完成性结论；'
+          '工具返回成功前不要输出“已创建”“可预览”“文件已保存”等完成性结论；'
           '如果工具参数较长，仍然必须放进工具参数，不要只在正文描述。',
     });
   }
@@ -479,9 +637,16 @@ class AgentLoop {
     required PermissionMode permissionMode,
     required AgentLoopRunState runState,
     required List<CapabilityExecutionResult> currentTurnToolResults,
-    required List<String> currentTurnToolNames,
+    required List<String> currentTurnSuccessfulToolNames,
     required ReplaceAgentMessage replaceMessage,
     required SwitchAgentWorkspace switchWorkspace,
+    required void Function() throwIfCancelled,
+    required void Function(
+      AgentRunPhase phase,
+      String detail, {
+      String? currentToolName,
+    })
+    report,
   }) async {
     final blocks = <MessageBlock>[
       if (content.trim().isNotEmpty) MessageBlock.markdown(content),
@@ -490,7 +655,18 @@ class AgentLoop {
     var activeWorkspaceId = workspaceId;
 
     for (final request in requests) {
-      currentTurnToolNames.add(request.name);
+      throwIfCancelled();
+      report(
+        AgentRunPhase.executingTool,
+        '正在执行 ${request.name}。',
+        currentToolName: request.name,
+      );
+      AppLogger.info('agent_loop.tool.start', {
+        'tool': request.name,
+        'workspaceId': activeWorkspaceId,
+        'toolCallsUsed': runState.toolCallsUsed,
+        'maxToolCalls': runState.budget.maxToolCalls,
+      });
       blocks.add(MessageBlock.toolCall(request.name, request.arguments));
       final result = runState.canStartToolCall
           ? await _capabilityRuntime.execute(
@@ -515,7 +691,19 @@ class AgentLoop {
                 'reason': runState.stopReason,
               },
             );
+      throwIfCancelled();
       runState.recordToolResult(result.output['ok'] == true);
+      AppLogger.info('agent_loop.tool.completed', {
+        'tool': request.name,
+        'capabilityId': result.capabilityId,
+        'ok': result.output['ok'] == true,
+        'toolCallsUsed': runState.toolCallsUsed,
+        'maxToolCalls': runState.budget.maxToolCalls,
+        'consecutiveToolFailures': runState.consecutiveToolFailures,
+      });
+      if (result.output['ok'] == true) {
+        currentTurnSuccessfulToolNames.add(request.name);
+      }
       currentTurnToolResults.add(result);
       activeWorkspaceId = _switchWorkspaceIfNeeded(
         result: result,
@@ -568,6 +756,7 @@ class AgentLoop {
           '请基于刚才的工具结果给用户一个自然语言最终回答。不要逐字输出工具 JSON、字段名、capabilityId、permissionDecision 等元数据；'
           '如果工具结果包含 summary 或 userMessage，优先使用它。工具失败时，说明失败原因、用户能做什么、以及你能继续提供的替代方案。',
     });
+    report(AgentRunPhase.finalizing, '工具已返回，正在让模型整理最终回答。');
     return activeWorkspaceId;
   }
 
@@ -624,7 +813,17 @@ class AgentLoop {
     required ReplaceAgentMessage replaceMessage,
     required NotifyAgentLoopChange notifyChange,
     required List<CapabilityExecutionResult> toolResults,
+    required IsAgentAppForeground? isForeground,
+    required WaitUntilAgentAppForeground? waitUntilForeground,
+    required void Function() throwIfCancelled,
+    required void Function(
+      AgentRunPhase phase,
+      String detail, {
+      String? currentToolName,
+    })
+    report,
   }) async {
+    throwIfCancelled();
     modelMessages.add({
       'role': 'system',
       'content': '工具继续调用已停止：$reason。请基于已经得到的工具结果，给用户一个完整、诚实、可执行的最终回答；不要再请求工具。',
@@ -638,6 +837,8 @@ class AgentLoop {
     final contentBuffer = StringBuffer();
     var retryAttempts = 0;
     while (true) {
+      throwIfCancelled();
+      report(AgentRunPhase.finalizing, '正在基于已有工具结果整理最终回答。');
       AppLogger.info('agent_loop.final_answer.start', {'reason': reason});
       try {
         await for (final event in _chatClient.streamChat(
@@ -649,6 +850,7 @@ class AgentLoop {
           if (event.contentDelta.isEmpty) {
             continue;
           }
+          throwIfCancelled();
           contentBuffer.write(event.contentDelta);
           replaceMessage(
             assistantMessageId,
@@ -661,12 +863,21 @@ class AgentLoop {
         }
         break;
       } on ModelRequestException catch (error) {
+        throwIfCancelled();
         if (_shouldRetryModelStream(
           error: error,
           retryAttempts: retryAttempts,
           hasReceivedModelDelta: contentBuffer.isNotEmpty,
         )) {
           retryAttempts += 1;
+          await _waitForForegroundBeforeRetryIfNeeded(
+            isForeground: isForeground,
+            waitUntilForeground: waitUntilForeground,
+            messageId: assistantMessageId,
+            replaceMessage: replaceMessage,
+            notifyChange: notifyChange,
+            report: report,
+          );
           AppLogger.warning('agent_loop.final_answer.retry', {
             'reason': error.message,
             'retryAttempts': retryAttempts,
@@ -675,14 +886,25 @@ class AgentLoop {
         }
         replaceMessage(
           assistantMessageId,
-          _modelErrorResponse('工具预算耗尽后生成最终回答失败：${error.message}'),
+          _modelInterruptedResponse(
+            assistantMessageId,
+            contentBuffer.toString(),
+            '工具预算耗尽后生成最终回答失败：${error.message}',
+          ),
         );
         notifyChange();
         return;
       } on Object catch (error) {
+        if (error is AgentRunCancelledException) {
+          rethrow;
+        }
         replaceMessage(
           assistantMessageId,
-          _modelErrorResponse('工具预算耗尽后生成最终回答失败：$error'),
+          _modelInterruptedResponse(
+            assistantMessageId,
+            contentBuffer.toString(),
+            '工具预算耗尽后生成最终回答失败：$error',
+          ),
         );
         notifyChange();
         return;
@@ -768,12 +990,26 @@ class AgentLoop {
     } on ModelRequestException catch (error) {
       replaceMessage(
         messageId,
-        _modelErrorResponse('工具结果整理失败：${error.message}'),
+        _modelInterruptedResponse(
+          messageId,
+          repaired.toString(),
+          '工具结果整理失败：${error.message}',
+        ),
       );
       notifyChange();
       return;
     } on Object catch (error) {
-      replaceMessage(messageId, _modelErrorResponse('工具结果整理失败：$error'));
+      if (error is AgentRunCancelledException) {
+        rethrow;
+      }
+      replaceMessage(
+        messageId,
+        _modelInterruptedResponse(
+          messageId,
+          repaired.toString(),
+          '工具结果整理失败：$error',
+        ),
+      );
       notifyChange();
       return;
     }
@@ -838,6 +1074,22 @@ class AgentLoop {
       role: MessageRole.assistant,
       createdAt: DateTime.now(),
       blocks: [MessageBlock.error('模型调用失败', detail)],
+    );
+  }
+
+  AgentMessage _modelInterruptedResponse(
+    String id,
+    String partialText,
+    String detail,
+  ) {
+    return AgentMessage(
+      id: id,
+      role: MessageRole.assistant,
+      createdAt: DateTime.now(),
+      blocks: [
+        if (partialText.trim().isNotEmpty) MessageBlock.markdown(partialText),
+        MessageBlock.error('模型连接中断', detail),
+      ],
     );
   }
 }

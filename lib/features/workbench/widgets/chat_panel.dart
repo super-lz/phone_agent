@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import '../../../application/agent/agent_run_state.dart';
 import '../../../domain/conversation/message_block.dart';
 import '../../../domain/workspace/workspace.dart';
+import 'load_earlier_messages_button.dart';
+import 'message_display_coalescer.dart';
 import 'message_view.dart';
+import 'prompt_composer.dart';
 import 'workspace_header.dart';
 
 class ChatPanel extends StatefulWidget {
@@ -12,7 +16,9 @@ class ChatPanel extends StatefulWidget {
     required this.messages,
     required this.composerController,
     required this.isSending,
+    required this.currentRun,
     required this.onSendPrompt,
+    required this.onCancelRun,
     required this.onOpenWebAppArtifact,
     required this.onApproveCapability,
     required this.onDenyCapability,
@@ -27,7 +33,9 @@ class ChatPanel extends StatefulWidget {
   final List<AgentMessage> messages;
   final TextEditingController composerController;
   final bool isSending;
+  final AgentRunSnapshot? currentRun;
   final VoidCallback onSendPrompt;
+  final VoidCallback onCancelRun;
   final ValueChanged<String> onOpenWebAppArtifact;
   final ValueChanged<Map<String, Object?>> onApproveCapability;
   final ValueChanged<Map<String, Object?>> onDenyCapability;
@@ -74,7 +82,7 @@ class _ChatPanelState extends State<ChatPanel> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottomNow());
       return;
     }
-    final totalDisplayMessages = _coalesceAssistantMessages(
+    final totalDisplayMessages = coalesceAssistantMessages(
       widget.messages,
     ).length;
     if (_visibleMessageCount > totalDisplayMessages) {
@@ -251,7 +259,7 @@ class _ChatPanelState extends State<ChatPanel> {
     if (_isLoadingOlderMessages) {
       return;
     }
-    final totalDisplayMessages = _coalesceAssistantMessages(
+    final totalDisplayMessages = coalesceAssistantMessages(
       widget.messages,
     ).length;
     if (_visibleMessageCount >= totalDisplayMessages) {
@@ -306,7 +314,7 @@ class _ChatPanelState extends State<ChatPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final allDisplayMessages = _coalesceAssistantMessages(widget.messages);
+    final allDisplayMessages = coalesceAssistantMessages(widget.messages);
     final hiddenMessageCount = allDisplayMessages.length - _visibleMessageCount;
     final hasOlderMessages = hiddenMessageCount > 0;
     final displayMessages = hasOlderMessages
@@ -331,7 +339,7 @@ class _ChatPanelState extends State<ChatPanel> {
                       displayMessages.length + (hasOlderMessages ? 1 : 0),
                   itemBuilder: (context, index) {
                     if (hasOlderMessages && index == displayMessages.length) {
-                      return _LoadEarlierMessagesButton(
+                      return LoadEarlierMessagesButton(
                         hiddenCount: hiddenMessageCount,
                         onPressed: _loadOlderMessages,
                       );
@@ -360,10 +368,12 @@ class _ChatPanelState extends State<ChatPanel> {
           ),
         ),
         const Divider(height: 1),
-        _PromptComposer(
+        PromptComposer(
           controller: widget.composerController,
           isSending: widget.isSending,
+          currentRun: widget.currentRun,
           onSendPrompt: widget.onSendPrompt,
+          onCancelRun: widget.onCancelRun,
           pendingAttachments: widget.pendingAttachments,
           onAddFile: widget.onAddFile,
           onAddImage: widget.onAddImage,
@@ -371,233 +381,5 @@ class _ChatPanelState extends State<ChatPanel> {
         ),
       ],
     );
-  }
-
-  List<AgentMessage> _coalesceAssistantMessages(List<AgentMessage> messages) {
-    final displayMessages = <AgentMessage>[];
-    for (final message in messages) {
-      final previous = displayMessages.isEmpty ? null : displayMessages.last;
-      if (message.role == MessageRole.assistant &&
-          previous?.role == MessageRole.assistant) {
-        displayMessages[displayMessages.length - 1] = AgentMessage(
-          id: '${previous!.id}+${message.id}',
-          role: previous.role,
-          createdAt: previous.createdAt,
-          blocks: [...previous.blocks, ...message.blocks],
-        );
-        continue;
-      }
-      displayMessages.add(message);
-    }
-    return displayMessages;
-  }
-}
-
-class _LoadEarlierMessagesButton extends StatelessWidget {
-  const _LoadEarlierMessagesButton({
-    required this.hiddenCount,
-    required this.onPressed,
-  });
-
-  final int hiddenCount;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: TextButton.icon(
-          onPressed: onPressed,
-          icon: const Icon(Icons.keyboard_arrow_up, size: 18),
-          label: Text('加载更早消息 · $hiddenCount'),
-        ),
-      ),
-    );
-  }
-}
-
-class _PromptComposer extends StatelessWidget {
-  const _PromptComposer({
-    required this.controller,
-    required this.isSending,
-    required this.onSendPrompt,
-    required this.pendingAttachments,
-    required this.onAddFile,
-    required this.onAddImage,
-    required this.onRemovePendingAttachment,
-  });
-
-  final TextEditingController controller;
-  final bool isSending;
-  final VoidCallback onSendPrompt;
-  final List<MessageBlock> pendingAttachments;
-  final VoidCallback onAddFile;
-  final VoidCallback onAddImage;
-  final ValueChanged<int> onRemovePendingAttachment;
-
-  @override
-  Widget build(BuildContext context) {
-    final keyboardBottom = MediaQuery.viewInsetsOf(context).bottom;
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
-      padding: EdgeInsets.only(bottom: keyboardBottom),
-      child: SafeArea(
-        top: false,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            border: Border(
-              top: BorderSide(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (isSending) const LinearProgressIndicator(),
-                if (isSending) const SizedBox(height: 8),
-                if (pendingAttachments.isNotEmpty) ...[
-                  _PendingAttachmentStrip(
-                    attachments: pendingAttachments,
-                    onRemove: onRemovePendingAttachment,
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    IconButton(
-                      tooltip: '添加文件',
-                      icon: const Icon(Icons.attach_file),
-                      onPressed: isSending ? null : onAddFile,
-                    ),
-                    IconButton(
-                      tooltip: '添加图片',
-                      icon: const Icon(Icons.image_outlined),
-                      onPressed: isSending ? null : onAddImage,
-                    ),
-                    Expanded(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(
-                          minHeight: 44,
-                          maxHeight: 132,
-                        ),
-                        child: TextField(
-                          controller: controller,
-                          enabled: !isSending,
-                          minLines: 1,
-                          maxLines: 4,
-                          textInputAction: TextInputAction.send,
-                          decoration: InputDecoration(
-                            hintText: '输入任务',
-                            isDense: true,
-                            filled: true,
-                            fillColor: const Color(0xFFF7FAF6),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
-                            ),
-                            border: _composerBorder(context),
-                            enabledBorder: _composerBorder(context),
-                          ),
-                          onSubmitted: (_) => onSendPrompt(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(68, 44),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(22),
-                        ),
-                      ),
-                      onPressed: isSending ? null : onSendPrompt,
-                      child: Text(isSending ? '发送中' : '发送'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  OutlineInputBorder _composerBorder(BuildContext context) {
-    return OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide(
-        color: Theme.of(context).colorScheme.outlineVariant,
-      ),
-    );
-  }
-}
-
-class _PendingAttachmentStrip extends StatelessWidget {
-  const _PendingAttachmentStrip({
-    required this.attachments,
-    required this.onRemove,
-  });
-
-  final List<MessageBlock> attachments;
-  final ValueChanged<int> onRemove;
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          for (var index = 0; index < attachments.length; index += 1)
-            InputChip(
-              avatar: Icon(_iconFor(attachments[index]), size: 18),
-              label: Text(_labelFor(attachments[index])),
-              tooltip: _tooltipFor(attachments[index]),
-              onDeleted: () => onRemove(index),
-            ),
-        ],
-      ),
-    );
-  }
-
-  IconData _iconFor(MessageBlock block) {
-    return block.type == MessageBlockType.image
-        ? Icons.image_outlined
-        : Icons.insert_drive_file_outlined;
-  }
-
-  String _labelFor(MessageBlock block) {
-    final name = block.data['name'] as String? ?? '未命名附件';
-    final bytes = block.data['bytes'];
-    if (bytes is! int) {
-      return name;
-    }
-    return '$name · ${_formatBytes(bytes)}';
-  }
-
-  String _tooltipFor(MessageBlock block) {
-    final uri = block.data['uri'] as String? ?? '';
-    return uri.isEmpty ? _labelFor(block) : uri;
-  }
-
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) {
-      return '$bytes B';
-    }
-    final kb = bytes / 1024;
-    if (kb < 1024) {
-      return '${kb.toStringAsFixed(kb < 10 ? 1 : 0)} KB';
-    }
-    final mb = kb / 1024;
-    return '${mb.toStringAsFixed(mb < 10 ? 1 : 0)} MB';
   }
 }

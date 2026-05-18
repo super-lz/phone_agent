@@ -23,6 +23,7 @@ import '../settings/permission_settings_page.dart';
 import '../web_app_runtime/web_app_runtime_page.dart';
 import 'controllers/workbench_controller.dart';
 import 'widgets/chat_panel.dart';
+import 'widgets/local_data_clear_dialog.dart';
 import 'widgets/runtime_panel.dart';
 import 'widgets/workbench_shell.dart';
 import 'widgets/workspace_panel.dart';
@@ -51,7 +52,8 @@ class PhoneAgentHome extends StatefulWidget {
   State<PhoneAgentHome> createState() => _PhoneAgentHomeState();
 }
 
-class _PhoneAgentHomeState extends State<PhoneAgentHome> {
+class _PhoneAgentHomeState extends State<PhoneAgentHome>
+    with WidgetsBindingObserver {
   late final WorkbenchController _controller;
   late final ModelApiKeyStore _apiKeyStore;
   late final ModelSettingsStore _modelSettingsStore;
@@ -62,6 +64,7 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _apiKeyStore = widget.apiKeyStore ?? ModelApiKeyStore();
     _modelSettingsStore =
         widget.modelSettingsStore ?? InMemoryModelSettingsStore();
@@ -80,10 +83,16 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_handleControllerChanged);
     _controller.dispose();
     _composerController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _controller.setAppInForeground(state == AppLifecycleState.resumed);
   }
 
   void _handleControllerChanged() {
@@ -351,6 +360,36 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome> {
     }
   }
 
+  Future<void> _confirmClearLocalData() async {
+    if (_controller.isSending) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('回复生成中，稍后再清理。')));
+      return;
+    }
+    final confirmed = await showLocalDataClearDialog(context);
+    if (confirmed != true) {
+      return;
+    }
+    try {
+      await _controller.clearLocalWorkspaceData();
+      if (!mounted) {
+        return;
+      }
+      setState(_pendingAttachments.clear);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('本地工作区内容已清理。')));
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('清理失败：$error')));
+    }
+  }
+
   String _fileName(String path) {
     final normalized = path.replaceAll('\\', '/');
     final parts = normalized.split('/');
@@ -390,6 +429,11 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome> {
       appBar: AppBar(
         title: const Text('Phone Agent'),
         actions: [
+          IconButton(
+            tooltip: '清理本地数据',
+            icon: const Icon(Icons.cleaning_services_outlined),
+            onPressed: _confirmClearLocalData,
+          ),
           IconButton(
             tooltip: '权限管理',
             icon: const Icon(Icons.privacy_tip_outlined),
@@ -448,7 +492,9 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome> {
           messages: _controller.messages,
           composerController: _composerController,
           isSending: _controller.isSending,
+          currentRun: _controller.currentRun,
           onSendPrompt: _sendPrompt,
+          onCancelRun: _controller.cancelCurrentRun,
           onOpenWebAppArtifact: _openWebAppArtifact,
           onApproveCapability: _controller.approveCapabilityRequest,
           onDenyCapability: _controller.denyCapabilityRequest,

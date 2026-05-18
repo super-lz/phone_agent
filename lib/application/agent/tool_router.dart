@@ -275,6 +275,7 @@ const _webTerms = [
   '资料',
   '价格',
   '官网',
+  '天气',
 ];
 const _projectTerms = [
   'web app',

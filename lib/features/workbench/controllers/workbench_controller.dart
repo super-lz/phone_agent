@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../../../application/agent/agent_loop.dart';
+import '../../../application/agent/agent_run_state.dart';
 import '../../../application/capabilities/capability_execution_result.dart';
 import '../../../application/capabilities/capability_result_presentation.dart';
 import '../../../application/capabilities/capability_runtime.dart';
@@ -95,11 +96,15 @@ class WorkbenchController extends ChangeNotifier {
   final List<AgentArtifact> _artifacts;
   final List<AgentNote> _notes;
   final List<AppFileEntry> _workspaceFiles = [];
+  final List<Completer<void>> _foregroundWaiters = [];
 
   PermissionMode _permissionMode = PermissionMode.defaultMode;
   String _workspaceId = 'default';
   bool _isSending = false;
+  bool _isAppInForeground = true;
   bool _isDisposed = false;
+  AgentRunSnapshot? _currentRun;
+  AgentRunControl? _currentRunControl;
   Future<void> _stateReady = Future<void>.value();
 
   List<AgentWorkspace> get workspaces => List.unmodifiable(_workspaces);
@@ -137,6 +142,8 @@ class WorkbenchController extends ChangeNotifier {
   PermissionMode get permissionMode => _permissionMode;
   String get workspaceId => _workspaceId;
   bool get isSending => _isSending;
+  bool get isAppInForeground => _isAppInForeground;
+  AgentRunSnapshot? get currentRun => _currentRun;
 
   AgentWorkspace get currentWorkspace {
     return _workspaces.firstWhere((workspace) => workspace.id == _workspaceId);
@@ -145,9 +152,46 @@ class WorkbenchController extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
+    _completeForegroundWaiters();
     unawaited(_noteStore.close());
     unawaited(_workbenchStore.close());
     super.dispose();
+  }
+
+  void setAppInForeground(bool isForeground) {
+    if (_isAppInForeground == isForeground) {
+      return;
+    }
+    _isAppInForeground = isForeground;
+    AppLogger.info('workbench.lifecycle.changed', {
+      'isForeground': isForeground,
+      'isSending': _isSending,
+    });
+    if (isForeground) {
+      _completeForegroundWaiters();
+    }
+    if (!_isDisposed) {
+      notifyListeners();
+    }
+  }
+
+  Future<void> _waitUntilForeground() {
+    if (_isAppInForeground || _isDisposed) {
+      return Future<void>.value();
+    }
+    final completer = Completer<void>();
+    _foregroundWaiters.add(completer);
+    return completer.future;
+  }
+
+  void _completeForegroundWaiters() {
+    final waiters = List<Completer<void>>.of(_foregroundWaiters);
+    _foregroundWaiters.clear();
+    for (final waiter in waiters) {
+      if (!waiter.isCompleted) {
+        waiter.complete();
+      }
+    }
   }
 
   Future<void> _loadWorkbenchState() async {
@@ -523,8 +567,68 @@ class WorkbenchController extends ChangeNotifier {
     await _runConfiguredModel(modelPrompt, priorMessages: priorMessages);
   }
 
+  void cancelCurrentRun() {
+    final control = _currentRunControl;
+    if (!_isSending || control == null || control.isCancelled) {
+      return;
+    }
+    control.cancel();
+    _currentRun = AgentRunSnapshot(
+      phase: AgentRunPhase.cancelled,
+      detail: control.reason,
+      toolCallsUsed: _currentRun?.toolCallsUsed ?? 0,
+      maxToolCalls: _currentRun?.maxToolCalls ?? 0,
+      startedAt: _currentRun?.startedAt ?? DateTime.now(),
+    );
+    AppLogger.warning('workbench.agent_run.cancel_requested', {
+      'workspaceId': _workspaceId,
+      'reason': control.reason,
+    });
+    notifyListeners();
+  }
+
   Future<void> refreshWorkspaceFiles() async {
     await _refreshWorkspaceFiles();
+  }
+
+  Future<void> clearLocalWorkspaceData() async {
+    await _stateReady;
+    if (_isSending) {
+      throw StateError('正在生成回复，暂时不能清理本地数据。');
+    }
+
+    final defaultWorkspace = PhoneAgentSeed.workspaces().firstWhere(
+      (workspace) => workspace.id == 'default',
+    );
+    final clearedMessage = AgentMessage(
+      id: 'msg-local-clear-${DateTime.now().microsecondsSinceEpoch}',
+      role: MessageRole.system,
+      createdAt: DateTime.now(),
+      blocks: [MessageBlock.markdown('本地工作区内容已清理。模型设置和 API Key 已保留。')],
+    );
+
+    await _fileStore.clearAll();
+    await _noteStore.resetLocalData();
+    await _workbenchStore.resetLocalData(
+      defaultWorkspace: defaultWorkspace,
+      defaultMessages: [clearedMessage],
+    );
+
+    _workspaceId = defaultWorkspace.id;
+    _workspaces
+      ..clear()
+      ..add(defaultWorkspace);
+    _messages
+      ..clear()
+      ..add(clearedMessage);
+    _memories.clear();
+    _artifacts.clear();
+    _notes.clear();
+    _workspaceFiles.clear();
+    AppLogger.info('workbench.local_data.cleared', {
+      'workspaceId': _workspaceId,
+    });
+    notifyListeners();
   }
 
   Future<AppFileReadResult> readWorkspaceFile(AppFileEntry entry) {
@@ -786,6 +890,15 @@ class WorkbenchController extends ChangeNotifier {
     }
 
     _isSending = true;
+    final runControl = AgentRunControl();
+    _currentRunControl = runControl;
+    _currentRun = AgentRunSnapshot(
+      phase: AgentRunPhase.routing,
+      detail: '正在启动本轮 Agent 任务。',
+      toolCallsUsed: 0,
+      maxToolCalls: _agentLoop.budget.maxToolCalls,
+      startedAt: DateTime.now(),
+    );
     notifyListeners();
 
     try {
@@ -810,15 +923,53 @@ class WorkbenchController extends ChangeNotifier {
         replaceMessage: _replaceMessage,
         notifyChange: notifyListeners,
         switchWorkspace: _switchWorkspaceFromAgent,
+        isForeground: () => _isAppInForeground,
+        waitUntilForeground: _waitUntilForeground,
+        runControl: runControl,
+        reportRunSnapshot: _setCurrentRun,
       );
+    } on AgentRunCancelledException catch (error) {
+      AppLogger.warning('workbench.agent_run.cancelled', {
+        'workspaceId': _workspaceId,
+        'reason': error.message,
+      });
+      _addMessage(_agentRunCancelledResponse(error.message));
     } on Object catch (error) {
       _addMessage(_modelErrorResponse(error.toString()));
     } finally {
       _persistCollections();
       await _refreshWorkspaceFiles(notify: false);
       _isSending = false;
+      _currentRunControl = null;
+      _currentRun = null;
       notifyListeners();
     }
+  }
+
+  void _setCurrentRun(AgentRunSnapshot snapshot) {
+    if (_isDisposed) {
+      return;
+    }
+    final previous = _currentRun;
+    final isDuplicate =
+        previous?.phase == snapshot.phase &&
+        previous?.detail == snapshot.detail &&
+        previous?.toolCallsUsed == snapshot.toolCallsUsed &&
+        previous?.maxToolCalls == snapshot.maxToolCalls &&
+        previous?.currentToolName == snapshot.currentToolName;
+    if (isDuplicate) {
+      return;
+    }
+    _currentRun = snapshot;
+    AppLogger.info('workbench.agent_run.status', {
+      'phase': snapshot.phase.name,
+      'detail': snapshot.detail,
+      'toolCallsUsed': snapshot.toolCallsUsed,
+      'maxToolCalls': snapshot.maxToolCalls,
+      if (snapshot.currentToolName != null)
+        'currentToolName': snapshot.currentToolName,
+    });
+    notifyListeners();
   }
 
   Future<void> _refreshWorkspaceFiles({bool notify = true}) async {
@@ -871,6 +1022,15 @@ class WorkbenchController extends ChangeNotifier {
       role: MessageRole.assistant,
       createdAt: DateTime.now(),
       blocks: [MessageBlock.error('模型调用失败', detail)],
+    );
+  }
+
+  AgentMessage _agentRunCancelledResponse(String detail) {
+    return AgentMessage(
+      id: 'msg-agent-cancelled-${DateTime.now().microsecondsSinceEpoch}',
+      role: MessageRole.assistant,
+      createdAt: DateTime.now(),
+      blocks: [MessageBlock.error('本轮任务已停止', detail)],
     );
   }
 

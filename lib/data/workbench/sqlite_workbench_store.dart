@@ -18,6 +18,7 @@ class SqliteWorkbenchStore implements WorkbenchStore {
 
   final String? _dbPath;
   Database? _database;
+  static const _resetMarkerKey = 'local_data_reset_at';
 
   @override
   Future<void> initialize({
@@ -166,6 +167,37 @@ class SqliteWorkbenchStore implements WorkbenchStore {
   }
 
   @override
+  Future<void> resetLocalData({
+    required AgentWorkspace defaultWorkspace,
+    required List<AgentMessage> defaultMessages,
+  }) async {
+    final db = await _open();
+    await db.transaction((transaction) async {
+      await transaction.delete('capability_invocations');
+      await transaction.delete('messages');
+      await transaction.delete('artifacts');
+      await transaction.delete('memories');
+      await transaction.delete('workspaces');
+      await transaction.delete('app_state');
+      await transaction.insert('workspaces', _workspaceToRow(defaultWorkspace));
+      await transaction.insert('app_state', {
+        'key': 'current_workspace_id',
+        'value': defaultWorkspace.id,
+      });
+      await transaction.insert('app_state', {
+        'key': _resetMarkerKey,
+        'value': DateTime.now().toIso8601String(),
+      });
+      for (final message in defaultMessages) {
+        await transaction.insert(
+          'messages',
+          _messageToRow(defaultWorkspace.id, message),
+        );
+      }
+    });
+  }
+
+  @override
   Future<void> close() async {
     final db = _database;
     _database = null;
@@ -286,6 +318,9 @@ class SqliteWorkbenchStore implements WorkbenchStore {
     Database db,
     List<AgentMemory> seedMemories,
   ) async {
+    if (await _hasResetMarker(db)) {
+      return;
+    }
     final count = Sqflite.firstIntValue(
       await db.rawQuery('SELECT COUNT(*) FROM memories'),
     );
@@ -303,6 +338,9 @@ class SqliteWorkbenchStore implements WorkbenchStore {
     Database db,
     List<AgentArtifact> seedArtifacts,
   ) async {
+    if (await _hasResetMarker(db)) {
+      return;
+    }
     final count = Sqflite.firstIntValue(
       await db.rawQuery('SELECT COUNT(*) FROM artifacts'),
     );
@@ -338,6 +376,17 @@ class SqliteWorkbenchStore implements WorkbenchStore {
         );
       }
     });
+  }
+
+  Future<bool> _hasResetMarker(Database db) async {
+    final rows = await db.query(
+      'app_state',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [_resetMarkerKey],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
   }
 
   Map<String, Object?> _workspaceToRow(AgentWorkspace workspace) => {

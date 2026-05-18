@@ -142,6 +142,15 @@ class LocalAppFileStore implements AppFileStore {
     return entries;
   }
 
+  @override
+  Future<void> clearAll() async {
+    final root = await _root();
+    if (await root.exists()) {
+      await root.delete(recursive: true);
+    }
+    await root.create(recursive: true);
+  }
+
   Future<File> _fileFor({
     required String workspaceId,
     required String normalizedPath,

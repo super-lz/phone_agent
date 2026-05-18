@@ -57,6 +57,22 @@ void main() {
     expect(find.text('测试记忆：喜欢短答案'), findsNothing);
   });
 
+  testWidgets('clears local workspace data from the app bar', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 900));
+    await tester.pumpWidget(const PhoneAgentApp());
+
+    expect(find.textContaining('用户偏好中文回答'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('清理本地数据'));
+    await tester.pumpAndSettle();
+    expect(find.text('清理本地数据'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, '清理'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('用户偏好中文回答'), findsNothing);
+    expect(find.textContaining('本地工作区内容已清理'), findsWidgets);
+  });
+
   testWidgets('prompt can create a web app artifact', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 900));
     await tester.pumpWidget(_appWithWebAppModel());

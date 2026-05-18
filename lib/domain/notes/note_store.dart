@@ -10,6 +10,8 @@ abstract class AgentNoteStore {
     required String keyword,
   });
 
+  Future<void> resetLocalData();
+
   Future<void> close();
 }
 
@@ -52,6 +54,11 @@ class InMemoryAgentNoteStore implements AgentNoteStore {
               note.content.contains(normalizedKeyword);
         })
         .toList(growable: false);
+  }
+
+  @override
+  Future<void> resetLocalData() async {
+    _notes.clear();
   }
 
   @override

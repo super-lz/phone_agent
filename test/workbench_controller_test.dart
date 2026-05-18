@@ -11,7 +11,9 @@ import 'package:phone_agent/data/models/openai_compatible_chat_client.dart';
 import 'package:phone_agent/domain/artifacts/artifact.dart';
 import 'package:phone_agent/domain/artifacts/web_app_runtime_log.dart';
 import 'package:phone_agent/domain/conversation/message_block.dart';
+import 'package:phone_agent/domain/files/app_file_store.dart';
 import 'package:phone_agent/domain/models/model_provider_config.dart';
+import 'package:phone_agent/domain/notes/note_store.dart';
 import 'package:phone_agent/domain/workbench/workbench_store.dart';
 import 'package:phone_agent/features/workbench/controllers/workbench_controller.dart';
 
@@ -50,6 +52,47 @@ void main() {
       expect(controller.messages.last.blocks.first.data['text'], '重试成功');
     },
   );
+
+  test('defers transient retry until app returns foreground', () async {
+    final chatClient = _RetryOnceChatClient();
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+    controller.setAppInForeground(false);
+
+    final sendFuture = controller.sendPrompt('你好');
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(chatClient.callCount, 1);
+    expect(controller.isSending, isTrue);
+    expect(
+      controller.messages.last.blocks.first.data['text'],
+      contains('回到前台后会自动重试一次'),
+    );
+
+    controller.setAppInForeground(true);
+    await sendFuture;
+
+    expect(chatClient.callCount, 2);
+    expect(controller.messages.last.blocks.first.data['text'], '重试成功');
+  });
+
+  test('keeps partial text when stream breaks after output started', () async {
+    final chatClient = _InterruptAfterContentChatClient();
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt('你好');
+
+    expect(chatClient.callCount, 1);
+    final blocks = controller.messages.last.blocks;
+    expect(blocks.first.data['text'], '部分回复');
+    expect(blocks.last.type, MessageBlockType.errorCard);
+    expect(blocks.last.data['title'], '模型连接中断');
+  });
 
   test(
     'normal prompt uses configured model name from settings store',
@@ -218,6 +261,87 @@ void main() {
       ),
       isTrue,
     );
+  });
+
+  test('follow-up tool routing uses recent assistant context', () async {
+    final chatClient = _FakeChatClient([
+      [const ChatStreamEvent(contentDelta: '我可以先读取你当前位置，再搜索天气信息。')],
+      [const ChatStreamEvent(contentDelta: '正在处理。')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt('天气怎么查？');
+    await controller.sendPrompt('你自己做');
+
+    final followUpTools = _capturedToolNames(chatClient.capturedTools[1]);
+    expect(followUpTools, containsAll(['location_get_current', 'web_search']));
+  });
+
+  test('user can stop a running agent turn', () async {
+    final chatClient = _SlowChatClient();
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    final sendFuture = controller.sendPrompt('创建一个俄罗斯方块 Web App');
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(controller.isSending, isTrue);
+    expect(controller.currentRun, isNotNull);
+
+    controller.cancelCurrentRun();
+    await sendFuture;
+
+    expect(controller.isSending, isFalse);
+    expect(controller.currentRun, isNull);
+    final finalBlock = controller.messages.last.blocks.single;
+    expect(finalBlock.type, MessageBlockType.errorCard);
+    expect(finalBlock.data['title'], '本轮任务已停止');
+  });
+
+  test('clear local workspace data resets workspace content only', () async {
+    final workbenchStore = InMemoryWorkbenchStore();
+    final noteStore = InMemoryAgentNoteStore();
+    final fileStore = InMemoryAppFileStore();
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: _FakeChatClient([
+        [_webAppToolCallRound(0)],
+        [const ChatStreamEvent(contentDelta: '已生成 Web App。')],
+      ]),
+      workbenchStore: workbenchStore,
+      noteStore: noteStore,
+      fileStore: fileStore,
+    );
+
+    controller.createWorkspace();
+    controller.createMemory(content: '需要清理的长期记忆');
+    await _createWebApp(controller);
+
+    expect(controller.workspaces.length, greaterThan(1));
+    expect(controller.visibleMemories, isNotEmpty);
+    expect(controller.workspaceArtifacts, isNotEmpty);
+    expect(controller.workspaceFiles, isNotEmpty);
+
+    await controller.clearLocalWorkspaceData();
+
+    expect(controller.workspaceId, 'default');
+    expect(controller.workspaces.map((workspace) => workspace.id), ['default']);
+    expect(controller.visibleMemories, isEmpty);
+    expect(controller.workspaceArtifacts, isEmpty);
+    expect(controller.workspaceNotes, isEmpty);
+    expect(controller.workspaceFiles, isEmpty);
+    expect(
+      controller.messages.single.blocks.first.data['text'],
+      contains('模型设置和 API Key 已保留'),
+    );
+    expect(await fileStore.listFiles(workspaceId: 'workspace-4'), isEmpty);
+    expect(await noteStore.loadAll(), isEmpty);
+    expect(await workbenchStore.loadInvocations(), isEmpty);
   });
 
   test('model tool call can create memory and continue answer', () async {
@@ -621,6 +745,51 @@ void main() {
       expect(controller.workspaceArtifacts.last.title, '个人网页');
       final finalText = controller.messages.last.blocks.first.data['text'];
       expect(finalText, '个人网页已创建，可以从卡片打开预览。');
+    },
+  );
+
+  test(
+    'failed required project tool does not count as completed web app',
+    () async {
+      final chatClient = _FakeChatClient([
+        [
+          ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-project-create-bad',
+                name: 'project_create_web_app',
+                argumentsDelta: jsonEncode({
+                  'title': '个人网页',
+                  'summary': '个人介绍网页。',
+                }),
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '个人网站已创建！点击上方卡片即可预览。')],
+        [const ChatStreamEvent(contentDelta: '个人网站已创建！点击上方卡片即可预览。')],
+        [const ChatStreamEvent(contentDelta: '个人网站已创建！点击上方卡片即可预览。')],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+      );
+
+      await controller.sendPrompt('写一个个人网页');
+
+      expect(chatClient.callCount, 4);
+      expect(controller.workspaceFiles, isEmpty);
+      expect(
+        controller.workspaceArtifacts.where(
+          (artifact) => artifact.type == ArtifactType.webApp,
+        ),
+        isEmpty,
+      );
+      final finalBlock = controller.messages.last.blocks.single;
+      expect(finalBlock.type, MessageBlockType.errorCard);
+      expect(finalBlock.data['title'], '未创建真实产物');
+      expect(finalBlock.data['detail'], contains('必需工具没有成功完成'));
     },
   );
 
@@ -1360,5 +1529,34 @@ class _RetryOnceChatClient extends OpenAiCompatibleChatClient {
       throw const ModelRequestException('模型流式连接中断', isRetryable: true);
     }
     yield const ChatStreamEvent(contentDelta: '重试成功');
+  }
+}
+
+class _InterruptAfterContentChatClient extends OpenAiCompatibleChatClient {
+  int callCount = 0;
+
+  @override
+  Stream<ChatStreamEvent> streamChat({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+    List<Map<String, Object?>> tools = const [],
+  }) async* {
+    callCount += 1;
+    yield const ChatStreamEvent(contentDelta: '部分回复');
+    throw const ModelRequestException('连接被系统中断', isRetryable: true);
+  }
+}
+
+class _SlowChatClient extends OpenAiCompatibleChatClient {
+  @override
+  Stream<ChatStreamEvent> streamChat({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+    List<Map<String, Object?>> tools = const [],
+  }) async* {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    yield const ChatStreamEvent(contentDelta: '这段内容不应该成为最终结果');
   }
 }

@@ -83,10 +83,12 @@ class OpenAiCompatibleChatClient {
   OpenAiCompatibleChatClient({
     http.Client? httpClient,
     this.requestTimeout = const Duration(seconds: 30),
+    this.streamIdleTimeout = const Duration(seconds: 45),
   }) : _httpClient = httpClient ?? http.Client();
 
   final http.Client _httpClient;
   final Duration requestTimeout;
+  final Duration streamIdleTimeout;
 
   Stream<String> streamText({
     required ModelProviderConfig provider,
@@ -150,9 +152,22 @@ class OpenAiCompatibleChatClient {
       throw ModelRequestException('HTTP ${response.statusCode}: $body');
     }
 
+    var eventCount = 0;
     try {
       await for (final line
           in response.stream
+              .timeout(
+                streamIdleTimeout,
+                onTimeout: (sink) {
+                  sink.addError(
+                    TimeoutException(
+                      '模型流式响应 ${_formatDuration(streamIdleTimeout)} 没有新数据。',
+                      streamIdleTimeout,
+                    ),
+                  );
+                  sink.close();
+                },
+              )
               .transform(utf8.decoder)
               .transform(const LineSplitter())) {
         final chunk = _parseSseDataLine(line);
@@ -160,14 +175,25 @@ class OpenAiCompatibleChatClient {
           continue;
         }
         if (chunk == '[DONE]') {
+          AppLogger.info('model.stream_chat.completed', {
+            'provider': provider.id,
+            'model': provider.model,
+            'eventCount': eventCount,
+          });
           return;
         }
 
         final event = _extractStreamEvent(chunk);
         if (!event.isEmpty) {
+          eventCount += 1;
           yield event;
         }
       }
+      AppLogger.warning('model.stream_chat.closed_without_done', {
+        'provider': provider.id,
+        'model': provider.model,
+        'eventCount': eventCount,
+      });
     } on Object catch (error, stackTrace) {
       throw _modelRequestExceptionFor(
         error,
@@ -368,7 +394,7 @@ class OpenAiCompatibleChatClient {
     final isTimeout = error is TimeoutException;
     final isTransient = isTimeout || _isTransientConnectionError(error);
     final message = isTimeout
-        ? '模型请求超时，请检查网络后重试。'
+        ? '模型流式响应超时，当前连接长时间没有返回新数据。请检查网络后重试，或点停止后重新发起。'
         : isTransient
         ? '模型流式连接中断，可能是应用切到后台、网络切换或系统关闭了连接。请回到前台并保持网络稳定后重试。'
         : '模型请求失败：$rawMessage';
@@ -379,6 +405,13 @@ class OpenAiCompatibleChatClient {
       'retryable': isTransient,
     });
     return ModelRequestException(message, isRetryable: isTransient);
+  }
+
+  String _formatDuration(Duration duration) {
+    if (duration.inSeconds >= 1) {
+      return '${duration.inSeconds} 秒';
+    }
+    return '${duration.inMilliseconds} 毫秒';
   }
 
   bool _isTransientConnectionError(Object error) {

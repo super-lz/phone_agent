@@ -42,6 +42,11 @@ abstract class WorkbenchStore {
 
   Future<List<CapabilityInvocation>> loadInvocations();
 
+  Future<void> resetLocalData({
+    required AgentWorkspace defaultWorkspace,
+    required List<AgentMessage> defaultMessages,
+  });
+
   Future<void> close();
 }
 
@@ -148,6 +153,23 @@ class InMemoryWorkbenchStore implements WorkbenchStore {
   @override
   Future<List<CapabilityInvocation>> loadInvocations() async {
     return List.unmodifiable(_invocations);
+  }
+
+  @override
+  Future<void> resetLocalData({
+    required AgentWorkspace defaultWorkspace,
+    required List<AgentMessage> defaultMessages,
+  }) async {
+    _workspaces.clear();
+    _workspaces[defaultWorkspace.id] = defaultWorkspace;
+    _memories.clear();
+    _artifacts.clear();
+    _messagesByWorkspace.clear();
+    _messagesByWorkspace[defaultWorkspace.id] = {
+      for (final message in defaultMessages) message.id: message,
+    };
+    _invocations.clear();
+    _currentWorkspaceId = defaultWorkspace.id;
   }
 
   @override
