@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../domain/artifacts/artifact.dart';
 import '../../domain/artifacts/web_app_runtime_log.dart';
 import '../../domain/files/app_file_store.dart';
@@ -93,6 +95,10 @@ class ProjectCapabilityHandler {
       );
     }
 
+    final artifactId = 'artifact-${DateTime.now().microsecondsSinceEpoch}';
+    final createdAt = DateTime.now();
+    final permissions = _permissions(arguments['permissions']);
+    final manifestPath = _manifestPathFor(entryPath);
     final writeResults = <AppFileWriteResult>[];
     try {
       for (final file in files) {
@@ -105,6 +111,24 @@ class ProjectCapabilityHandler {
           ),
         );
       }
+      final manifest = _manifestContent(
+        artifactId: artifactId,
+        workspaceId: workspaceId,
+        title: title,
+        summary: summary,
+        entryPath: entryPath,
+        permissions: permissions,
+        files: files.map((file) => file.path).toList(growable: false),
+        createdAt: createdAt,
+      );
+      writeResults.add(
+        await store.writeText(
+          workspaceId: workspaceId,
+          path: manifestPath,
+          content: manifest,
+          overwrite: true,
+        ),
+      );
     } on AppFileStoreException catch (error) {
       return CapabilityExecutionResult(
         capabilityId: 'project.create_web_app',
@@ -121,7 +145,6 @@ class ProjectCapabilityHandler {
       );
     }
 
-    final artifactId = 'artifact-${DateTime.now().microsecondsSinceEpoch}';
     final metadata = <String, Object?>{};
     final rawMetadata = arguments['metadata'];
     if (rawMetadata is Map<Object?, Object?>) {
@@ -133,6 +156,7 @@ class ProjectCapabilityHandler {
       'entry': entryPath,
       'html': entryFile.content,
       'project': true,
+      'manifestPath': manifestPath,
       'runtimeLogPath': WebAppRuntimeLogPaths.forMetadata(
         artifactId: artifactId,
         metadata: {'entry': entryPath},
@@ -146,7 +170,7 @@ class ProjectCapabilityHandler {
             },
           )
           .toList(growable: false),
-      'permissions': _permissions(arguments['permissions']),
+      'permissions': permissions,
     });
 
     final artifact = AgentArtifact(
@@ -155,7 +179,7 @@ class ProjectCapabilityHandler {
       type: ArtifactType.webApp,
       title: title,
       summary: summary,
-      createdAt: DateTime.now(),
+      createdAt: createdAt,
       uri: writeResults.firstWhere((file) => file.path == entryPath).uri,
       metadata: metadata,
     );
@@ -170,6 +194,7 @@ class ProjectCapabilityHandler {
         'type': artifact.type.name,
         'title': artifact.title,
         'entryPath': entryPath,
+        'manifestPath': manifestPath,
         'files': metadata['files'],
       },
     );
@@ -218,6 +243,39 @@ class ProjectCapabilityHandler {
       }
     }
     return null;
+  }
+
+  String _manifestPathFor(String entryPath) {
+    final slash = entryPath.lastIndexOf('/');
+    if (slash < 0) {
+      return '.phone-agent/manifest.json';
+    }
+    return '${entryPath.substring(0, slash)}/.phone-agent/manifest.json';
+  }
+
+  String _manifestContent({
+    required String artifactId,
+    required String workspaceId,
+    required String title,
+    required String summary,
+    required String entryPath,
+    required List<String> permissions,
+    required List<String> files,
+    required DateTime createdAt,
+  }) {
+    final manifest = {
+      'schema': 'phone-agent.webapp.v1',
+      'artifactId': artifactId,
+      'workspaceId': workspaceId,
+      'title': title,
+      'summary': summary,
+      'entry': entryPath,
+      'permissions': permissions,
+      'files': files,
+      'createdAt': createdAt.toIso8601String(),
+    };
+    const encoder = JsonEncoder.withIndent('  ');
+    return '${encoder.convert(manifest)}\n';
   }
 }
 

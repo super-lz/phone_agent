@@ -25,13 +25,14 @@
 
 1. 用户在当前 Workspace 中发起对话，可输入文字、图片、文件或系统分享内容。
 2. 系统把全局长期记忆、同一会话上下文、当前 Workspace 数据上下文、附件摘要和可用 Capability 一起提供给 Agent；用户不应需要重复告诉 AI 已保存的偏好、稳定事实或本会话前面已经说过的关键信息。
-3. Agent 必须在正式对话中以流式方式输出 Markdown，也可以通过 OpenAI 兼容工具调用协议发起工具调用、权限请求、TODO 更新、任务进度和 Artifact 创建。
-4. Capability Runtime 校验工具输入、权限策略和执行边界后调用对应 adapter。
-5. 工具结果以结构化结果返回给 Agent，并以工具轨迹展示给用户；同一次用户请求中的中间模型轮次、工具调用和工具结果默认应收敛到同一个回复气泡的折叠执行过程里，最终回答和可复用产物卡片保持外露；模型准备工具调用前已经输出的临时说明或代码也应归入折叠过程，不能在生成中用大段源码淹没会话；联网搜索和网页解析结果必须优先展示为可读结果卡片，而不是只暴露原始 Map 文本。
-6. Agent 基于工具结果继续回答；失败时说明原因并给出替代方案。
-7. 单次用户请求的自动工具调用必须使用任务预算，而不是很低的固定演示轮数；预算至少要同时约束模型轮次、总工具调用次数和连续工具失败次数。
-8. 任务预算应足以支持复杂任务的多步搜索、读取、记忆和本地能力调用；达到预算或连续失败保护时，系统必须停止继续调用工具，并要求 Agent 基于已有结果给出最终回答。
-9. 普通对话必须使用当前已配置的模型提供方；若缺少 API Key，系统必须在对话中提示用户先完成模型设置。
+3. 系统必须先用工具索引按用户意图选择本轮需要暴露的工具集合；普通聊天不应默认暴露全量工具 schema，未暴露的工具组视为本轮不可用，以降低 token 消耗和误调用概率。
+4. Agent 必须在正式对话中以流式方式输出 Markdown，也可以通过 OpenAI 兼容工具调用协议发起工具调用、权限请求、TODO 更新、任务进度和 Artifact 创建。
+5. Capability Runtime 校验工具输入、权限策略和执行边界后调用对应 adapter。
+6. 工具结果以结构化结果返回给 Agent，并以工具轨迹展示给用户；同一次用户请求中的中间模型轮次、工具调用和工具结果默认应收敛到同一个回复气泡的折叠执行过程里，最终回答和可复用产物卡片保持外露；模型准备工具调用前已经输出的临时说明或代码也应归入折叠过程，不能在生成中用大段源码淹没会话；联网搜索、网页解析和手机本地能力结果必须优先展示为用户可理解的摘要或结果卡片，原始结构化数据只能作为调试详情折叠展示。
+7. Agent 基于工具结果继续回答；失败时说明原因并给出替代方案。
+8. 单次用户请求的自动工具调用必须使用任务预算，而不是很低的固定演示轮数；预算至少要同时约束模型轮次、总工具调用次数和连续工具失败次数。
+9. 任务预算应足以支持复杂任务的多步搜索、读取、记忆和本地能力调用；达到预算或连续失败保护时，系统必须停止继续调用工具，并要求 Agent 基于已有结果给出最终回答。
+10. 普通对话必须使用当前已配置的模型提供方；若缺少 API Key，系统必须在对话中提示用户先完成模型设置。
 
 ### 模型配置
 
@@ -131,6 +132,7 @@
 - 高级用户后续可以通过配置文件自定义 allowlist 和 denylist。
 - 默认模式下，高风险能力必须确认；完全访问权限也必须保留审计日志。
 - 手机系统运行时权限必须由统一权限申请服务检查和申请；手机原生 Capability 不应在各自 adapter 中分散实现权限申请流程。
+- 用户在对话或 Web App 中触发需要手机系统权限的原生 Capability 时，系统必须在能力执行过程中自动检查并在平台允许时发起系统授权申请；用户不应必须先手动进入权限页授权。若权限被永久拒绝、系统服务关闭、受系统限制或平台不可用，能力必须返回结构化错误和面向用户的可读处理建议。
 - 用户必须能在统一权限列表页查看当前系统权限状态；当权限可在 App 内申请时可以直接申请，当权限被永久拒绝、受系统限制、服务关闭或无法在 App 内恢复时，必须提供跳转系统设置的入口。
 - 当前默认模型提供方为阿里云百炼，默认模型为 `qwen3.6-flash-2026-04-16`，默认 OpenAI 兼容 Base URL 为 `https://dashscope.aliyuncs.com/compatible-mode/v1/`。
 - `qwen3.6-flash-2026-04-16` 当前推荐默认参数为普通模式、不启用思考、`temperature=1.0`、`top_p=0.95`、`top_k=20`；正式对话默认 `stream=true`，连接测试可以使用非流式请求；第一版本不在普通设置页暴露这些参数。
@@ -147,25 +149,34 @@
 - Markdown 渲染必须对流式输出中的临时未闭合标记具备容错能力，例如未闭合的粗体或行内代码标记，避免把明显的 Markdown 控制符直接暴露给用户。
 - 图片输入、文件输入和系统分享入口的业务入口。
 - 联网搜索和网页读取能力的 Capability 定义。
-- 文件、数据库、记忆、Workspace、Artifact、时间、定位、剪贴板、通知、日历、设备信息、WebView、Skill 和 MCP 的 Capability 定义。
+- 文件、数据库、记忆、Workspace、Artifact、Office/PDF 文档、时间、定位、剪贴板、通知、日历、设备信息、WebView、Skill 和 MCP 的 Capability 定义。
 - Artifact 中心。
 - 全局长期记忆和会话上下文。
 - 模型设置页，支持阿里云百炼 API Key 保存、自定义模型名称、恢复默认模型和连接测试。
 - 正式对话的最小 Agent Loop：模型流式输出、自动发起工具调用、Capability Runtime 执行工具、工具结果回传模型、模型继续回答。
 - Agent Loop 必须具备可调任务预算，并在日志中暴露当前工具调用消耗，方便定位过早停止或循环调用。
 - Agent Loop 必须携带同一会话的近期原文上下文，并在上下文过长时携带较早内容的压缩摘要。
-- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`file.apply_text_patch`、`project.create_web_app`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`device.info`、`time.get_current`、`clipboard.read`、`clipboard.write`、`location.get_current`、`notification.schedule` 和 `calendar.event.create`。
+- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`file.search_app_files`、`file.apply_text_patch`、`project.create_web_app`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`document.extract`、`document.generate`、`document.apply_text_patch`、`spreadsheet.extract`、`spreadsheet.generate`、`presentation.extract`、`presentation.generate`、`pdf.extract`、`pdf.generate`、`device.info`、`time.get_current`、`battery.status`、`network.status`、`clipboard.read`、`clipboard.write`、`share.text`、`system.haptic_feedback`、`system.sound_alert`、`permission.open_settings`、`url.open_external`、`screen.keep_awake`、`screen.keep_awake_status`、`sensor.accelerometer.read`、`sensor.gyroscope.read`、`sensor.magnetometer.read`、`location.get_current`、`notification.schedule` 和 `calendar.event.create`。
 - 当用户要求新建或切换工作区时，Agent 可以调用 `workspace.create` 或 `workspace.switch`；创建成功后当前 Workspace 必须切换到新工作区，切换目标不存在时必须返回结构化错误。
 - 当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，Agent 可以调用 `db.note.create` 或 `db.note.query` 读写当前 Workspace 的 Note。
 - `db.note.create` 写入的 Note 必须落到设备本地数据库，而不是只停留在当前进程内存。
-- 当用户要求创建、保存、读取或修改当前工作区文件时，Agent 可以调用 `file.write_app_file` 或 `file.read_app_file` 读写当前 Workspace 的 App File。
+- 当用户要求创建、保存、读取或修改当前工作区文件时，Agent 可以调用 `file.write_app_file`、`file.read_app_file` 或 `file.search_app_files` 读写和定位当前 Workspace 的 App File。
 - `file.write_app_file` 写入的文件必须落到当前 Workspace 的应用沙箱文件目录；`file.read_app_file` 只能读取同一 Workspace 的 App File。
-- 当用户要求创建小游戏、交互网页、Web App、原型或本地可维护项目时，Agent 必须把真实项目文件写入当前 Workspace 文件区，并创建可预览的 Web App Artifact 作为本地索引；不能只输出代码块或自然语言承诺。
-- 当用户要求维护或迭代已生成的本地项目时，Agent 应先读取相关文件，再用精确文本补丁修改文件；补丁原文无法唯一匹配时必须返回结构化错误，避免盲目覆盖。
+- `file.read_app_file` 必须支持只读取文件局部行范围；`file.search_app_files` 必须返回带文件路径、行号和上下文片段的搜索结果，使 Agent 能先定位问题再读取和修改。
+- 当用户要求创建小游戏、交互网页、Web App、原型或本地可维护项目时，Agent 必须把真实项目文件写入当前 Workspace 文件区，并创建可预览的 Web App Artifact 作为本地索引；不能只输出代码块或自然语言承诺。Web App 默认按本地工程组织，包含入口文件和工程 manifest；除极小页面外，应拆分入口 HTML、样式和脚本文件，便于后续定位和修复。
+- 当用户要求维护或迭代已生成的本地项目时，Agent 应先搜索或读取相关文件片段，再用精确文本补丁修改文件；补丁原文无法唯一匹配时必须返回结构化错误，避免盲目覆盖。
 - 当前 Workspace 的 App File 必须有可发现入口；用户可以在运行时区域查看当前 Workspace 文件列表，点击预览文本内容，并通过系统分享或保存入口导出文件。
-- 当用户要求查看当前设备环境、读取剪贴板或复制内容时，Agent 可以调用 `device.info`、`clipboard.read` 或 `clipboard.write`；剪贴板读取不应在用户未明确要求时主动触发。
+- 第一版 Office/PDF 能力必须支持上传或导入后的 Word、Excel、PPT、PDF 文件内容提取，并让 Agent 基于提取文本完成总结、问答和审阅；扫描版 PDF 的 OCR 不作为第一版承诺。
+- 第一版 Office/PDF 能力必须支持生成新的 `docx`、`xlsx`、`pptx` 和 `pdf` 文件，并写入当前 Workspace 文件区供用户预览、分享或导出。
+- 第一版 Office/PDF 能力可以做受控局部文本替换并生成新文件，但不承诺保留复杂 Office 原格式；完整所见即所得编辑仍应交给外部 App 或后续 OnlyOffice/Collabora 类适配。
+- 当用户要求查看当前设备环境、读取剪贴板或复制内容时，Agent 可以调用 `device.info`、`clipboard.read` 或 `clipboard.write`；设备信息结果必须包含面向用户的摘要和规范化平台、型号、系统版本等基础字段；剪贴板读取不应在用户未明确要求时主动触发。
+- 当用户要求查看电量或网络连接类型时，Agent 可以调用 `battery.status` 或 `network.status`；电量和网络结果必须包含面向用户的摘要；网络状态只表示设备连接类型，不能等同于目标网站或互联网一定可达。
+- 当用户明确要求分享文本、触感反馈、系统提示音或打开应用权限设置时，Agent 可以调用 `share.text`、`system.haptic_feedback`、`system.sound_alert` 或 `permission.open_settings`；分享和设置能力会触发系统 UI，需要用户继续确认或操作。
+- 当用户明确要求打开外部链接、电话、短信、邮件或地理 URI 时，Agent 可以调用 `url.open_external`；该能力只允许受支持的外部 URI scheme，并会跳出当前应用或打开系统 UI。
+- 当用户明确要求长时间展示、计时器、演示或防止屏幕熄灭时，Agent 可以调用 `screen.keep_awake` 设置当前应用保持屏幕常亮，也可以调用 `screen.keep_awake_status` 查询当前状态；该能力只影响当前应用运行期间。
+- 当用户明确要求使用运动、姿态、方向或磁场信息时，Agent 可以调用 `sensor.accelerometer.read`、`sensor.gyroscope.read` 或 `sensor.magnetometer.read` 读取一次传感器快照；传感器不可用、超时或平台异常时必须返回结构化错误。
 - 每轮对话必须把设备当前本地时间、UTC 时间或时区语义提供给 Agent；当用户询问当前时间，或安排通知/日历前需要校准相对时间时，Agent 可以调用 `time.get_current` 获取设备当前时间。
-- 当用户明确要求使用当前位置时，Agent 可以调用 `location.get_current`；定位服务关闭、权限拒绝、永久拒绝或平台异常时必须返回结构化错误。
+- 当用户明确要求使用当前位置时，Agent 可以调用 `location.get_current`；成功时必须返回经纬度、精度、时间戳和面向用户的摘要；定位服务关闭、权限拒绝、永久拒绝或平台异常时必须返回结构化错误和可读处理建议。
 - 当用户明确要求稍后提醒或安排本地通知时，Agent 可以调用 `notification.schedule`；相对时间必须基于设备当前本地时间换算；本地通知不是系统时钟闹钟，也不写入系统日历；通知权限拒绝、初始化失败、无效时间或平台异常时必须返回结构化错误。
 - 当用户明确要求加入日历、创建日程、安排会议或保存日历事件时，Agent 可以调用 `calendar.event.create`；相对时间必须基于设备当前本地时间换算；该能力必须进入系统日历添加事件流程，由用户确认保存；时间无效、用户取消、平台不可用或平台异常时必须返回结构化结果。
 - 当 Agent 生成报告、文档、任务清单、文件摘要或 Web App 等可复用产物时，可以调用 `artifact.create` 写入当前 Workspace 的 Artifact，并在对话中展示 Artifact 卡片或 Web App 卡片；需要卡片或预览入口时，Agent 不得只在 Markdown 正文中伪造 Artifact/Web App 链接。
@@ -179,7 +190,7 @@
 - Web App 运行时必须向页面暴露可发现的 JSBridge 契约，至少包括 manifest 读取、可用 Capability 列表和 Capability 调用入口，便于 AI 生成的网页自检权限和能力。
 - Web App JSBridge 必须提供设备信息等常用能力的可发现调用方式；页面需要设备信息时应通过已声明权限的 JSBridge 调用，而不是依赖浏览器伪造的设备环境。
 - 对话中的 Web App 卡片必须能直接打开同一个 Web App 预览页面，并以清晰的本地应用入口样式展示标题、类型和打开操作。
-- Web App Artifact 必须保存可运行入口内容；第一阶段至少要保存完整单文件 HTML、内联 CSS 和内联 JS。缺少可运行 HTML 时不得展示成“已加载”的假预览，必须返回结构化错误或可诊断提示。
+- Web App Artifact 必须保存可运行入口内容和可发现的工程 manifest。缺少可运行入口内容时不得展示成“已加载”的假预览，必须返回结构化错误或可诊断提示。
 - Web App 打开前必须向用户展示 manifest 声明的能力权限；用户拒绝后 Web App 仍可打开，但 JSBridge 能力调用必须返回结构化权限错误。
 - Web App JSBridge 调用必须回到 Capability Runtime；未在 manifest 权限中声明的能力必须返回结构化拒绝错误。
 - Web App 内网页请求相机、麦克风、定位、文件选择或媒体自动播放时，运行时只能在用户已批准该 Web App 权限门后放行；用户未批准时必须拒绝或返回空结果。
@@ -210,6 +221,9 @@
 - AI 能在用户明确要求忘记某条长期记忆时调用 `memory.delete`。
 - 用户能查看、编辑、删除全局长期记忆。
 - 用户上传文件后，AI 能总结、问答，并生成 Artifact。
+- 用户上传或导入 Word、Excel、PPT、PDF 后，AI 能通过对应 `document.*`、`spreadsheet.*`、`presentation.*`、`pdf.*` Capability 提取文本，并基于文本总结、问答或审阅。
+- AI 能生成新的 `docx`、`xlsx`、`pptx` 和 `pdf` 文件到当前 Workspace 文件区；用户可在文件列表中找到并导出。
+- AI 能对文档提取文本做受控局部替换并生成新文件；当无法唯一匹配原文或会丢失复杂格式时，系统必须返回结构化结果并向用户说明边界。
 - 用户上传图片后，AI 能识别图片内容或提取文字。
 - 用户能在模型设置页填写阿里云百炼 API Key，并可使用内置默认模型或自定义模型名称测试连接。
 - 用户保存阿里云百炼 API Key 后，普通对话能调用当前配置的模型名称获得模型回复；未自定义时使用内置 `qwen3.6-flash-2026-04-16` 默认配置。
@@ -228,8 +242,10 @@
 - 用户反馈已生成 Web App 的运行问题时，AI 应优先读取该 Web App 的运行日志和相关项目文件，再定位并修复，而不是只根据用户描述猜测。
 - 用户能在运行时页查看当前 Workspace 的 App File 列表；点击文件可预览文本内容，并可通过系统分享或保存入口导出到用户选择的位置。
 - AI 能在用户明确要求时读取设备基础信息、读取剪贴板纯文本或写入剪贴板，并在对话中展示工具轨迹。
+- 手机本地能力执行后，对话中优先展示用户可理解的摘要或结论；原始工具元数据只作为折叠调试详情展示，不能把 JSON 或字段名直接当作最终回复。
+- 工具结果给模型继续推理时应使用面向模型的精简 observation，而不是完整原始输出；完整输出只用于 UI 调试详情、审计日志和必要的后续精确读取，避免模型把工具调用过程或原始 Map 当作最终回答复述。
 - AI 能基于设备当前本地时间回答当前时间问题，并在安排通知或日历事件时用该时间解释今天、明天、今晚、几分钟后等相对表达。
-- AI 能在用户明确要求时获取当前位置；定位服务关闭或用户拒绝授权时，系统不崩溃，并把结构化失败原因返回给 Agent。
+- AI 能在用户明确要求时获取当前位置；如果尚未授权且平台允许 App 内申请，系统会在能力执行时自动发起系统授权申请；定位结果必须以手机系统定位 provider 返回的经纬度、精度、时间戳和 mock/provider 诊断为准，不得在没有反向地理编码能力返回时编造城市或地址；定位服务关闭或用户拒绝授权时，系统不崩溃，并把结构化失败原因和可读处理建议返回给 Agent。
 - AI 能在用户明确要求时安排本地系统通知；通知权限拒绝、无效提醒时间或平台不可用时，系统不崩溃，并把结构化失败原因返回给 Agent。
 - 用户能进入统一权限管理页查看定位和通知等系统权限状态；可申请的权限能在页内触发系统申请，无法在 App 内恢复的状态能跳转到系统设置。
 - AI 能在用户明确要求时创建日历事件；系统必须打开平台日历添加事件流程，由用户确认保存，并在取消、时间无效或平台不可用时把结构化结果返回给 Agent。
@@ -252,6 +268,7 @@
 
 - Capability 输入不合法时，返回结构化参数错误并记录审计日志。
 - 权限不足或用户拒绝时，返回结构化权限错误，不执行实际能力。
+- 手机系统权限未授权但仍可在 App 内申请时，原生能力执行流程应先发起系统授权申请；申请后仍被拒绝、永久拒绝、服务关闭或受限制时，返回结构化错误和面向用户的下一步建议。
 - 平台能力不可用时，返回能力不可用错误，并允许 Agent 给出替代方案。
 - MCP 连接失败时，保留配置和失败原因，不影响其他 Capability。
 - Skill 格式错误时，阻止安装或标记不可用，并暴露可读错误。

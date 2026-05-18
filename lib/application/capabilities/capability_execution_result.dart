@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'capability_result_presentation.dart';
+
 class CapabilityExecutionResult {
   const CapabilityExecutionResult({
     required this.capabilityId,
@@ -11,5 +13,11 @@ class CapabilityExecutionResult {
 
   String get encodedOutput {
     return jsonEncode(output);
+  }
+
+  String get encodedModelObservation {
+    return jsonEncode(
+      modelObservationForCapability(capabilityId: capabilityId, output: output),
+    );
   }
 }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -57,6 +58,55 @@ class LocalAppFileStore implements AppFileStore {
       path: normalizedPath,
       content: truncated ? content.substring(0, limit) : content,
       length: content.length,
+      truncated: truncated,
+    );
+  }
+
+  @override
+  Future<AppFileWriteResult> writeBytes({
+    required String workspaceId,
+    required String path,
+    required Uint8List bytes,
+    required bool overwrite,
+  }) async {
+    final normalizedPath = normalizeAppFilePath(path);
+    final file = await _fileFor(
+      workspaceId: workspaceId,
+      normalizedPath: normalizedPath,
+    );
+    if (!overwrite && await file.exists()) {
+      throw const AppFileStoreException('file_exists', 'file already exists');
+    }
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(bytes, flush: true);
+    return AppFileWriteResult(
+      path: normalizedPath,
+      uri: file.uri,
+      bytes: bytes.length,
+    );
+  }
+
+  @override
+  Future<AppFileBytesReadResult> readBytes({
+    required String workspaceId,
+    required String path,
+    required int maxBytes,
+  }) async {
+    final normalizedPath = normalizeAppFilePath(path);
+    final file = await _fileFor(
+      workspaceId: workspaceId,
+      normalizedPath: normalizedPath,
+    );
+    if (!await file.exists()) {
+      throw const AppFileStoreException('not_found', 'file not found');
+    }
+    final bytes = await file.readAsBytes();
+    final limit = maxBytes <= 0 ? 12 * 1024 * 1024 : maxBytes;
+    final truncated = bytes.length > limit;
+    return AppFileBytesReadResult(
+      path: normalizedPath,
+      bytes: Uint8List.fromList(truncated ? bytes.sublist(0, limit) : bytes),
+      length: bytes.length,
       truncated: truncated,
     );
   }

@@ -20,12 +20,25 @@ class WebAppRuntimeDefaults {
     'db.note.query',
     'file.read_app_file',
     'file.write_app_file',
+    'file.search_app_files',
     'artifact.create',
     'artifact.query',
     'device.info',
     'time.get_current',
+    'battery.status',
+    'network.status',
     'clipboard.read',
     'clipboard.write',
+    'share.text',
+    'system.haptic_feedback',
+    'system.sound_alert',
+    'permission.open_settings',
+    'url.open_external',
+    'screen.keep_awake',
+    'screen.keep_awake_status',
+    'sensor.accelerometer.read',
+    'sensor.gyroscope.read',
+    'sensor.magnetometer.read',
     'location.get_current',
     'notification.schedule',
     'calendar.event.create',
@@ -117,7 +130,8 @@ class WebAppDataNamespace {
       return database(workspaceId: workspaceId, webApp: webApp);
     }
     if (capabilityId == 'file.read_app_file' ||
-        capabilityId == 'file.write_app_file') {
+        capabilityId == 'file.write_app_file' ||
+        capabilityId == 'file.search_app_files') {
       return files(workspaceId: workspaceId, webApp: webApp);
     }
     return workspaceId;
@@ -234,6 +248,8 @@ class WebAppCapabilityBridge {
         return 'file_read_app_file';
       case 'file.write_app_file':
         return 'file_write_app_file';
+      case 'file.search_app_files':
+        return 'file_search_app_files';
       case 'artifact.create':
         return 'artifact_create';
       case 'artifact.query':
@@ -242,10 +258,34 @@ class WebAppCapabilityBridge {
         return 'device_info';
       case 'time.get_current':
         return 'time_get_current';
+      case 'battery.status':
+        return 'battery_status';
+      case 'network.status':
+        return 'network_status';
       case 'clipboard.read':
         return 'clipboard_read';
       case 'clipboard.write':
         return 'clipboard_write';
+      case 'share.text':
+        return 'share_text';
+      case 'system.haptic_feedback':
+        return 'system_haptic_feedback';
+      case 'system.sound_alert':
+        return 'system_sound_alert';
+      case 'permission.open_settings':
+        return 'permission_open_settings';
+      case 'url.open_external':
+        return 'url_open_external';
+      case 'screen.keep_awake':
+        return 'screen_keep_awake';
+      case 'screen.keep_awake_status':
+        return 'screen_keep_awake_status';
+      case 'sensor.accelerometer.read':
+        return 'sensor_accelerometer_read';
+      case 'sensor.gyroscope.read':
+        return 'sensor_gyroscope_read';
+      case 'sensor.magnetometer.read':
+        return 'sensor_magnetometer_read';
       case 'location.get_current':
         return 'location_get_current';
       case 'notification.schedule':

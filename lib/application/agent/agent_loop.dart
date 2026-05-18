@@ -16,6 +16,7 @@ import '../capabilities/capability_runtime.dart';
 import 'agent_loop_budget.dart';
 import 'conversation_context_builder.dart';
 import 'tool_call_accumulator.dart';
+import 'tool_router.dart';
 
 typedef AddAgentMessage = void Function(AgentMessage message);
 typedef ReplaceAgentMessage =
@@ -34,6 +35,7 @@ class AgentLoop {
   final OpenAiCompatibleChatClient _chatClient;
   final CapabilityRuntime _capabilityRuntime;
   final AgentLoopBudget budget;
+  final AgentToolRouter _toolRouter = const AgentToolRouter();
 
   Future<CapabilityExecutionResult> executeApprovedTool({
     required ToolCallRequest toolCall,
@@ -97,11 +99,16 @@ class AgentLoop {
   }) async {
     final runState = AgentLoopRunState(budget);
     var activeWorkspaceId = workspaceId;
+    final toolRoute = _toolRouter.route(
+      prompt: prompt,
+      allTools: _capabilityRuntime.toolDefinitions,
+    );
     final modelMessages = _buildModelMessages(
       prompt: prompt,
       workspace: workspace,
       visibleMemories: visibleMemories,
       priorMessages: priorMessages,
+      toolIndex: toolRoute.index,
     );
 
     for (var round = 0; round < budget.maxModelRounds; round += 1) {
@@ -128,9 +135,7 @@ class AgentLoop {
             provider: provider,
             apiKey: apiKey,
             messages: modelMessages,
-            tools: runState.canUseTools
-                ? _capabilityRuntime.toolDefinitions
-                : const [],
+            tools: runState.canUseTools ? toolRoute.tools : const [],
           )) {
             if (event.toolCallDeltas.isNotEmpty) {
               hasReceivedModelDelta = true;
@@ -262,6 +267,7 @@ class AgentLoop {
     required AgentWorkspace workspace,
     required List<AgentMemory> visibleMemories,
     required List<AgentMessage> priorMessages,
+    required String toolIndex,
   }) {
     final memories = visibleMemories
         .map((memory) => '- ${memory.content}')
@@ -280,16 +286,25 @@ class AgentLoop {
             '只有当用户明确要求记住、忘记、查看或管理记忆时，才调用记忆工具。'
             '当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，使用 db_note_create 或 db_note_query。'
             '当用户要求创建或切换工作区时，使用 workspace_create 或 workspace_switch。'
-            '当用户要求创建、保存、读取或修改当前工作区文件时，使用 file_write_app_file 或 file_read_app_file；'
+            '当用户要求创建、保存、读取或修改当前工作区文件时，使用 file_write_app_file、file_read_app_file 或 file_search_app_files；'
             '文件路径必须是当前工作区沙箱内的相对路径。'
-            '当用户要求修改、维护或迭代已生成的本地项目文件时，优先读取目标文件后使用 file_apply_text_patch 做精确补丁。'
-            '当用户要求查看设备环境、当前时间、读取剪贴板、复制内容或使用当前位置时，使用 device_info、time_get_current、clipboard_read、clipboard_write 或 location_get_current。'
+            '当用户要求修改、维护或迭代已生成的本地项目文件时，先用 file_search_app_files 定位关键词或错误片段，'
+            '再用 file_read_app_file 读取相关行范围，最后使用 file_apply_text_patch 做精确补丁。'
+            '当用户要求查看设备环境、当前时间、电量、网络、读取剪贴板、复制内容、系统分享、触感反馈、提示音、权限设置、打开外部链接、屏幕常亮、传感器或使用当前位置时，'
+            '使用 device_info、time_get_current、battery_status、network_status、clipboard_read、clipboard_write、share_text、system_haptic_feedback、system_sound_alert、'
+            'permission_open_settings、url_open_external、screen_keep_awake、screen_keep_awake_status、sensor_accelerometer_read、sensor_gyroscope_read、sensor_magnetometer_read 或 location_get_current。'
+            '工具结果是内部观察，不要把原始 JSON、字段名或工具元数据当成最终回答直接展示给用户；'
+            '设备、位置、电量、网络、权限等本地能力优先使用工具返回的 summary 或 userMessage，再转成人话说明下一步。'
             '处理今天、明天、今晚、几分钟后等相对时间时，必须以系统提供的当前本地时间为准；不确定时先调用 time_get_current 校准。'
             '稍后提醒使用 notification_schedule；加入日历、创建日程或安排会议使用 calendar_event_create；所有绝对时间参数必须使用带时区语义的 ISO 8601。'
             '当你生成报告、文档、任务清单、文件摘要或 Web App 等可复用产物时，使用 artifact_create 保存为 Artifact；'
             '创建 Web App 时必须提供 content_html，写入完整可运行页面、内联样式和内联脚本，不能只写摘要。'
-            '当用户要求创建小游戏、交互网页、Web App、原型或本地可维护项目时，必须使用 project_create_web_app 写入真实文件并创建 Web App Artifact；'
+            '当用户上传或要求处理 Word、Excel、PPT、PDF 时，使用 document_extract、spreadsheet_extract、presentation_extract 或 pdf_extract 提取内容；'
+            '需要生成新文件时使用 document_generate、spreadsheet_generate、presentation_generate 或 pdf_generate；'
+            '需要做局部文字修改时使用 document_apply_text_patch，并说明第一版不保留复杂 Office 格式。'
+            '当用户要求创建小游戏、交互网页、Web App、原型或本地可维护项目时，必须使用 project_create_web_app 写入真实工程文件并创建 Web App Artifact；'
             '不要只输出代码块或说“已在下面创建”。'
+            'Web App 默认应按本地工程组织，入口 HTML、样式和脚本应拆成可维护文件；只有非常小的单页才允许全部内联。'
             '生成 Web App 时默认按手机竖屏设计，优先适配 360-430px 宽度、触摸操作、安全区域和移动端性能；'
             '不要生成桌面大屏优先、依赖 hover、密集小字号、多列侧栏或需要键鼠才能操作的布局。'
             '大段 HTML/CSS/JS 或项目源码应放入 project_create_web_app 或 file_write_app_file 的工具参数中，'
@@ -303,9 +318,11 @@ class AgentLoop {
             '设备信息可声明 device.info 后调用 await window.PhoneAgent.getDeviceInfo()，也可直接调用 window.PhoneAgent.callCapability("device.info", {})。'
             'Web App 运行时会把 console.warn、console.error、window.error 和 unhandledrejection 写入项目目录下的 .phone-agent/runtime.log；'
             '用户反馈网页问题时，先读取该日志和相关项目文件，再用 file_apply_text_patch 修复。'
-            'Web App JSBridge 当前支持：db.note.create、db.note.query、file.read_app_file、file.write_app_file、'
-            'artifact.create、artifact.query、device.info、time.get_current、clipboard.read、clipboard.write、'
-            'location.get_current、notification.schedule、calendar.event.create、web.search、web.fetch、memory.query、workspace.switch。'
+            '\n$toolIndex\n'
+            'Web App JSBridge 当前支持：db.note.create、db.note.query、file.read_app_file、file.write_app_file、file.search_app_files、'
+            'artifact.create、artifact.query、device.info、time.get_current、battery.status、network.status、clipboard.read、clipboard.write、share.text、'
+            'system.haptic_feedback、system.sound_alert、permission.open_settings、url.open_external、screen.keep_awake、screen.keep_awake_status、sensor.accelerometer.read、sensor.gyroscope.read、'
+            'sensor.magnetometer.read、location.get_current、notification.schedule、calendar.event.create、web.search、web.fetch、memory.query、workspace.switch。'
             '当你需要引用当前工作区已有产物时，使用 artifact_query。'
             '当用户问题需要最新信息、网页资料或来源引用时，必须优先调用 web_search；'
             '需要读取具体网页正文时调用 web_fetch。'
@@ -437,7 +454,7 @@ class AgentLoop {
         'role': 'tool',
         'tool_call_id': request.id,
         'name': request.name,
-        'content': result.encodedOutput,
+        'content': result.encodedModelObservation,
       });
     }
 
@@ -459,6 +476,12 @@ class AgentLoop {
           .toList(growable: false),
     });
     modelMessages.addAll(toolResultMessages);
+    modelMessages.add({
+      'role': 'system',
+      'content':
+          '请基于刚才的工具结果给用户一个自然语言最终回答。不要逐字输出工具 JSON、字段名、capabilityId、permissionDecision 等元数据；'
+          '如果工具结果包含 summary 或 userMessage，优先使用它。工具失败时，说明失败原因、用户能做什么、以及你能继续提供的替代方案。',
+    });
     return activeWorkspaceId;
   }
 

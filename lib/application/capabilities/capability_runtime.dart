@@ -20,6 +20,7 @@ import 'file_capability_handler.dart';
 import 'memory_capability_handler.dart';
 import 'native_capability_handler.dart';
 import 'note_capability_handler.dart';
+import 'office_capability_handler.dart';
 import 'project_capability_handler.dart';
 import 'web_capability_handler.dart';
 import 'workspace_capability_handler.dart';
@@ -45,6 +46,8 @@ class CapabilityRuntime {
       const WorkspaceCapabilityHandler();
   final WebCapabilityHandler _webHandler;
   final NativeCapabilityHandler _nativeHandler;
+  final OfficeCapabilityHandler _officeHandler =
+      const OfficeCapabilityHandler();
   final CapabilityToolDefinitions _toolDefinitions =
       const CapabilityToolDefinitions();
 
@@ -158,6 +161,12 @@ class CapabilityRuntime {
           arguments: toolCall.arguments,
           fileStore: fileStore,
         );
+      case 'file_search_app_files':
+        return await _fileHandler.search(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+        );
       case 'file_apply_text_patch':
         return await _fileHandler.applyTextPatch(
           workspaceId: workspaceId,
@@ -199,10 +208,42 @@ class CapabilityRuntime {
         return await _nativeHandler.getCurrentTime();
       case 'clipboard_read':
         return await _nativeHandler.readClipboard();
+      case 'battery_status':
+        return await _nativeHandler.getBatteryStatus();
+      case 'network_status':
+        return await _nativeHandler.getNetworkStatus();
       case 'clipboard_write':
         return await _nativeHandler.writeClipboard(
           arguments: toolCall.arguments,
         );
+      case 'share_text':
+        return await _nativeHandler.shareText(arguments: toolCall.arguments);
+      case 'system_haptic_feedback':
+        return await _nativeHandler.hapticFeedback(
+          arguments: toolCall.arguments,
+        );
+      case 'system_sound_alert':
+        return await _nativeHandler.playSystemSound(
+          arguments: toolCall.arguments,
+        );
+      case 'permission_open_settings':
+        return await _nativeHandler.openPermissionSettings();
+      case 'url_open_external':
+        return await _nativeHandler.openExternalUrl(
+          arguments: toolCall.arguments,
+        );
+      case 'screen_keep_awake':
+        return await _nativeHandler.setKeepScreenAwake(
+          arguments: toolCall.arguments,
+        );
+      case 'screen_keep_awake_status':
+        return await _nativeHandler.getKeepScreenAwake();
+      case 'sensor_accelerometer_read':
+        return await _nativeHandler.readAccelerometer();
+      case 'sensor_gyroscope_read':
+        return await _nativeHandler.readGyroscope();
+      case 'sensor_magnetometer_read':
+        return await _nativeHandler.readMagnetometer();
       case 'location_get_current':
         return await _nativeHandler.getCurrentLocation();
       case 'notification_schedule':
@@ -212,6 +253,64 @@ class CapabilityRuntime {
       case 'calendar_event_create':
         return await _nativeHandler.createCalendarEvent(
           arguments: toolCall.arguments,
+        );
+      case 'document_extract':
+        return await _officeHandler.extract(
+          workspaceId: workspaceId,
+          capabilityId: 'document.extract',
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+        );
+      case 'document_generate':
+        return await _officeHandler.generateDocument(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+        );
+      case 'document_apply_text_patch':
+        return await _officeHandler.applyTextPatch(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+        );
+      case 'spreadsheet_extract':
+        return await _officeHandler.extract(
+          workspaceId: workspaceId,
+          capabilityId: 'spreadsheet.extract',
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+        );
+      case 'spreadsheet_generate':
+        return await _officeHandler.generateSpreadsheet(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+        );
+      case 'presentation_extract':
+        return await _officeHandler.extract(
+          workspaceId: workspaceId,
+          capabilityId: 'presentation.extract',
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+        );
+      case 'presentation_generate':
+        return await _officeHandler.generatePresentation(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+        );
+      case 'pdf_extract':
+        return await _officeHandler.extract(
+          workspaceId: workspaceId,
+          capabilityId: 'pdf.extract',
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+        );
+      case 'pdf_generate':
+        return await _officeHandler.generatePdf(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
         );
       case 'web_search':
         return await _webHandler.search(
@@ -550,6 +649,8 @@ class CapabilityRuntime {
         return 'file.write_app_file';
       case 'file_read_app_file':
         return 'file.read_app_file';
+      case 'file_search_app_files':
+        return 'file.search_app_files';
       case 'file_apply_text_patch':
         return 'file.apply_text_patch';
       case 'artifact_create':
@@ -568,14 +669,56 @@ class CapabilityRuntime {
         return 'time.get_current';
       case 'clipboard_read':
         return 'clipboard.read';
+      case 'battery_status':
+        return 'battery.status';
+      case 'network_status':
+        return 'network.status';
       case 'clipboard_write':
         return 'clipboard.write';
+      case 'share_text':
+        return 'share.text';
+      case 'system_haptic_feedback':
+        return 'system.haptic_feedback';
+      case 'system_sound_alert':
+        return 'system.sound_alert';
+      case 'permission_open_settings':
+        return 'permission.open_settings';
+      case 'url_open_external':
+        return 'url.open_external';
+      case 'screen_keep_awake':
+        return 'screen.keep_awake';
+      case 'screen_keep_awake_status':
+        return 'screen.keep_awake_status';
+      case 'sensor_accelerometer_read':
+        return 'sensor.accelerometer.read';
+      case 'sensor_gyroscope_read':
+        return 'sensor.gyroscope.read';
+      case 'sensor_magnetometer_read':
+        return 'sensor.magnetometer.read';
       case 'location_get_current':
         return 'location.get_current';
       case 'notification_schedule':
         return 'notification.schedule';
       case 'calendar_event_create':
         return 'calendar.event.create';
+      case 'document_extract':
+        return 'document.extract';
+      case 'document_generate':
+        return 'document.generate';
+      case 'document_apply_text_patch':
+        return 'document.apply_text_patch';
+      case 'spreadsheet_extract':
+        return 'spreadsheet.extract';
+      case 'spreadsheet_generate':
+        return 'spreadsheet.generate';
+      case 'presentation_extract':
+        return 'presentation.extract';
+      case 'presentation_generate':
+        return 'presentation.generate';
+      case 'pdf_extract':
+        return 'pdf.extract';
+      case 'pdf_generate':
+        return 'pdf.generate';
       case 'web_search':
         return 'web.search';
       case 'web_fetch':

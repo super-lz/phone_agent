@@ -121,9 +121,15 @@ void main() {
     expect(find.text('HTTP 500'), findsOneWidget);
   });
 
-  testWidgets('collapses verbose tool results until expanded', (tester) async {
+  testWidgets('shows generic tool summary and hides debug detail', (
+    tester,
+  ) async {
     const hiddenTail = '末尾诊断内容';
-    final output = {'ok': true, 'payload': '${'很长的工具输出 ' * 20}$hiddenTail'};
+    final output = {
+      'ok': true,
+      'summary': '查询到了 1 条备忘。',
+      'payload': '${'很长的工具输出 ' * 20}$hiddenTail',
+    };
 
     await tester.pumpWidget(
       MaterialApp(
@@ -136,10 +142,11 @@ void main() {
       ),
     );
 
-    expect(find.textContaining('Tool Result · db.note.query'), findsOneWidget);
+    expect(find.text('备忘查询'), findsOneWidget);
+    expect(find.text('查询到了 1 条备忘。'), findsOneWidget);
     expect(find.textContaining(hiddenTail), findsNothing);
 
-    await tester.tap(find.textContaining('Tool Result · db.note.query'));
+    await tester.tap(find.text('备忘查询'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining(hiddenTail), findsOneWidget);

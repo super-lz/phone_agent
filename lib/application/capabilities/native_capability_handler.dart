@@ -28,6 +28,20 @@ class NativeCapabilityHandler {
     );
   }
 
+  Future<CapabilityExecutionResult> getBatteryStatus() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'battery.status',
+      output: await _adapter.getBatteryStatus(),
+    );
+  }
+
+  Future<CapabilityExecutionResult> getNetworkStatus() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'network.status',
+      output: await _adapter.getNetworkStatus(),
+    );
+  }
+
   Future<CapabilityExecutionResult> writeClipboard({
     required Map<String, Object?> arguments,
   }) async {
@@ -41,6 +55,119 @@ class NativeCapabilityHandler {
     return CapabilityExecutionResult(
       capabilityId: 'clipboard.write',
       output: await _adapter.writeClipboard(rawText),
+    );
+  }
+
+  Future<CapabilityExecutionResult> shareText({
+    required Map<String, Object?> arguments,
+  }) async {
+    final rawText = arguments['text'];
+    if (rawText is! String || rawText.trim().isEmpty) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'share.text',
+        output: {'ok': false, 'error': 'text is required'},
+      );
+    }
+    return CapabilityExecutionResult(
+      capabilityId: 'share.text',
+      output: await _adapter.shareText(
+        text: rawText.trim(),
+        subject: _optionalTrimmedString(arguments['subject']),
+      ),
+    );
+  }
+
+  Future<CapabilityExecutionResult> hapticFeedback({
+    required Map<String, Object?> arguments,
+  }) async {
+    final type = _optionalTrimmedString(arguments['type']) ?? 'light';
+    return CapabilityExecutionResult(
+      capabilityId: 'system.haptic_feedback',
+      output: await _adapter.hapticFeedback(type),
+    );
+  }
+
+  Future<CapabilityExecutionResult> playSystemSound({
+    required Map<String, Object?> arguments,
+  }) async {
+    final type = _optionalTrimmedString(arguments['type']) ?? 'alert';
+    return CapabilityExecutionResult(
+      capabilityId: 'system.sound_alert',
+      output: await _adapter.playSystemSound(type),
+    );
+  }
+
+  Future<CapabilityExecutionResult> openPermissionSettings() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'permission.open_settings',
+      output: await _adapter.openPermissionSettings(),
+    );
+  }
+
+  Future<CapabilityExecutionResult> openExternalUrl({
+    required Map<String, Object?> arguments,
+  }) async {
+    final rawUrl = arguments['url'];
+    if (rawUrl is! String || rawUrl.trim().isEmpty) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'url.open_external',
+        output: {'ok': false, 'error': 'url is required'},
+      );
+    }
+    final uri = Uri.tryParse(rawUrl.trim());
+    if (uri == null || !uri.hasScheme) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'url.open_external',
+        output: {'ok': false, 'error': 'invalid url'},
+      );
+    }
+    return CapabilityExecutionResult(
+      capabilityId: 'url.open_external',
+      output: await _adapter.openExternalUrl(uri),
+    );
+  }
+
+  Future<CapabilityExecutionResult> setKeepScreenAwake({
+    required Map<String, Object?> arguments,
+  }) async {
+    final enabled = arguments['enabled'];
+    if (enabled is! bool) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'screen.keep_awake',
+        output: {'ok': false, 'error': 'enabled is required'},
+      );
+    }
+    return CapabilityExecutionResult(
+      capabilityId: 'screen.keep_awake',
+      output: await _adapter.setKeepScreenAwake(enabled),
+    );
+  }
+
+  Future<CapabilityExecutionResult> getKeepScreenAwake() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'screen.keep_awake_status',
+      output: await _adapter.getKeepScreenAwake(),
+    );
+  }
+
+  Future<CapabilityExecutionResult> readAccelerometer() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'sensor.accelerometer.read',
+      output: await _adapter.readAccelerometer(),
+    );
+  }
+
+  Future<CapabilityExecutionResult> readGyroscope() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'sensor.gyroscope.read',
+      output: await _adapter.readGyroscope(),
+    );
+  }
+
+  Future<CapabilityExecutionResult> readMagnetometer() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'sensor.magnetometer.read',
+      output: await _adapter.readMagnetometer(),
     );
   }
 

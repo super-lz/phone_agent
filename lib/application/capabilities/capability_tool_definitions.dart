@@ -1,3 +1,5 @@
+import 'office_tool_definitions.dart';
+
 class CapabilityToolDefinitions {
   const CapabilityToolDefinitions();
 
@@ -17,6 +19,7 @@ class CapabilityToolDefinitions {
           },
         },
       },
+      ...officeToolDefinitions,
       {
         'type': 'function',
         'function': {
@@ -111,8 +114,44 @@ class CapabilityToolDefinitions {
                 'type': 'integer',
                 'description': '最多返回字符数，默认 12000。',
               },
+              'start_line': {
+                'type': 'integer',
+                'description': '可选，按 1 开始的起始行号；用于只读取文件局部片段。',
+              },
+              'line_count': {
+                'type': 'integer',
+                'description': '可选，读取多少行；配合 start_line 使用，默认 120。',
+              },
             },
             'required': ['path'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'file_search_app_files',
+          'description':
+              '在当前 Workspace 应用沙箱文件中搜索关键词，返回带行号的片段。用于定位项目 bug、查找特定文件里的具体问题或决定下一步读取哪个行范围。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'query': {'type': 'string', 'description': '要搜索的关键词。'},
+              'path': {'type': 'string', 'description': '可选，限制只搜索某个相对文件路径。'},
+              'path_prefix': {
+                'type': 'string',
+                'description': '可选，限制只搜索某个项目目录前缀。',
+              },
+              'max_results': {
+                'type': 'integer',
+                'description': '最多返回多少条结果，默认 20。',
+              },
+              'context_lines': {
+                'type': 'integer',
+                'description': '每条命中前后附带多少行上下文，默认 2。',
+              },
+            },
+            'required': ['query'],
           },
         },
       },
@@ -148,7 +187,7 @@ class CapabilityToolDefinitions {
         'function': {
           'name': 'project_create_web_app',
           'description':
-              '创建一个可维护的本地 Web 项目并生成可预览 Web App 卡片。用户要求创建小游戏、交互网页、Web App、原型、HTML 页面或“下面给我卡片/能打开体验”时优先使用本工具；必须写入真实文件，不能只在正文中说已创建。默认按手机竖屏设计，适配 360-430px 宽度、触摸操作和安全区域，避免桌面优先布局。',
+              '创建一个可维护的本地 Web 工程并生成可预览 Web App 卡片。用户要求创建小游戏、交互网页、Web App、原型、HTML 页面或“下面给我卡片/能打开体验”时优先使用本工具；必须写入真实项目文件，不能只在正文中说已创建。除极小页面外，默认拆成 index.html、styles.css、app.js 等文件，后续维护时先用 file_search_app_files/file_read_app_file 定位，再用 file_apply_text_patch 修改。默认按手机竖屏设计，适配 360-430px 宽度、触摸操作和安全区域，避免桌面优先布局。',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -296,6 +335,23 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'battery_status',
+          'description': '读取当前设备电池电量、充电状态和省电模式。用于续航判断、长任务前检查或 Web App 适配。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'network_status',
+          'description':
+              '读取当前设备网络连接类型，例如 Wi-Fi、蜂窝、VPN 或无连接。该能力只表示连接类型，不保证外网一定可达。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'clipboard_write',
           'description': '把用户明确要求复制的文本写入系统剪贴板。',
           'parameters': {
@@ -305,6 +361,128 @@ class CapabilityToolDefinitions {
             },
             'required': ['text'],
           },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'share_text',
+          'description':
+              '打开系统分享面板，把用户明确要求分享的文本交给其它 App。该能力会触发系统 UI，需要用户自己选择目标应用。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'text': {'type': 'string', 'description': '要分享的文本。'},
+              'subject': {'type': 'string', 'description': '可选分享主题。'},
+            },
+            'required': ['text'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'system_haptic_feedback',
+          'description': '触发一次系统触感反馈，用于用户明确要求震动、触感提示或 Web App 交互反馈。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'type': {
+                'type': 'string',
+                'description':
+                    '触感类型：light、medium、heavy、selection、vibrate，默认 light。',
+              },
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'system_sound_alert',
+          'description': '播放一次系统提示音。只在用户明确要求提示音、点击音或提醒反馈时使用。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'type': {
+                'type': 'string',
+                'description': '声音类型：alert 或 click，默认 alert。',
+              },
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'permission_open_settings',
+          'description': '打开系统应用设置页，帮助用户手动开启定位、通知等权限。只有用户要求处理权限时使用。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'url_open_external',
+          'description':
+              '使用系统能力打开外部 URL。仅支持 http、https、mailto、tel、sms 和 geo scheme，会跳出当前应用或打开系统 UI。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'url': {'type': 'string', 'description': '要打开的完整 URL。'},
+            },
+            'required': ['url'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'screen_keep_awake',
+          'description': '设置当前应用运行时是否保持屏幕常亮。适合用户明确要求长时间显示、计时器或演示场景。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'enabled': {
+                'type': 'boolean',
+                'description': 'true 表示保持屏幕常亮，false 表示恢复系统默认熄屏策略。',
+              },
+            },
+            'required': ['enabled'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'screen_keep_awake_status',
+          'description': '查询当前应用是否正在保持屏幕常亮。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'sensor_accelerometer_read',
+          'description':
+              '读取一次设备加速度计数据，返回 x/y/z。用于用户要求检测姿态、运动或 Web App 需要传感器输入时。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'sensor_gyroscope_read',
+          'description': '读取一次设备陀螺仪数据，返回 x/y/z。用于用户要求检测旋转、姿态变化或交互控制时。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'sensor_magnetometer_read',
+          'description': '读取一次设备磁力计数据，返回 x/y/z。用于用户要求方向、罗盘或磁场相关信息时。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
         },
       },
       {

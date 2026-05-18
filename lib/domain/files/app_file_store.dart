@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 class AppFileStoreException implements Exception {
   const AppFileStoreException(this.code, this.message);
@@ -38,6 +39,20 @@ class AppFileReadResult {
   final bool truncated;
 }
 
+class AppFileBytesReadResult {
+  const AppFileBytesReadResult({
+    required this.path,
+    required this.bytes,
+    required this.length,
+    required this.truncated,
+  });
+
+  final String path;
+  final Uint8List bytes;
+  final int length;
+  final bool truncated;
+}
+
 class AppFileEntry {
   const AppFileEntry({
     required this.path,
@@ -66,6 +81,19 @@ abstract class AppFileStore {
     required int maxChars,
   });
 
+  Future<AppFileWriteResult> writeBytes({
+    required String workspaceId,
+    required String path,
+    required Uint8List bytes,
+    required bool overwrite,
+  });
+
+  Future<AppFileBytesReadResult> readBytes({
+    required String workspaceId,
+    required String path,
+    required int maxBytes,
+  });
+
   Future<List<AppFileEntry>> listFiles({required String workspaceId});
 }
 
@@ -84,11 +112,12 @@ class InMemoryAppFileStore implements AppFileStore {
     if (!overwrite && _files.containsKey(key)) {
       throw const AppFileStoreException('file_exists', 'file already exists');
     }
-    _files[key] = _InMemoryAppFile(content, DateTime.now());
+    final bytes = Uint8List.fromList(utf8.encode(content));
+    _files[key] = _InMemoryAppFile(bytes, DateTime.now());
     return AppFileWriteResult(
       path: normalizedPath,
       uri: Uri(path: '/memory/$workspaceId/$normalizedPath'),
-      bytes: utf8.encode(content).length,
+      bytes: bytes.length,
     );
   }
 
@@ -103,13 +132,56 @@ class InMemoryAppFileStore implements AppFileStore {
     if (file == null) {
       throw const AppFileStoreException('not_found', 'file not found');
     }
-    final content = file.content;
+    final content = utf8.decode(file.bytes);
     final limit = maxChars <= 0 ? 12000 : maxChars;
     final truncated = content.length > limit;
     return AppFileReadResult(
       path: normalizedPath,
       content: truncated ? content.substring(0, limit) : content,
       length: content.length,
+      truncated: truncated,
+    );
+  }
+
+  @override
+  Future<AppFileWriteResult> writeBytes({
+    required String workspaceId,
+    required String path,
+    required Uint8List bytes,
+    required bool overwrite,
+  }) async {
+    final normalizedPath = normalizeAppFilePath(path);
+    final key = _key(workspaceId, normalizedPath);
+    if (!overwrite && _files.containsKey(key)) {
+      throw const AppFileStoreException('file_exists', 'file already exists');
+    }
+    _files[key] = _InMemoryAppFile(Uint8List.fromList(bytes), DateTime.now());
+    return AppFileWriteResult(
+      path: normalizedPath,
+      uri: Uri(path: '/memory/$workspaceId/$normalizedPath'),
+      bytes: bytes.length,
+    );
+  }
+
+  @override
+  Future<AppFileBytesReadResult> readBytes({
+    required String workspaceId,
+    required String path,
+    required int maxBytes,
+  }) async {
+    final normalizedPath = normalizeAppFilePath(path);
+    final file = _files[_key(workspaceId, normalizedPath)];
+    if (file == null) {
+      throw const AppFileStoreException('not_found', 'file not found');
+    }
+    final limit = maxBytes <= 0 ? 12 * 1024 * 1024 : maxBytes;
+    final truncated = file.bytes.length > limit;
+    return AppFileBytesReadResult(
+      path: normalizedPath,
+      bytes: Uint8List.fromList(
+        truncated ? file.bytes.sublist(0, limit) : file.bytes,
+      ),
+      length: file.bytes.length,
       truncated: truncated,
     );
   }
@@ -127,7 +199,7 @@ class InMemoryAppFileStore implements AppFileStore {
         AppFileEntry(
           path: path,
           uri: Uri(path: '/memory/$workspaceId/$path'),
-          bytes: utf8.encode(entry.value.content).length,
+          bytes: entry.value.bytes.length,
           modifiedAt: entry.value.modifiedAt,
         ),
       );
@@ -142,9 +214,9 @@ class InMemoryAppFileStore implements AppFileStore {
 }
 
 class _InMemoryAppFile {
-  const _InMemoryAppFile(this.content, this.modifiedAt);
+  const _InMemoryAppFile(this.bytes, this.modifiedAt);
 
-  final String content;
+  final Uint8List bytes;
   final DateTime modifiedAt;
 }
 

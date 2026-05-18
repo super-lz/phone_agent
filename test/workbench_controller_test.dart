@@ -17,20 +17,22 @@ import 'package:phone_agent/features/workbench/controllers/workbench_controller.
 
 void main() {
   test('normal prompt uses configured model', () async {
+    final chatClient = _FakeChatClient([
+      [
+        const ChatStreamEvent(contentDelta: '真实'),
+        const ChatStreamEvent(contentDelta: '模型'),
+        const ChatStreamEvent(contentDelta: '回复'),
+      ],
+    ]);
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),
-      chatClient: _FakeChatClient([
-        [
-          const ChatStreamEvent(contentDelta: '真实'),
-          const ChatStreamEvent(contentDelta: '模型'),
-          const ChatStreamEvent(contentDelta: '回复'),
-        ],
-      ]),
+      chatClient: chatClient,
     );
 
     await controller.sendPrompt('你好');
 
     expect(controller.messages.last.blocks.first.data['text'], '真实模型回复');
+    expect(chatClient.capturedTools.single, isEmpty);
   });
 
   test(
@@ -291,6 +293,21 @@ void main() {
   );
 
   test('model tool call can search web through capability runtime', () async {
+    final chatClient = _FakeChatClient([
+      [
+        const ChatStreamEvent(
+          toolCallDeltas: [
+            ToolCallDelta(
+              index: 0,
+              id: 'call-search-1',
+              name: 'web_search',
+              argumentsDelta: '{"query":"Flutter"}',
+            ),
+          ],
+        ),
+      ],
+      [const ChatStreamEvent(contentDelta: '找到 Flutter 来源。')],
+    ]);
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),
       capabilityRuntime: CapabilityRuntime(
@@ -308,25 +325,18 @@ void main() {
           fetchOutput: const {},
         ),
       ),
-      chatClient: _FakeChatClient([
-        [
-          const ChatStreamEvent(
-            toolCallDeltas: [
-              ToolCallDelta(
-                index: 0,
-                id: 'call-search-1',
-                name: 'web_search',
-                argumentsDelta: '{"query":"Flutter"}',
-              ),
-            ],
-          ),
-        ],
-        [const ChatStreamEvent(contentDelta: '找到 Flutter 来源。')],
-      ]),
+      chatClient: chatClient,
     );
 
     await controller.sendPrompt('搜索 Flutter 最新信息');
 
+    final toolNames = _capturedToolNames(chatClient.capturedTools.first);
+    expect(toolNames, containsAll(['web_search', 'web_fetch']));
+    expect(toolNames, isNot(contains('device_info')));
+    expect(
+      toolNames.length,
+      lessThan(CapabilityRuntime().toolDefinitions.length),
+    );
     final toolBlocks = controller.messages
         .expand((message) => message.blocks)
         .where((block) => block.data['capabilityId'] == 'web.search');
@@ -556,6 +566,7 @@ void main() {
     await controller.sendPrompt('创建黄金矿工小游戏');
 
     expect(controller.workspaceFiles.map((file) => file.path), [
+      'games/gold-miner/.phone-agent/manifest.json',
       'games/gold-miner/index.html',
     ]);
     expect(controller.workspaceArtifacts.last.title, '黄金矿工小游戏');
@@ -1205,6 +1216,7 @@ class _FakeChatClient extends OpenAiCompatibleChatClient {
 
   final List<List<ChatStreamEvent>> rounds;
   final List<List<Map<String, Object?>>> capturedMessages = [];
+  final List<List<Map<String, Object?>>> capturedTools = [];
   final List<String> capturedModels = [];
   int callCount = 0;
 
@@ -1216,6 +1228,7 @@ class _FakeChatClient extends OpenAiCompatibleChatClient {
     List<Map<String, Object?>> tools = const [],
   }) async* {
     capturedMessages.add(messages);
+    capturedTools.add(tools);
     capturedModels.add(provider.model);
     final events = rounds[callCount];
     callCount += 1;
@@ -1223,6 +1236,21 @@ class _FakeChatClient extends OpenAiCompatibleChatClient {
       yield event;
     }
   }
+}
+
+List<String> _capturedToolNames(List<Map<String, Object?>> tools) {
+  final names = <String>[];
+  for (final tool in tools) {
+    final function = tool['function'];
+    if (function is! Map<String, Object?>) {
+      continue;
+    }
+    final name = function['name'];
+    if (name is String) {
+      names.add(name);
+    }
+  }
+  return names;
 }
 
 class _RetryOnceChatClient extends OpenAiCompatibleChatClient {

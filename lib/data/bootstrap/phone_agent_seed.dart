@@ -77,6 +77,11 @@ class PhoneAgentSeed {
       CapabilityRisk.medium,
     ),
     _capability(
+      'file.search_app_files',
+      CapabilityAdapter.file,
+      CapabilityRisk.low,
+    ),
+    _capability(
       'db.note.create',
       CapabilityAdapter.database,
       CapabilityRisk.low,
@@ -123,6 +128,39 @@ class PhoneAgentSeed {
       CapabilityAdapter.file,
       CapabilityRisk.medium,
     ),
+    _capability('document.extract', CapabilityAdapter.file, CapabilityRisk.low),
+    _capability(
+      'document.generate',
+      CapabilityAdapter.file,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'document.apply_text_patch',
+      CapabilityAdapter.file,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'spreadsheet.extract',
+      CapabilityAdapter.file,
+      CapabilityRisk.low,
+    ),
+    _capability(
+      'spreadsheet.generate',
+      CapabilityAdapter.file,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'presentation.extract',
+      CapabilityAdapter.file,
+      CapabilityRisk.low,
+    ),
+    _capability(
+      'presentation.generate',
+      CapabilityAdapter.file,
+      CapabilityRisk.medium,
+    ),
+    _capability('pdf.extract', CapabilityAdapter.file, CapabilityRisk.low),
+    _capability('pdf.generate', CapabilityAdapter.file, CapabilityRisk.medium),
     _capability(
       'location.get_current',
       CapabilityAdapter.native,
@@ -136,6 +174,54 @@ class PhoneAgentSeed {
     ),
     _capability(
       'clipboard.write',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability('battery.status', CapabilityAdapter.native, CapabilityRisk.low),
+    _capability('network.status', CapabilityAdapter.native, CapabilityRisk.low),
+    _capability('share.text', CapabilityAdapter.native, CapabilityRisk.medium),
+    _capability(
+      'system.haptic_feedback',
+      CapabilityAdapter.native,
+      CapabilityRisk.low,
+    ),
+    _capability(
+      'system.sound_alert',
+      CapabilityAdapter.native,
+      CapabilityRisk.low,
+    ),
+    _capability(
+      'permission.open_settings',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'url.open_external',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'screen.keep_awake',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'screen.keep_awake_status',
+      CapabilityAdapter.native,
+      CapabilityRisk.low,
+    ),
+    _capability(
+      'sensor.accelerometer.read',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'sensor.gyroscope.read',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'sensor.magnetometer.read',
       CapabilityAdapter.native,
       CapabilityRisk.medium,
     ),

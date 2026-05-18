@@ -328,6 +328,82 @@ void main() {
     },
   );
 
+  test('file_read_app_file can return a line range', () async {
+    final runtime = CapabilityRuntime();
+    final fileStore = InMemoryAppFileStore();
+    await fileStore.writeText(
+      workspaceId: 'work',
+      path: 'apps/demo/app.js',
+      content: 'const a = 1;\nfunction broken() {\n  return "bug";\n}\n',
+      overwrite: true,
+    );
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-file-read-range',
+        name: 'file_read_app_file',
+        arguments: {
+          'path': 'apps/demo/app.js',
+          'start_line': 2,
+          'line_count': 2,
+        },
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      fileStore: fileStore,
+    );
+
+    expect(result.capabilityId, 'file.read_app_file');
+    expect(result.output['ok'], isTrue);
+    expect(result.output['lineStart'], 2);
+    expect(result.output['lineEnd'], 3);
+    expect(result.output['content'], 'function broken() {\n  return "bug";');
+  });
+
+  test('file_search_app_files returns line-numbered snippets', () async {
+    final runtime = CapabilityRuntime();
+    final fileStore = InMemoryAppFileStore();
+    await fileStore.writeText(
+      workspaceId: 'work',
+      path: 'apps/demo/app.js',
+      content: 'const ok = true;\nconsole.error("broken state");\n',
+      overwrite: true,
+    );
+    await fileStore.writeText(
+      workspaceId: 'work',
+      path: 'notes/todo.md',
+      content: 'broken outside project',
+      overwrite: true,
+    );
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-file-search',
+        name: 'file_search_app_files',
+        arguments: {
+          'query': 'broken',
+          'path_prefix': 'apps/demo',
+          'context_lines': 1,
+        },
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      fileStore: fileStore,
+    );
+    final matches = result.output['matches']! as List<Object?>;
+    final first = matches.single! as Map<Object?, Object?>;
+
+    expect(result.capabilityId, 'file.search_app_files');
+    expect(result.output['ok'], isTrue);
+    expect(first['path'], 'apps/demo/app.js');
+    expect(first['lineNumber'], 2);
+    expect(first['snippet'], contains('console.error'));
+  });
+
   test('file_apply_text_patch updates an existing workspace file', () async {
     final runtime = CapabilityRuntime();
     final fileStore = InMemoryAppFileStore();
@@ -420,7 +496,21 @@ void main() {
         artifacts.single.metadata['runtimeLogPath'],
         'games/gold-miner/.phone-agent/runtime.log',
       );
+      expect(
+        artifacts.single.metadata['manifestPath'],
+        'games/gold-miner/.phone-agent/manifest.json',
+      );
       expect(storedFile.content, contains('黄金矿工'));
+      final manifest = await fileStore.readText(
+        workspaceId: 'work',
+        path: 'games/gold-miner/.phone-agent/manifest.json',
+        maxChars: 12000,
+      );
+      expect(manifest.content, contains('"schema": "phone-agent.webapp.v1"'));
+      expect(
+        manifest.content,
+        contains('"entry": "games/gold-miner/index.html"'),
+      );
     },
   );
 
@@ -766,6 +856,187 @@ void main() {
     expect(readResult.output['text'], '复制这段文字');
   });
 
+  test('runtime exposes battery and network status capabilities', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final batteryResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-battery',
+        name: 'battery_status',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final networkResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-network',
+        name: 'network_status',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(batteryResult.capabilityId, 'battery.status');
+    expect(batteryResult.output['level'], 76);
+    expect(networkResult.capabilityId, 'network.status');
+    expect(networkResult.output['connected'], isTrue);
+    expect(networkResult.output['types'], ['wifi']);
+  });
+
+  test('runtime exposes share and system feedback capabilities', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final shareResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-share',
+        name: 'share_text',
+        arguments: {'text': '分享这段文字', 'subject': 'Phone Agent'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final hapticResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-haptic',
+        name: 'system_haptic_feedback',
+        arguments: {'type': 'selection'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final soundResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-sound',
+        name: 'system_sound_alert',
+        arguments: {'type': 'click'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(shareResult.capabilityId, 'share.text');
+    expect(shareResult.output['ok'], isTrue);
+    expect(hapticResult.capabilityId, 'system.haptic_feedback');
+    expect(hapticResult.output['type'], 'selection');
+    expect(soundResult.capabilityId, 'system.sound_alert');
+    expect(soundResult.output['type'], 'click');
+  });
+
+  test('runtime exposes permission settings and sensor snapshots', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final settingsResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-settings',
+        name: 'permission_open_settings',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final accelerometerResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-accelerometer',
+        name: 'sensor_accelerometer_read',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final gyroscopeResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-gyroscope',
+        name: 'sensor_gyroscope_read',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final magnetometerResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-magnetometer',
+        name: 'sensor_magnetometer_read',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(settingsResult.capabilityId, 'permission.open_settings');
+    expect(settingsResult.output['opened'], isTrue);
+    expect(accelerometerResult.capabilityId, 'sensor.accelerometer.read');
+    expect(accelerometerResult.output['x'], 1.0);
+    expect(gyroscopeResult.capabilityId, 'sensor.gyroscope.read');
+    expect(gyroscopeResult.output['y'], 5.0);
+    expect(magnetometerResult.capabilityId, 'sensor.magnetometer.read');
+    expect(magnetometerResult.output['z'], 9.0);
+  });
+
+  test('runtime exposes external url and keep-awake capabilities', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final urlResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-open-url',
+        name: 'url_open_external',
+        arguments: {'url': 'https://example.com'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final keepAwakeResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-keep-awake',
+        name: 'screen_keep_awake',
+        arguments: {'enabled': true},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final statusResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-keep-awake-status',
+        name: 'screen_keep_awake_status',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(urlResult.capabilityId, 'url.open_external');
+    expect(urlResult.output['opened'], isTrue);
+    expect(keepAwakeResult.capabilityId, 'screen.keep_awake');
+    expect(keepAwakeResult.output['enabled'], isTrue);
+    expect(statusResult.capabilityId, 'screen.keep_awake_status');
+    expect(statusResult.output['enabled'], isTrue);
+  });
+
   test('runtime exposes current location through native adapter', () async {
     final runtime = CapabilityRuntime(
       nativeAdapter: _FakeNativeAdapter(
@@ -946,6 +1217,178 @@ void main() {
     expect(result.capabilityId, 'web.search');
     expect(result.output['ok'], isTrue);
   });
+
+  test('office document tools generate extract and patch docx files', () async {
+    final runtime = CapabilityRuntime();
+    final fileStore = InMemoryAppFileStore();
+
+    final generateResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-doc-generate',
+        name: 'document_generate',
+        arguments: {
+          'title': '合同审阅',
+          'body': '付款周期为 30 天。\n违约责任需要补充。',
+          'path': 'office/contract.docx',
+        },
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      fileStore: fileStore,
+    );
+    expect(generateResult.capabilityId, 'document.generate');
+    expect(generateResult.output['ok'], isTrue);
+
+    final extractResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-doc-extract',
+        name: 'document_extract',
+        arguments: {'path': 'office/contract.docx'},
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      fileStore: fileStore,
+    );
+    expect(extractResult.capabilityId, 'document.extract');
+    expect(extractResult.output['content'], contains('付款周期为 30 天'));
+
+    final patchResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-doc-patch',
+        name: 'document_apply_text_patch',
+        arguments: {
+          'path': 'office/contract.docx',
+          'old_text': '付款周期为 30 天。',
+          'new_text': '付款周期为 15 天。',
+          'output_path': 'office/contract.patched.docx',
+        },
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      fileStore: fileStore,
+    );
+    expect(patchResult.capabilityId, 'document.apply_text_patch');
+    expect(patchResult.output['ok'], isTrue);
+    expect(patchResult.output['preservedFormatting'], isFalse);
+  });
+
+  test(
+    'office generators create extractable spreadsheet presentation and pdf',
+    () async {
+      final runtime = CapabilityRuntime();
+      final fileStore = InMemoryAppFileStore();
+
+      final spreadsheet = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-xlsx-generate',
+          name: 'spreadsheet_generate',
+          arguments: {
+            'title': '财报摘要',
+            'path': 'office/report.xlsx',
+            'rows': [
+              ['项目', '金额'],
+              ['收入', '100'],
+            ],
+          },
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+        fileStore: fileStore,
+      );
+      expect(spreadsheet.output['ok'], isTrue);
+
+      final spreadsheetText = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-xlsx-extract',
+          name: 'spreadsheet_extract',
+          arguments: {'path': 'office/report.xlsx'},
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+        fileStore: fileStore,
+      );
+      expect(spreadsheetText.output['content'], contains('收入'));
+
+      final presentation = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-ppt-generate',
+          name: 'presentation_generate',
+          arguments: {
+            'title': '路演',
+            'path': 'office/deck.pptx',
+            'slides': [
+              {
+                'title': '第一页',
+                'bullets': ['市场机会', '产品能力'],
+              },
+            ],
+          },
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+        fileStore: fileStore,
+      );
+      expect(presentation.output['ok'], isTrue);
+
+      final deckText = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-ppt-extract',
+          name: 'presentation_extract',
+          arguments: {'path': 'office/deck.pptx'},
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+        fileStore: fileStore,
+      );
+      expect(deckText.output['content'], contains('市场机会'));
+
+      final pdf = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-pdf-generate',
+          name: 'pdf_generate',
+          arguments: {
+            'title': '摘要',
+            'body': '这是 PDF 内容',
+            'path': 'office/a.pdf',
+          },
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+        fileStore: fileStore,
+      );
+      expect(pdf.output['ok'], isTrue);
+
+      final pdfText = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-pdf-extract',
+          name: 'pdf_extract',
+          arguments: {'path': 'office/a.pdf'},
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+        fileStore: fileStore,
+      );
+      expect(pdfText.output['content'], contains('这是 PDF 内容'));
+    },
+  );
 }
 
 class _FakeNativeAdapter extends NativeCapabilityAdapter {
@@ -957,6 +1400,7 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   final Map<String, Object?> deviceInfoOutput;
   final Map<String, Object?> locationOutput;
   String _clipboardText = '';
+  bool _keepAwake = false;
 
   @override
   Future<Map<String, Object?>> getDeviceInfo() async {
@@ -989,6 +1433,89 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   Future<Map<String, Object?>> writeClipboard(String text) async {
     _clipboardText = text;
     return {'ok': true, 'length': text.length};
+  }
+
+  @override
+  Future<Map<String, Object?>> getBatteryStatus() async {
+    return {
+      'ok': true,
+      'level': 76,
+      'state': 'charging',
+      'isCharging': true,
+      'isFull': false,
+      'isInBatterySaveMode': false,
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> getNetworkStatus() async {
+    return {
+      'ok': true,
+      'connected': true,
+      'types': ['wifi'],
+      'hasWifi': true,
+      'hasMobile': false,
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> shareText({
+    required String text,
+    String? subject,
+  }) async {
+    return {'ok': true, 'status': 'success', 'length': text.length};
+  }
+
+  @override
+  Future<Map<String, Object?>> hapticFeedback(String type) async {
+    return {'ok': true, 'type': type};
+  }
+
+  @override
+  Future<Map<String, Object?>> playSystemSound(String type) async {
+    return {'ok': true, 'type': type};
+  }
+
+  @override
+  Future<Map<String, Object?>> openPermissionSettings() async {
+    return {'ok': true, 'opened': true};
+  }
+
+  @override
+  Future<Map<String, Object?>> openExternalUrl(Uri uri) async {
+    return {'ok': true, 'opened': true, 'url': uri.toString()};
+  }
+
+  @override
+  Future<Map<String, Object?>> setKeepScreenAwake(bool enabled) async {
+    _keepAwake = enabled;
+    return {'ok': true, 'enabled': _keepAwake};
+  }
+
+  @override
+  Future<Map<String, Object?>> getKeepScreenAwake() async {
+    return {'ok': true, 'enabled': _keepAwake};
+  }
+
+  @override
+  Future<Map<String, Object?>> readAccelerometer() async {
+    return {
+      'ok': true,
+      'sensor': 'accelerometer',
+      'x': 1.0,
+      'y': 2.0,
+      'z': 3.0,
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> readGyroscope() async {
+    return {'ok': true, 'sensor': 'gyroscope', 'x': 4.0, 'y': 5.0, 'z': 6.0};
+  }
+
+  @override
+  Future<Map<String, Object?>> readMagnetometer() async {
+    return {'ok': true, 'sensor': 'magnetometer', 'x': 7.0, 'y': 8.0, 'z': 9.0};
   }
 
   @override

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../application/agent/agent_loop.dart';
 import '../../../application/capabilities/capability_execution_result.dart';
+import '../../../application/capabilities/capability_result_presentation.dart';
 import '../../../application/capabilities/capability_runtime.dart';
 import '../../../core/logging/app_logger.dart';
 import '../../../data/bootstrap/phone_agent_seed.dart';
@@ -407,6 +408,10 @@ class WorkbenchController extends ChangeNotifier {
       permissionMode: _permissionMode,
       switchWorkspace: _switchWorkspaceFromAgent,
     );
+    final presentation = presentCapabilityResult(
+      capabilityId: result.capabilityId,
+      output: result.output,
+    );
     _addMessage(
       AgentMessage(
         id: 'msg-approved-${DateTime.now().microsecondsSinceEpoch}',
@@ -416,6 +421,7 @@ class WorkbenchController extends ChangeNotifier {
           MessageBlock.toolCall(toolName, input),
           MessageBlock.toolResult(result.capabilityId, result.output),
           ..._artifactBlocksFor(result),
+          MessageBlock.markdown(presentation.summary),
         ],
       ),
     );

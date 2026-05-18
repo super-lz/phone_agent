@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
-import 'message_block_cards.dart';
+import '../../../application/capabilities/capability_result_presentation.dart';
 
 class ToolResultView extends StatelessWidget {
   const ToolResultView({
@@ -18,11 +18,101 @@ class ToolResultView extends StatelessWidget {
     if (capabilityId == 'web.search' || capabilityId == 'web.fetch') {
       return _WebToolResultCard(capabilityId: capabilityId, output: output);
     }
-    return StructuredBlock(
-      icon: Icons.check_circle_outline,
-      title: 'Tool Result · $capabilityId',
-      body: output.toString(),
-      initiallyExpanded: false,
+    final presentation = presentCapabilityResult(
+      capabilityId: capabilityId,
+      output: output,
+    );
+    return _GenericToolResultCard(
+      presentation: presentation,
+      capabilityId: capabilityId,
+    );
+  }
+}
+
+class _GenericToolResultCard extends StatefulWidget {
+  const _GenericToolResultCard({
+    required this.presentation,
+    required this.capabilityId,
+  });
+
+  final CapabilityResultPresentation presentation;
+  final String capabilityId;
+
+  @override
+  State<_GenericToolResultCard> createState() => _GenericToolResultCardState();
+}
+
+class _GenericToolResultCardState extends State<_GenericToolResultCard> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final presentation = widget.presentation;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: presentation.ok
+            ? const Color(0xFFF1F6F2)
+            : const Color(0xFFFFF4F2),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: presentation.ok
+              ? const Color(0xFFD2E2D7)
+              : const Color(0xFFF0C8C0),
+        ),
+      ),
+      child: InkWell(
+        onTap: () => setState(() => _expanded = !_expanded),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    presentation.ok
+                        ? Icons.check_circle_outline
+                        : Icons.error_outline,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      presentation.title,
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                  ),
+                  _StatusPill(ok: presentation.ok),
+                  const SizedBox(width: 4),
+                  Icon(_expanded ? Icons.expand_less : Icons.expand_more),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                presentation.summary,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              if (_expanded) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '调试详情 · ${widget.capabilityId}',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  presentation.detail,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
