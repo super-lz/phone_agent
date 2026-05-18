@@ -12,7 +12,6 @@ import '../../domain/permissions/permission_policy.dart';
 import '../../domain/workbench/workbench_store.dart';
 import '../../domain/workspace/workspace.dart';
 import '../capabilities/capability_execution_result.dart';
-import '../capabilities/capability_result_presentation.dart';
 import '../capabilities/capability_runtime.dart';
 import 'agent_loop_budget.dart';
 import 'conversation_context_builder.dart';
@@ -252,10 +251,12 @@ class AgentLoop {
           );
           notifyChange();
         } else {
-          _replaceIfToolTranscriptEcho(
+          await _repairToolTranscriptEchoIfNeeded(
             messageId: assistantMessageId,
             content: contentBuffer.toString(),
-            toolResults: currentTurnToolResults,
+            provider: provider,
+            apiKey: apiKey,
+            modelMessages: modelMessages,
             replaceMessage: replaceMessage,
             notifyChange: notifyChange,
           );
@@ -700,31 +701,99 @@ class AgentLoop {
       );
       notifyChange();
     } else {
-      _replaceIfToolTranscriptEcho(
+      await _repairToolTranscriptEchoIfNeeded(
         messageId: assistantMessageId,
         content: contentBuffer.toString(),
-        toolResults: toolResults,
+        provider: provider,
+        apiKey: apiKey,
+        modelMessages: modelMessages,
         replaceMessage: replaceMessage,
         notifyChange: notifyChange,
       );
     }
   }
 
-  void _replaceIfToolTranscriptEcho({
+  Future<void> _repairToolTranscriptEchoIfNeeded({
     required String messageId,
     required String content,
-    required List<CapabilityExecutionResult> toolResults,
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> modelMessages,
     required ReplaceAgentMessage replaceMessage,
     required NotifyAgentLoopChange notifyChange,
-  }) {
-    if (!_looksLikeToolTranscriptEcho(content) || toolResults.isEmpty) {
+  }) async {
+    if (!_looksLikeToolTranscriptEcho(content)) {
       return;
     }
+
     replaceMessage(
       messageId,
-      _assistantMarkdownMessage(messageId, _fallbackFinalAnswer(toolResults)),
+      _assistantIntermediateMessage(messageId, '正在把工具结果整理成可读回答。'),
     );
     notifyChange();
+
+    final repairMessages = <Map<String, Object?>>[
+      ...modelMessages,
+      {'role': 'assistant', 'content': content},
+      {
+        'role': 'system',
+        'content':
+            '上一条回复把工具调用过程或原始结构化数据直接暴露给了用户，这是不可接受的最终回答。'
+            '请只基于已经返回的 tool observation，重新回答用户的问题：'
+            '1. 用自然语言给结论；'
+            '2. 可以引用必要的真实数值、名称、时间、路径或来源；'
+            '3. 不要输出工具名、tool_call、tool_result、JSON、Map、字段列表或 capability 元数据；'
+            '4. 如果工具失败，说明失败原因和下一步可做什么。',
+      },
+    ];
+
+    final repaired = StringBuffer();
+    try {
+      await for (final event in _chatClient.streamChat(
+        provider: provider,
+        apiKey: apiKey,
+        messages: repairMessages,
+        tools: const [],
+      )) {
+        if (event.contentDelta.isEmpty) {
+          continue;
+        }
+        repaired.write(event.contentDelta);
+        replaceMessage(
+          messageId,
+          _assistantMarkdownMessage(messageId, repaired.toString()),
+        );
+        notifyChange();
+      }
+    } on ModelRequestException catch (error) {
+      replaceMessage(
+        messageId,
+        _modelErrorResponse('工具结果整理失败：${error.message}'),
+      );
+      notifyChange();
+      return;
+    } on Object catch (error) {
+      replaceMessage(messageId, _modelErrorResponse('工具结果整理失败：$error'));
+      notifyChange();
+      return;
+    }
+
+    final repairedText = repaired.toString();
+    if (repairedText.trim().isEmpty ||
+        _looksLikeToolTranscriptEcho(repairedText)) {
+      replaceMessage(
+        messageId,
+        AgentMessage(
+          id: messageId,
+          role: MessageRole.assistant,
+          createdAt: DateTime.now(),
+          blocks: [
+            MessageBlock.error('最终回答不可用', '工具已执行，但模型仍未把工具结果整理成可读回答。请重试或换一种问法。'),
+          ],
+        ),
+      );
+      notifyChange();
+    }
   }
 
   bool _looksLikeToolTranscriptEcho(String content) {
@@ -738,34 +807,6 @@ class AgentLoop {
         lower.contains('capabilityid') ||
         normalized.contains('{ok:') ||
         normalized.contains('"ok":');
-  }
-
-  String _fallbackFinalAnswer(List<CapabilityExecutionResult> toolResults) {
-    final visibleResults = toolResults
-        .where(
-          (result) => result.output['ok'] == true || result.output.isNotEmpty,
-        )
-        .toList(growable: false);
-    if (visibleResults.isEmpty) {
-      return '工具已经执行完成，但模型没有生成可用的最终回答。';
-    }
-    if (visibleResults.length == 1) {
-      final presentation = presentCapabilityResult(
-        capabilityId: visibleResults.single.capabilityId,
-        output: visibleResults.single.output,
-      );
-      return presentation.summary;
-    }
-    final lines = visibleResults
-        .map((result) {
-          final presentation = presentCapabilityResult(
-            capabilityId: result.capabilityId,
-            output: result.output,
-          );
-          return '- ${presentation.title}：${presentation.summary}';
-        })
-        .join('\n');
-    return '我已经处理完这些步骤：\n$lines';
   }
 
   AgentMessage _emptyAssistantMessage(String id) {

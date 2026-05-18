@@ -695,38 +695,40 @@ void main() {
   test(
     'model tool process echo is replaced with readable final answer',
     () async {
+      final chatClient = _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-location',
+                name: 'location_get_current',
+                argumentsDelta: '{}',
+              ),
+            ],
+          ),
+        ],
+        [
+          const ChatStreamEvent(
+            contentDelta:
+                '工具调用 location_get_current: {} 工具结果 location.get_current: {ok: true, latitude: 31.2304, longitude: 121.4737}',
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '你当前在上海市附近，定位精度约 65 米。')],
+      ]);
       final controller = WorkbenchController(
         apiKeyStore: _FakeApiKeyStore('test-key'),
         capabilityRuntime: CapabilityRuntime(
           nativeAdapter: _FakeNativeAdapter(),
         ),
-        chatClient: _FakeChatClient([
-          [
-            const ChatStreamEvent(
-              toolCallDeltas: [
-                ToolCallDelta(
-                  index: 0,
-                  id: 'call-location',
-                  name: 'location_get_current',
-                  argumentsDelta: '{}',
-                ),
-              ],
-            ),
-          ],
-          [
-            const ChatStreamEvent(
-              contentDelta:
-                  '工具调用 location_get_current: {} 工具结果 location.get_current: {ok: true, latitude: 31.2304, longitude: 121.4737}',
-            ),
-          ],
-        ]),
+        chatClient: chatClient,
       );
 
       await controller.sendPrompt('我在哪');
 
+      expect(chatClient.callCount, 3);
       final finalText = controller.messages.last.blocks.first.data['text'];
-      expect(finalText, isA<String>());
-      expect(finalText as String, contains('当前位置'));
+      expect(finalText, '你当前在上海市附近，定位精度约 65 米。');
       expect(finalText, isNot(contains('工具调用')));
       expect(finalText, isNot(contains('{ok:')));
     },
