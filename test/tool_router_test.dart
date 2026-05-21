@@ -1,74 +1,117 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone_agent/application/agent/tool_router.dart';
 import 'package:phone_agent/application/capabilities/capability_runtime.dart';
+import 'package:phone_agent/data/models/openai_compatible_chat_client.dart';
+import 'package:phone_agent/domain/models/model_provider_config.dart';
 
 void main() {
   final tools = CapabilityRuntime().toolDefinitions;
   const router = AgentToolRouter();
 
-  test('ordinary chat does not expose full tool catalog', () {
-    final route = router.route(prompt: '你好，随便聊聊', allTools: tools);
+  test('ordinary chat can route to no tools from model decision', () {
+    final route = router.routeFromDecision(
+      decision: const {
+        'selected_tool_names': <String>[],
+        'required_tool_names': <String>[],
+        'uses_context': false,
+        'reason': 'ordinary chat',
+      },
+      allTools: tools,
+    );
 
     expect(route.tools, isEmpty);
     expect(route.index, contains('未暴露工具 schema'));
   });
 
-  test('web search intent exposes search and fetch tools only', () {
-    final route = router.route(prompt: '帮我搜索 Flutter 最新信息', allTools: tools);
+  test('invalid model tool names are ignored instead of guessed', () {
+    final route = router.routeFromDecision(
+      decision: const {
+        'selected_tool_names': ['fake_tool', 'web_search'],
+        'required_tool_names': ['fake_tool'],
+        'uses_context': false,
+        'reason': 'model picked invalid tool too',
+      },
+      allTools: tools,
+    );
 
-    expect(route.selectedToolNames, containsAll(['web_search', 'web_fetch']));
-    expect(route.selectedToolNames, isNot(contains('device_info')));
-    expect(route.tools.length, lessThan(tools.length));
+    expect(route.selectedToolNames, ['web_search']);
+    expect(route.requiredToolNames, isEmpty);
   });
 
-  test('web app intent exposes project and maintenance tools', () {
-    final route = router.route(
-      prompt: '创建一个可以预览的美食网页，并能后续修复 bug',
+  test('model output routes web app creation as required tool', () {
+    final route = router.routeFromModelOutput(
+      jsonEncode({
+        'selected_tool_names': [
+          'project_create_web_app',
+          'file_search_app_files',
+          'file_read_app_file',
+          'file_apply_text_patch',
+          'artifact_create',
+          'artifact_query',
+        ],
+        'required_tool_names': ['project_create_web_app'],
+        'uses_context': false,
+        'reason': 'create a local web app',
+      }),
       allTools: tools,
     );
 
     expect(route.selectedToolNames, contains('project_create_web_app'));
     expect(route.selectedToolNames, contains('file_search_app_files'));
-    expect(route.selectedToolNames, contains('file_read_app_file'));
-    expect(route.selectedToolNames, contains('file_apply_text_patch'));
-    expect(route.selectedToolNames, contains('artifact_create'));
-    expect(route.requiredToolNames, contains('project_create_web_app'));
-  });
-
-  test('create app intent routes to local web project tools', () {
-    final route = router.route(prompt: '帮我创建一个备忘录应用', allTools: tools);
-
-    expect(route.selectedToolNames, contains('project_create_web_app'));
-    expect(route.selectedToolNames, contains('artifact_create'));
-    expect(route.requiredToolNames, contains('project_create_web_app'));
-  });
-
-  test('write personal web page requires real web project creation tool', () {
-    final route = router.route(prompt: '写一个个人网页', allTools: tools);
-
-    expect(route.selectedToolNames, contains('project_create_web_app'));
     expect(route.requiredToolNames, ['project_create_web_app']);
-  });
-
-  test('phone capability intent exposes matching native tools', () {
-    final route = router.route(prompt: '看下我的手机信息和当前位置', allTools: tools);
-
-    expect(route.selectedToolNames, contains('device_info'));
-    expect(route.selectedToolNames, contains('location_get_current'));
-    expect(route.selectedToolNames, isNot(contains('web_search')));
+    expect(route.index, contains('project_create_web_app'));
   });
 
   test(
-    'office intent exposes document spreadsheet presentation and pdf tools',
-    () {
-      final route = router.route(
-        prompt: '帮我总结这个 Word 和生成一个 PPT/PDF',
-        allTools: tools,
+    'route asks model with latest prompt and recent context separately',
+    () async {
+      final chatClient = _RoutingChatClient(
+        jsonEncode({
+          'selected_tool_names': ['location_get_current', 'web_search'],
+          'required_tool_names': <String>[],
+          'uses_context': true,
+          'reason': 'follow-up asks agent to execute previous weather plan',
+        }),
       );
 
-      expect(route.selectedToolNames, contains('document_extract'));
-      expect(route.selectedToolNames, contains('presentation_generate'));
-      expect(route.selectedToolNames, contains('pdf_generate'));
+      final route = await router.route(
+        prompt: '你自己做',
+        context: 'assistant: 我可以先读取你当前位置，再搜索天气信息。',
+        allTools: tools,
+        chatClient: chatClient,
+        provider: ModelProviders.aliyunBailianQwenFlash,
+        apiKey: 'test-key',
+      );
+
+      expect(
+        route.selectedToolNames,
+        containsAll(['location_get_current', 'web_search']),
+      );
+      expect(chatClient.lastMessages.last['content'], isA<String>());
+      final payload =
+          jsonDecode(chatClient.lastMessages.last['content']! as String)
+              as Map<String, Object?>;
+      expect(payload['latest_user_message'], '你自己做');
+      expect(payload['recent_context'], contains('天气信息'));
     },
   );
+}
+
+class _RoutingChatClient extends OpenAiCompatibleChatClient {
+  _RoutingChatClient(this.output);
+
+  final String output;
+  List<Map<String, Object?>> lastMessages = const [];
+
+  @override
+  Future<ChatCompletionResult> completeText({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    lastMessages = messages;
+    return ChatCompletionResult(ok: true, content: output);
+  }
 }

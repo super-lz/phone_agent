@@ -4,11 +4,11 @@ import 'dart:io' show Platform;
 
 import 'package:add_2_calendar/add_2_calendar.dart';
 import 'package:battery_plus/battery_plus.dart';
+import 'package:bz_location/bz_location.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
@@ -18,6 +18,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/logging/app_logger.dart';
 import '../../domain/permissions/app_permission.dart';
+import '../amap/amap_runtime_config.dart';
 import '../permissions/app_permission_service.dart';
 
 class NativeCapabilityAdapter {
@@ -25,13 +26,16 @@ class NativeCapabilityAdapter {
     DeviceInfoPlugin? deviceInfo,
     FlutterLocalNotificationsPlugin? notifications,
     AppPermissionService? permissionService,
+    AmapRuntimeConfig? amapConfig,
   }) : _deviceInfo = deviceInfo ?? DeviceInfoPlugin(),
        _notifications = notifications ?? FlutterLocalNotificationsPlugin(),
-       _permissionService = permissionService ?? const AppPermissionService();
+       _permissionService = permissionService ?? const AppPermissionService(),
+       _amapConfig = amapConfig ?? const AmapRuntimeConfig();
 
   final DeviceInfoPlugin _deviceInfo;
   final FlutterLocalNotificationsPlugin _notifications;
   final AppPermissionService _permissionService;
+  final AmapRuntimeConfig _amapConfig;
   Future<bool>? _notificationInitialization;
 
   Future<Map<String, Object?>> getDeviceInfo() async {
@@ -323,27 +327,36 @@ class NativeCapabilityAdapter {
         );
       }
 
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: _currentLocationSettings(),
-      );
-      final accuracy = position.accuracy;
+      if (!_amapConfig.supportsCurrentPlatform) {
+        return {
+          'ok': false,
+          'error': 'amap_platform_unsupported',
+          'platform': _amapConfig.platformName,
+          'userMessage': '当前平台暂不支持高德定位：${_amapConfig.platformName}。',
+        };
+      }
+      if (!_amapConfig.hasCurrentPlatformKey) {
+        return {
+          'ok': false,
+          'error': 'amap_key_required',
+          'platform': _amapConfig.platformName,
+          'userMessage':
+              '缺少高德 ${_amapConfig.platformName} Key。请通过 --dart-define-from-file=config/amap_keys.local.json 启动应用。',
+        };
+      }
+      return await _getCurrentAmapLocation();
+    } on TimeoutException catch (error, stackTrace) {
+      AppLogger.warning('native.location_get_current.timeout', {
+        'error': error.toString(),
+      });
+      AppLogger.error('native.location_get_current.failed', error, stackTrace);
       return {
-        'ok': true,
-        'summary':
-            '当前位置：纬度 ${position.latitude.toStringAsFixed(6)}，经度 ${position.longitude.toStringAsFixed(6)}，精度约 ${accuracy.toStringAsFixed(0)} 米。',
-        'latitude': position.latitude,
-        'longitude': position.longitude,
-        'accuracy': accuracy,
-        'altitude': position.altitude,
-        'heading': position.heading,
-        'speed': position.speed,
-        'isMocked': position.isMocked,
-        'providerHint': Platform.isAndroid
-            ? 'android_location_manager'
-            : Platform.operatingSystem,
-        'mapsUrl':
-            'https://maps.google.com/?q=${position.latitude},${position.longitude}',
-        'timestamp': position.timestamp.toIso8601String(),
+        'ok': false,
+        'error': 'location_timeout',
+        'detail': error.toString(),
+        'provider': 'amap_location',
+        'userMessage':
+            '已允许位置权限，但高德定位在限定时间内没有返回定位结果。请检查系统定位开关、高德 Key 包名/SHA1 配置和网络状态。',
       };
     } on Object catch (error, stackTrace) {
       AppLogger.error('native.location_get_current.failed', error, stackTrace);
@@ -355,18 +368,124 @@ class NativeCapabilityAdapter {
     }
   }
 
-  LocationSettings _currentLocationSettings() {
-    if (Platform.isAndroid) {
-      return AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 20),
-        forceLocationManager: true,
+  Future<Map<String, Object?>> _getCurrentAmapLocation() async {
+    final location = AMapFlutterLocation();
+    StreamSubscription<Map<String, Object>>? subscription;
+    try {
+      AMapFlutterLocation.updatePrivacyShow(true, true);
+      AMapFlutterLocation.updatePrivacyAgree(true);
+      AMapFlutterLocation.setApiKey(_amapConfig.androidKey, _amapConfig.iosKey);
+      location.setLocationOption(
+        AMapLocationOption(
+          onceLocation: true,
+          needAddress: true,
+          locationMode: AMapLocationMode.Hight_Accuracy,
+        ),
       );
+
+      late final Future<Map<String, Object>> firstLocation;
+      final completer = Completer<Map<String, Object>>();
+      subscription = location.onLocationChanged().listen(
+        (event) {
+          if (!completer.isCompleted) {
+            completer.complete(event);
+          }
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (!completer.isCompleted) {
+            completer.completeError(error, stackTrace);
+          }
+        },
+      );
+      firstLocation = completer.future;
+      location.startLocation();
+      final result = await firstLocation.timeout(const Duration(seconds: 15));
+      return _amapLocationOutput(result);
+    } finally {
+      location.stopLocation();
+      await subscription?.cancel();
+      location.destroy();
     }
-    return const LocationSettings(
-      accuracy: LocationAccuracy.high,
-      timeLimit: Duration(seconds: 20),
-    );
+  }
+
+  Map<String, Object?> _amapLocationOutput(Map<String, Object?> result) {
+    final errorCode = result['errorCode'];
+    if (errorCode != null) {
+      return {
+        'ok': false,
+        'error': 'amap_location_failed',
+        'provider': 'amap_location',
+        'errorCode': errorCode,
+        'errorInfo': result['errorInfo'],
+        'userMessage': '高德定位失败：${result['errorInfo'] ?? errorCode}',
+      };
+    }
+    final latitude = _numValue(result['latitude']);
+    final longitude = _numValue(result['longitude']);
+    if (latitude == null || longitude == null) {
+      return {
+        'ok': false,
+        'error': 'amap_location_missing_coordinate',
+        'provider': 'amap_location',
+        'raw': result,
+        'userMessage': '高德定位没有返回有效经纬度。',
+      };
+    }
+    final accuracy = _numValue(result['accuracy']);
+    final coordinateText =
+        '纬度 ${latitude.toStringAsFixed(6)}，经度 ${longitude.toStringAsFixed(6)}';
+    final accuracyText = accuracy == null
+        ? ''
+        : '，精度约 ${accuracy.toStringAsFixed(0)} 米';
+    final address = _trimmedString(result['address']);
+    return {
+      'ok': true,
+      'summary': address == null
+          ? '当前位置：$coordinateText$accuracyText。'
+          : '当前位置：$address（$coordinateText$accuracyText）。',
+      'provider': 'amap_location',
+      'latitude': latitude,
+      'longitude': longitude,
+      'accuracy': accuracy,
+      'altitude': _numValue(result['altitude']),
+      'heading': _numValue(result['bearing']),
+      'speed': _numValue(result['speed']),
+      'isCurrent': true,
+      'locationSource': 'amap_current',
+      'coordinateSystem': 'gcj02',
+      'providerHint': 'amap_location_${Platform.operatingSystem}',
+      'mapsUrl': 'https://uri.amap.com/marker?position=$longitude,$latitude',
+      'timestamp': _trimmedString(result['locationTime']),
+      'address': address,
+      'country': _trimmedString(result['country']),
+      'province': _trimmedString(result['province']),
+      'city': _trimmedString(result['city']),
+      'district': _trimmedString(result['district']),
+      'street': _trimmedString(result['street']),
+      'streetNumber': _trimmedString(result['streetNumber']),
+      'cityCode': _trimmedString(result['cityCode']),
+      'adCode': _trimmedString(result['adCode']),
+      'description': _trimmedString(result['description']),
+      'locationType': result['locationType'],
+    };
+  }
+
+  num? _numValue(Object? value) {
+    if (value is num) {
+      return value;
+    }
+    if (value is String) {
+      return num.tryParse(value);
+    }
+    return null;
+  }
+
+  String? _trimmedString(Object? value) {
+    if (value is! String) {
+      return null;
+    }
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
   }
 
   Future<Map<String, Object?>> scheduleNotification({

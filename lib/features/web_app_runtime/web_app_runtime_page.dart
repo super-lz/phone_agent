@@ -42,12 +42,35 @@ class WebAppRuntimePage extends StatefulWidget {
   State<WebAppRuntimePage> createState() => _WebAppRuntimePageState();
 }
 
+class WebAppRuntimeRoute extends PageRouteBuilder<void> {
+  WebAppRuntimeRoute({
+    required AgentArtifact webApp,
+    required WebAppCapabilityCaller callCapability,
+    required WebAppResourceReader readResource,
+    WebAppRuntimeLogWriter? runtimeLogWriter,
+  }) : super(
+         transitionDuration: Duration.zero,
+         reverseTransitionDuration: Duration.zero,
+         pageBuilder: (context, animation, secondaryAnimation) {
+           return WebAppRuntimePage(
+             webApp: webApp,
+             callCapability: callCapability,
+             readResource: readResource,
+             runtimeLogWriter: runtimeLogWriter,
+           );
+         },
+       );
+}
+
 class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
+  static const Duration _exitFadeDuration = Duration(milliseconds: 160);
+
   WebAppPermissionDecision _permissionDecision =
       WebAppPermissionDecision.pending;
   WebAppLocalServer? _localServer;
   Uri? _localServerUrl;
   String? _localServerError;
+  bool _isClosing = false;
 
   @override
   void initState() {
@@ -451,27 +474,70 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
     );
   }
 
+  Future<void> _closePreview() async {
+    if (_isClosing) {
+      return;
+    }
+    setState(() {
+      _isClosing = true;
+    });
+    await Future<void>.delayed(_exitFadeDuration);
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.webApp.title)),
-      body: _permissionDecision == WebAppPermissionDecision.pending
-          ? WebAppPermissionGate(
-              webApp: widget.webApp,
-              onApprove: () {
-                _openWithPermissionDecision(WebAppPermissionDecision.granted);
-              },
-              onDeny: () {
-                _openWithPermissionDecision(WebAppPermissionDecision.denied);
-              },
-            )
-          : Stack(
-              children: [
-                _webViewBody(),
-                if (_permissionDecision == WebAppPermissionDecision.denied)
-                  const WebAppPermissionDeniedBanner(),
-              ],
+    return PopScope<void>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          unawaited(_closePreview());
+        }
+      },
+      child: Stack(
+        children: [
+          Scaffold(
+            appBar: AppBar(title: Text(widget.webApp.title)),
+            body: _permissionDecision == WebAppPermissionDecision.pending
+                ? WebAppPermissionGate(
+                    webApp: widget.webApp,
+                    onApprove: () {
+                      _openWithPermissionDecision(
+                        WebAppPermissionDecision.granted,
+                      );
+                    },
+                    onDeny: () {
+                      _openWithPermissionDecision(
+                        WebAppPermissionDecision.denied,
+                      );
+                    },
+                  )
+                : Stack(
+                    children: [
+                      _webViewBody(),
+                      if (_permissionDecision ==
+                          WebAppPermissionDecision.denied)
+                        const WebAppPermissionDeniedBanner(),
+                    ],
+                  ),
+          ),
+          IgnorePointer(
+            ignoring: !_isClosing,
+            child: AnimatedOpacity(
+              opacity: _isClosing ? 1 : 0,
+              duration: _exitFadeDuration,
+              curve: Curves.easeOutCubic,
+              child: ColoredBox(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                child: const SizedBox.expand(),
+              ),
             ),
+          ),
+        ],
+      ),
     );
   }
 

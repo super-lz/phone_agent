@@ -152,6 +152,31 @@ class _FakeChatClient extends OpenAiCompatibleChatClient {
   int callCount = 0;
 
   @override
+  Future<ChatCompletionResult> completeText({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    return ChatCompletionResult(
+      ok: true,
+      content: jsonEncode({
+        'selected_tool_names': [
+          'project_create_web_app',
+          'artifact_create',
+          'artifact_query',
+          'file_write_app_file',
+          'file_read_app_file',
+          'file_search_app_files',
+          'file_apply_text_patch',
+        ],
+        'required_tool_names': ['project_create_web_app'],
+        'uses_context': false,
+        'reason': 'test web app route',
+      }),
+    );
+  }
+
+  @override
   Stream<ChatStreamEvent> streamChat({
     required ModelProviderConfig provider,
     required String apiKey,

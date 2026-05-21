@@ -6,6 +6,26 @@ import 'package:phone_agent/data/models/openai_compatible_chat_client.dart';
 import 'package:phone_agent/domain/models/model_provider_config.dart';
 
 void main() {
+  test('diagnostic prompt logging redacts inline image data', () {
+    final payload = OpenAiCompatibleChatClient.diagnosticPayloadForLog([
+      {
+        'role': 'user',
+        'content': [
+          {'type': 'text', 'text': '看看图片'},
+          {
+            'type': 'image_url',
+            'image_url': {'url': 'data:image/png;base64,iVBORw0KGgoAAA=='},
+          },
+        ],
+      },
+    ]);
+
+    final text = payload.toString();
+    expect(text, contains('看看图片'));
+    expect(text, contains('<redacted'));
+    expect(text, isNot(contains('iVBORw0KGgoAAA==')));
+  });
+
   test(
     'stream chat fails instead of hanging when SSE stream is idle',
     () async {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone_agent/domain/conversation/message_block.dart';
 import 'package:phone_agent/features/workbench/widgets/message_view.dart';
+import 'package:phone_agent/features/workbench/widgets/tool_result_view.dart';
 
 void main() {
   testWidgets('renders todo list restored from json without type crash', (
@@ -342,5 +343,29 @@ $repeatedScript
     await tester.pumpAndSettle();
 
     expect(openedArtifactId, 'artifact-webapp-1');
+  });
+
+  testWidgets('successful location result exposes map action', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: ToolResultView(
+            capabilityId: 'location.get_current',
+            output: {
+              'ok': true,
+              'latitude': 31.2304,
+              'longitude': 121.4737,
+              'accuracy': 42.0,
+              'address': '上海市黄浦区人民大道',
+              'provider': 'amap_location',
+              'coordinateSystem': 'gcj02',
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('当前位置：上海市黄浦区人民大道'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, '查看地图'), findsOneWidget);
   });
 }

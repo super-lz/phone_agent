@@ -553,6 +553,10 @@ class WorkbenchController extends ChangeNotifier {
       'workspaceId': _workspaceId,
       'length': prompt.length,
       'attachmentCount': attachments.length,
+      'prompt': prompt,
+      'modelPrompt': jsonEncode(
+        OpenAiCompatibleChatClient.diagnosticPayloadForLog(modelPrompt),
+      ),
     });
     _addMessage(
       AgentMessage(

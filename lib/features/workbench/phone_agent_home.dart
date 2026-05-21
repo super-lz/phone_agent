@@ -239,13 +239,11 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
 
   void _openWebApp(AgentArtifact webApp) {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (context) => WebAppRuntimePage(
-          webApp: webApp,
-          callCapability: _controller.callCapabilityFromWebApp,
-          readResource: _controller.readWebAppResource,
-          runtimeLogWriter: _controller.recordWebAppRuntimeLog,
-        ),
+      WebAppRuntimeRoute(
+        webApp: webApp,
+        callCapability: _controller.callCapabilityFromWebApp,
+        readResource: _controller.readWebAppResource,
+        runtimeLogWriter: _controller.recordWebAppRuntimeLog,
       ),
     );
   }

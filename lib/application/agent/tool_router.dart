@@ -1,114 +1,192 @@
+import 'dart:convert';
+
 import '../../core/logging/app_logger.dart';
+import '../../data/models/openai_compatible_chat_client.dart';
+import '../../domain/models/model_provider_config.dart';
 
 class AgentToolRouter {
   const AgentToolRouter();
 
-  ToolRoute route({
+  Future<ToolRoute> route({
     required Object prompt,
+    Object? context,
     required List<Map<String, Object?>> allTools,
+    required OpenAiCompatibleChatClient chatClient,
+    required ModelProviderConfig provider,
+    required String apiKey,
+  }) async {
+    final latestPrompt = _extractPromptText(prompt);
+    final routingContext = context == null ? '' : _extractPromptText(context);
+    final toolCatalog = _toolCatalogForModel(allTools);
+    final messages = [
+      {'role': 'system', 'content': _routingSystemPrompt()},
+      {
+        'role': 'user',
+        'content': jsonEncode({
+          'latest_user_message': latestPrompt,
+          'recent_context': routingContext,
+          'available_tools': toolCatalog,
+          'response_schema': {
+            'selected_tool_names': ['tool_name'],
+            'required_tool_names': ['tool_name'],
+            'uses_context': false,
+            'reason': 'short reason',
+          },
+        }),
+      },
+    ];
+
+    AppLogger.info('agent_tool_router.model.start', {
+      'promptLength': latestPrompt.length,
+      'contextLength': routingContext.length,
+      'availableToolCount': allTools.length,
+    });
+    final result = await chatClient.completeText(
+      provider: provider,
+      apiKey: apiKey,
+      messages: messages,
+    );
+    if (!result.ok) {
+      AppLogger.warning('agent_tool_router.model.failed', {
+        'message': result.content,
+      });
+      return routeFromDecision(
+        decision: const {},
+        allTools: allTools,
+        reason: '工具路由模型失败：${result.content}',
+      );
+    }
+    return routeFromModelOutput(
+      result.content,
+      allTools: allTools,
+      latestPromptLength: latestPrompt.length,
+      contextLength: routingContext.length,
+    );
+  }
+
+  ToolRoute routeFromModelOutput(
+    String output, {
+    required List<Map<String, Object?>> allTools,
+    int? latestPromptLength,
+    int? contextLength,
   }) {
-    final promptText = _extractPromptText(prompt).toLowerCase();
-    final selectedNames = <String>{};
-    final requiredNames = <String>{};
+    final decoded = _decodeRouteDecision(output);
+    return routeFromDecision(
+      decision: decoded,
+      allTools: allTools,
+      latestPromptLength: latestPromptLength,
+      contextLength: contextLength,
+    );
+  }
 
-    void add(Iterable<String> names) {
-      selectedNames.addAll(names);
-    }
-
-    if (_matchesAny(promptText, _memoryTerms)) {
-      add(_memoryTools);
-    }
-    if (_matchesAny(promptText, _noteTerms)) {
-      add(_noteTools);
-    }
-    if (_matchesAny(promptText, _workspaceTerms)) {
-      add(_workspaceTools);
-    }
-    if (_matchesAny(promptText, _webTerms) || _hasUrl(promptText)) {
-      add(_webTools);
-    }
-    final hasProjectIntent = _matchesAny(promptText, _projectTerms);
-    final hasCreationIntent = _matchesAny(promptText, _creationTerms);
-    final hasAppCreationIntent =
-        hasCreationIntent && _matchesAny(promptText, _appTerms);
-    if (hasProjectIntent || hasAppCreationIntent) {
-      add(_projectTools);
-      if (hasCreationIntent &&
-          _matchesAny(promptText, _projectCreationTargetTerms)) {
-        requiredNames.add('project_create_web_app');
+  ToolRoute routeFromDecision({
+    required Map<String, Object?> decision,
+    required List<Map<String, Object?>> allTools,
+    String? reason,
+    int? latestPromptLength,
+    int? contextLength,
+  }) {
+    final toolByName = <String, Map<String, Object?>>{};
+    for (final tool in allTools) {
+      final name = _toolName(tool);
+      if (name != null) {
+        toolByName[name] = tool;
       }
     }
-    if (_matchesAny(promptText, _fileTerms)) {
-      add(_fileTools);
-    }
-    if (_matchesAny(promptText, _artifactTerms)) {
-      add(_artifactTools);
-    }
-    if (_matchesAny(promptText, _officeTerms)) {
-      add(_officeTools);
-    }
-    if (_matchesAny(promptText, _deviceTerms)) {
-      add(_deviceTools);
-    }
-    if (_matchesAny(promptText, _timeTerms)) {
-      add(_timeTools);
-    }
-    if (_matchesAny(promptText, _locationTerms)) {
-      add(_locationTools);
-    }
-    if (_matchesAny(promptText, _clipboardTerms)) {
-      add(_clipboardTools);
-    }
-    if (_matchesAny(promptText, _shareTerms)) {
-      add(_shareTools);
-    }
-    if (_matchesAny(promptText, _feedbackTerms)) {
-      add(_feedbackTools);
-    }
-    if (_matchesAny(promptText, _urlTerms)) {
-      add(_urlTools);
-    }
-    if (_matchesAny(promptText, _screenTerms)) {
-      add(_screenTools);
-    }
-    if (_matchesAny(promptText, _sensorTerms)) {
-      add(_sensorTools);
-    }
-    if (_matchesAny(promptText, _extensionTerms)) {
-      add(_extensionTools);
-    }
 
-    final selectedTools = _toolsByName(allTools, selectedNames);
-    AppLogger.info('agent_tool_router.route', {
-      'promptLength': promptText.length,
+    final selectedNames = _stringList(
+      decision['selected_tool_names'],
+    ).where(toolByName.containsKey).toSet();
+    final requiredNames = _stringList(
+      decision['required_tool_names'],
+    ).where(selectedNames.contains).toSet();
+    final selectedTools = [
+      for (final name in selectedNames.toList(growable: false)..sort())
+        toolByName[name]!,
+    ];
+
+    final logData = <String, Object?>{
       'selectedToolCount': selectedTools.length,
       'availableToolCount': allTools.length,
+      'usesContext': decision['uses_context'] == true,
       'selectedTools': selectedNames.toList(growable: false)..sort(),
       'requiredTools': requiredNames.toList(growable: false)..sort(),
-    });
+      'reason': reason ?? decision['reason'],
+    };
+    if (latestPromptLength != null) {
+      logData['promptLength'] = latestPromptLength;
+    }
+    if (contextLength != null) {
+      logData['contextLength'] = contextLength;
+    }
+    AppLogger.info('agent_tool_router.route', logData);
     return ToolRoute(
       tools: selectedTools,
-      index: _toolIndexFor(selectedNames, requiredNames),
+      index: _toolIndexFor(selectedTools, requiredNames),
       selectedToolNames: selectedNames.toList(growable: false)..sort(),
       requiredToolNames: requiredNames.toList(growable: false)..sort(),
     );
   }
 
-  List<Map<String, Object?>> _toolsByName(
+  String _routingSystemPrompt() {
+    return [
+      '你是 Phone Agent 的工具路由器，只做工具 schema 选择，不回答用户、不执行任务。',
+      '根据 latest_user_message 判断本轮需要暴露哪些工具；recent_context 只用于语义上确实承接上一轮任务的短跟进。',
+      '不要因为 recent_context 或 assistant 自我介绍里出现工具、能力、Web App、创建等字样就选择工具。',
+      '普通聊天、问候、身份追问、闲聊应返回空工具列表。',
+      '如果用户最新消息要求创建、保存、写入、修改、查询、搜索、读取、调用手机能力或生成可复用产物，选择能完成真实动作的最小工具集合。',
+      '如果用户最新消息要求创建真实本地 Web 工程、网页、网站、小游戏、Web App 或原型，project_create_web_app 必须同时出现在 selected_tool_names 和 required_tool_names。',
+      'required_tool_names 只用于“未成功调用就不能声称完成”的真实产物创建工具；没有这种硬性完成条件时返回空数组。',
+      '只输出一个 JSON 对象，不要 Markdown，不要代码围栏，不要解释。',
+    ].join('\n');
+  }
+
+  List<Map<String, Object?>> _toolCatalogForModel(
     List<Map<String, Object?>> allTools,
-    Set<String> names,
   ) {
-    if (names.isEmpty) {
+    return [
+      for (final tool in allTools)
+        if (_toolName(tool) != null)
+          {'name': _toolName(tool), 'description': _toolDescription(tool)},
+    ];
+  }
+
+  Map<String, Object?> _decodeRouteDecision(String output) {
+    final trimmed = output.trim();
+    final jsonText = _stripCodeFence(trimmed);
+    try {
+      final decoded = jsonDecode(jsonText);
+      if (decoded is Map<String, Object?>) {
+        return decoded;
+      }
+      if (decoded is Map<Object?, Object?>) {
+        return decoded.map((key, value) => MapEntry(key.toString(), value));
+      }
+    } on Object catch (error) {
+      AppLogger.warning('agent_tool_router.parse.failed', {
+        'error': error.toString(),
+        'output': output,
+      });
+    }
+    return const {};
+  }
+
+  String _stripCodeFence(String text) {
+    if (!text.startsWith('```')) {
+      return text;
+    }
+    final withoutPrefix = text.replaceFirst(RegExp(r'^```(?:json)?\s*'), '');
+    return withoutPrefix.replaceFirst(RegExp(r'\s*```$'), '').trim();
+  }
+
+  List<String> _stringList(Object? value) {
+    if (value is! List<Object?>) {
       return const [];
     }
-    final tools = <Map<String, Object?>>[];
-    for (final tool in allTools) {
-      final name = _toolName(tool);
-      if (name != null && names.contains(name)) {
-        tools.add(tool);
-      }
-    }
-    return tools;
+    return [
+      for (final item in value)
+        if (item is String && item.trim().isNotEmpty) item.trim(),
+    ];
   }
 
   String? _toolName(Map<String, Object?> tool) {
@@ -118,6 +196,15 @@ class AgentToolRouter {
     }
     final name = function['name'];
     return name is String ? name : null;
+  }
+
+  String _toolDescription(Map<String, Object?> tool) {
+    final function = tool['function'];
+    if (function is! Map<String, Object?>) {
+      return '';
+    }
+    final description = function['description'];
+    return description is String ? description : '';
   }
 
   String _extractPromptText(Object prompt) {
@@ -135,6 +222,9 @@ class AgentToolRouter {
       return part;
     }
     if (part is Map<String, Object?>) {
+      if (part['type'] == 'image_url' || part.containsKey('image_url')) {
+        return '[image_url]';
+      }
       final text = part['text'];
       if (text is String) {
         return text;
@@ -147,53 +237,25 @@ class AgentToolRouter {
     return '';
   }
 
-  bool _matchesAny(String text, List<String> terms) {
-    return terms.any(text.contains);
-  }
-
-  bool _hasUrl(String text) {
-    return text.contains('http://') || text.contains('https://');
-  }
-
-  String _toolIndexFor(Set<String> selectedNames, Set<String> requiredNames) {
-    if (selectedNames.isEmpty) {
+  String _toolIndexFor(
+    List<Map<String, Object?>> selectedTools,
+    Set<String> requiredNames,
+  ) {
+    if (selectedTools.isEmpty) {
       return '本轮未暴露工具 schema；如果用户只是普通聊天，直接回答。';
     }
-    final groups = <String>[];
-    void addGroup(String label, Iterable<String> names) {
-      if (names.any(selectedNames.contains)) {
-        groups.add(label);
-      }
-    }
-
-    addGroup('记忆', _memoryTools);
-    addGroup('笔记', _noteTools);
-    addGroup('工作区', _workspaceTools);
-    addGroup('联网搜索/网页读取', _webTools);
-    addGroup('文件/项目维护', _fileTools.followedBy(_projectTools));
-    addGroup('Artifact', _artifactTools);
-    addGroup('Office/PDF 文档', _officeTools);
-    addGroup(
-      '设备/时间/位置/传感器',
-      _deviceTools
-          .followedBy(_timeTools)
-          .followedBy(_locationTools)
-          .followedBy(_sensorTools),
-    );
-    addGroup(
-      '剪贴板/分享/系统交互',
-      _clipboardTools
-          .followedBy(_shareTools)
-          .followedBy(_feedbackTools)
-          .followedBy(_urlTools)
-          .followedBy(_screenTools),
-    );
-    addGroup('Skill/MCP', _extensionTools);
+    final toolLines = selectedTools
+        .map((tool) {
+          final name = _toolName(tool) ?? 'unknown_tool';
+          final description = _toolDescription(tool);
+          return '- $name: $description';
+        })
+        .join('\n');
     final requiredText = requiredNames.isEmpty
         ? ''
-        : ' 本轮用户请求需要真实产物，必须成功调用这些工具后才能声称完成：${requiredNames.join('、')}。';
-    return '本轮按用户意图只暴露以下工具组：${groups.join('、')}。'
-        '未暴露的工具组视为本轮不可用，不要臆造调用。$requiredText';
+        : '\n本轮存在必需工具，必须成功调用后才能声称完成：${requiredNames.join('、')}。';
+    return '本轮路由模型只暴露以下工具 schema：\n$toolLines\n'
+        '未暴露的工具视为本轮不可用，不要臆造调用。$requiredText';
   }
 }
 
@@ -210,180 +272,3 @@ class ToolRoute {
   final List<String> selectedToolNames;
   final List<String> requiredToolNames;
 }
-
-const _memoryTools = ['memory_create', 'memory_query', 'memory_delete'];
-const _noteTools = ['db_note_create', 'db_note_query'];
-const _workspaceTools = ['workspace_create', 'workspace_switch'];
-const _webTools = ['web_search', 'web_fetch'];
-const _fileTools = [
-  'file_write_app_file',
-  'file_read_app_file',
-  'file_search_app_files',
-  'file_apply_text_patch',
-];
-const _projectTools = [
-  'project_create_web_app',
-  'artifact_create',
-  'artifact_query',
-  ..._fileTools,
-];
-const _artifactTools = ['artifact_create', 'artifact_query'];
-const _officeTools = [
-  'document_extract',
-  'document_generate',
-  'document_apply_text_patch',
-  'spreadsheet_extract',
-  'spreadsheet_generate',
-  'presentation_extract',
-  'presentation_generate',
-  'pdf_extract',
-  'pdf_generate',
-];
-const _deviceTools = ['device_info', 'battery_status', 'network_status'];
-const _timeTools = [
-  'time_get_current',
-  'notification_schedule',
-  'calendar_event_create',
-];
-const _locationTools = ['location_get_current'];
-const _clipboardTools = ['clipboard_read', 'clipboard_write'];
-const _shareTools = ['share_text'];
-const _feedbackTools = ['system_haptic_feedback', 'system_sound_alert'];
-const _urlTools = ['url_open_external'];
-const _screenTools = ['screen_keep_awake', 'screen_keep_awake_status'];
-const _sensorTools = [
-  'sensor_accelerometer_read',
-  'sensor_gyroscope_read',
-  'sensor_magnetometer_read',
-];
-const _extensionTools = ['skill_install', 'skill_invoke', 'mcp_connect'];
-
-const _memoryTerms = ['记住', '忘记', '记忆', '偏好', '你记得', '长期'];
-const _noteTerms = ['备忘', '笔记', '记录一下', '记一条', '保存信息', '待办'];
-const _workspaceTerms = ['工作区', '空间', '切换到', '新建工作', '创建工作'];
-const _webTerms = [
-  '搜索',
-  '联网',
-  '查一下',
-  '最新',
-  '新闻',
-  '网页内容',
-  '网页读取',
-  '网页解析',
-  '网址',
-  '来源',
-  '资料',
-  '价格',
-  '官网',
-  '天气',
-];
-const _projectTerms = [
-  'web app',
-  'webapp',
-  '网页',
-  '网站',
-  '小游戏',
-  '原型',
-  'html',
-  'css',
-  'javascript',
-  'jsbridge',
-  '预览',
-  '页面',
-  '样式',
-  '修复bug',
-  '修 bug',
-];
-const _creationTerms = [
-  '创建',
-  '生成',
-  '做一个',
-  '做个',
-  '开发',
-  '实现',
-  '写一个',
-  '写个',
-  '写一',
-  '制作',
-  '搭建',
-  '设计一个',
-  '设计个',
-];
-const _appTerms = ['应用', 'app', '小程序'];
-const _projectCreationTargetTerms = [
-  'web app',
-  'webapp',
-  '网页',
-  '网站',
-  '小游戏',
-  '原型',
-  '页面',
-  '应用',
-  'app',
-  '小程序',
-];
-const _fileTerms = [
-  '文件',
-  '读取',
-  '写入',
-  '修改',
-  '补丁',
-  '代码',
-  'bug',
-  '日志',
-  '目录',
-  '源码',
-];
-const _artifactTerms = ['artifact', '卡片', '报告', '文档', '表格', '产物', '复用'];
-const _officeTerms = [
-  'office',
-  'word',
-  'docx',
-  'excel',
-  'xlsx',
-  'ppt',
-  'pptx',
-  'pdf',
-  '简历',
-  '合同',
-  '论文',
-  '财报',
-  '演示文稿',
-  '幻灯片',
-  '表格',
-  '文档',
-];
-const _deviceTerms = [
-  '手机',
-  '设备',
-  '型号',
-  '系统版本',
-  '电量',
-  '电池',
-  '网络',
-  'wifi',
-  'wi-fi',
-];
-const _timeTerms = [
-  '现在几点',
-  '当前时间',
-  '今天',
-  '明天',
-  '后天',
-  '今晚',
-  '提醒',
-  '通知',
-  '日历',
-  '日程',
-  '会议',
-  '分钟后',
-  '小时后',
-];
-const _locationTerms = ['位置', '定位', '附近', '经纬度', '地图', '导航'];
-const _clipboardTerms = ['剪贴板', '复制', '粘贴'];
-const _shareTerms = ['分享', '发给'];
-const _feedbackTerms = ['震动', '振动', '触感', '提示音', '声音'];
-const _urlTerms = ['打开链接', '打开网址', '打电话', '短信', '邮件', 'mailto', 'tel:'];
-const _screenTerms = ['常亮', '熄屏', '屏幕保持', '不要锁屏'];
-const _sensorTerms = ['传感器', '加速度', '陀螺仪', '磁力计', '罗盘', '姿态', '方向'];
-const _extensionTerms = ['skill', 'mcp', '插件', '外部工具'];

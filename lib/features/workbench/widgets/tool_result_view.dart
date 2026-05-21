@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../../../application/capabilities/capability_result_presentation.dart';
+import '../../maps/amap_location_page.dart';
 
 class ToolResultView extends StatelessWidget {
   const ToolResultView({
@@ -25,6 +26,7 @@ class ToolResultView extends StatelessWidget {
     return _GenericToolResultCard(
       presentation: presentation,
       capabilityId: capabilityId,
+      output: output,
     );
   }
 }
@@ -33,10 +35,12 @@ class _GenericToolResultCard extends StatefulWidget {
   const _GenericToolResultCard({
     required this.presentation,
     required this.capabilityId,
+    required this.output,
   });
 
   final CapabilityResultPresentation presentation;
   final String capabilityId;
+  final Map<String, Object?> output;
 
   @override
   State<_GenericToolResultCard> createState() => _GenericToolResultCardState();
@@ -95,6 +99,9 @@ class _GenericToolResultCardState extends State<_GenericToolResultCard> {
                 presentation.summary,
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
+              if (widget.capabilityId == 'location.get_current' &&
+                  presentation.ok)
+                _LocationMapAction(output: widget.output),
               if (_expanded) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -114,6 +121,64 @@ class _GenericToolResultCardState extends State<_GenericToolResultCard> {
         ),
       ),
     );
+  }
+}
+
+class _LocationMapAction extends StatelessWidget {
+  const _LocationMapAction({required this.output});
+
+  final Map<String, Object?> output;
+
+  @override
+  Widget build(BuildContext context) {
+    final latitude = _doubleValue(output['latitude']);
+    final longitude = _doubleValue(output['longitude']);
+    if (latitude == null || longitude == null) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: OutlinedButton.icon(
+        icon: const Icon(Icons.map_outlined, size: 18),
+        label: const Text('查看地图'),
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (context) => AmapLocationPage(
+                latitude: latitude,
+                longitude: longitude,
+                accuracy: _doubleValue(output['accuracy']),
+                title: output['isCurrent'] == false ? '系统上次定位' : '当前位置',
+                subtitle: _locationSubtitle(output),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  String _locationSubtitle(Map<String, Object?> output) {
+    final address = output['address'];
+    if (address is String && address.trim().isNotEmpty) {
+      return address.trim();
+    }
+    final latitude = _doubleValue(output['latitude']);
+    final longitude = _doubleValue(output['longitude']);
+    if (latitude == null || longitude == null) {
+      return '坐标不可用';
+    }
+    return '纬度 ${latitude.toStringAsFixed(6)}，经度 ${longitude.toStringAsFixed(6)}';
+  }
+
+  double? _doubleValue(Object? value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    if (value is String) {
+      return double.tryParse(value);
+    }
+    return null;
   }
 }
 

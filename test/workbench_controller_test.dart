@@ -38,6 +38,51 @@ void main() {
   });
 
   test(
+    'ordinary follow-up fragment ignores capability text from prior answer',
+    () async {
+      final chatClient = _FakeChatClient([
+        [const ChatStreamEvent(contentDelta: '我可以创建工作区、保存报告、生成 Web App 卡片。')],
+        [const ChatStreamEvent(contentDelta: '我是 Phone Agent。')],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+      );
+
+      await controller.sendPrompt('你好');
+      await controller.sendPrompt('你是');
+
+      expect(chatClient.capturedTools[1], isEmpty);
+      expect(
+        controller.messages.last.blocks.first.data['text'],
+        '我是 Phone Agent。',
+      );
+    },
+  );
+
+  test('model prompt uses structured system sections', () async {
+    final chatClient = _FakeChatClient([
+      [const ChatStreamEvent(contentDelta: '找到 Flutter 来源。')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt('帮我搜索 Flutter 最新信息');
+
+    final systemPrompt = chatClient.capturedMessages.single.first['content'];
+    expect(systemPrompt, isA<String>());
+    final text = systemPrompt! as String;
+    expect(text, contains('<role>'));
+    expect(text, contains('<capability_index>'));
+    expect(text, contains('本轮路由模型只暴露以下工具 schema'));
+    expect(text, contains('web_search / web_fetch'));
+    expect(text, contains('<workflow_contracts>'));
+    expect(text, contains('<current_context>'));
+  });
+
+  test(
     'retries transient model stream failure before receiving content',
     () async {
       final chatClient = _RetryOnceChatClient();
@@ -1482,6 +1527,24 @@ class _FakeChatClient extends OpenAiCompatibleChatClient {
   int callCount = 0;
 
   @override
+  Future<ChatCompletionResult> completeText({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    final content = messages.last['content'];
+    final payload = content is String
+        ? jsonDecode(content) as Map<String, Object?>
+        : <String, Object?>{};
+    final latest = payload['latest_user_message'] as String? ?? '';
+    final context = payload['recent_context'] as String? ?? '';
+    return ChatCompletionResult(
+      ok: true,
+      content: jsonEncode(_routeDecisionForTest(latest, context)),
+    );
+  }
+
+  @override
   Stream<ChatStreamEvent> streamChat({
     required ModelProviderConfig provider,
     required String apiKey,
@@ -1497,6 +1560,92 @@ class _FakeChatClient extends OpenAiCompatibleChatClient {
       yield event;
     }
   }
+}
+
+Map<String, Object?> _routeDecisionForTest(String latest, String context) {
+  final selected = <String>{};
+  final required = <String>{};
+
+  void add(Iterable<String> names) => selected.addAll(names);
+
+  if (latest == '你好' ||
+      latest == '你是' ||
+      latest == '我叫张三' ||
+      latest == '我叫什么？') {
+    return _routeDecision(selected, required);
+  }
+  if (latest.contains('搜索') ||
+      latest.contains('天气') ||
+      context.contains('天气')) {
+    add(['web_search', 'web_fetch']);
+  }
+  if (latest.contains('位置') ||
+      latest.contains('我在哪') ||
+      context.contains('位置')) {
+    add(['location_get_current']);
+  }
+  if (latest.contains('记住')) {
+    add(['memory_create', 'memory_query', 'memory_delete']);
+  }
+  if (latest.contains('忘记')) {
+    add(['memory_create', 'memory_query', 'memory_delete']);
+  }
+  if (latest.contains('待办') || latest.contains('记录')) {
+    add(['db_note_create', 'db_note_query']);
+  }
+  if (latest.contains('报告') ||
+      latest.contains('Artifact') ||
+      latest.contains('可复用')) {
+    add(['artifact_create', 'artifact_query']);
+  }
+  if (latest.contains('文件') || latest.contains('读取') || latest.contains('保存')) {
+    add([
+      'file_write_app_file',
+      'file_read_app_file',
+      'file_search_app_files',
+      'file_apply_text_patch',
+    ]);
+  }
+  if (latest.contains('网页') ||
+      latest.contains('Web App') ||
+      latest.contains('小游戏') ||
+      latest.contains('本地 Web App')) {
+    add([
+      'project_create_web_app',
+      'artifact_create',
+      'artifact_query',
+      'file_write_app_file',
+      'file_read_app_file',
+      'file_search_app_files',
+      'file_apply_text_patch',
+    ]);
+    required.add('project_create_web_app');
+  }
+  if (latest.contains('复制')) {
+    add(['clipboard_read', 'clipboard_write']);
+  }
+  if (latest.contains('几点') || latest.contains('提醒') || latest.contains('日历')) {
+    add(['time_get_current', 'notification_schedule', 'calendar_event_create']);
+  }
+  if (latest.contains('工作区') || latest.contains('切换')) {
+    add(['workspace_create', 'workspace_switch']);
+  }
+  if (latest.contains('连续查询记忆')) {
+    add(['memory_create', 'memory_query', 'memory_delete']);
+  }
+  return _routeDecision(selected, required);
+}
+
+Map<String, Object?> _routeDecision(
+  Set<String> selected,
+  Set<String> required,
+) {
+  return {
+    'selected_tool_names': selected.toList(growable: false)..sort(),
+    'required_tool_names': required.toList(growable: false)..sort(),
+    'uses_context': false,
+    'reason': 'test route decision',
+  };
 }
 
 List<String> _capturedToolNames(List<Map<String, Object?>> tools) {
@@ -1518,6 +1667,15 @@ class _RetryOnceChatClient extends OpenAiCompatibleChatClient {
   int callCount = 0;
 
   @override
+  Future<ChatCompletionResult> completeText({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    return _emptyRouteDecision();
+  }
+
+  @override
   Stream<ChatStreamEvent> streamChat({
     required ModelProviderConfig provider,
     required String apiKey,
@@ -1536,6 +1694,15 @@ class _InterruptAfterContentChatClient extends OpenAiCompatibleChatClient {
   int callCount = 0;
 
   @override
+  Future<ChatCompletionResult> completeText({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    return _emptyRouteDecision();
+  }
+
+  @override
   Stream<ChatStreamEvent> streamChat({
     required ModelProviderConfig provider,
     required String apiKey,
@@ -1550,6 +1717,15 @@ class _InterruptAfterContentChatClient extends OpenAiCompatibleChatClient {
 
 class _SlowChatClient extends OpenAiCompatibleChatClient {
   @override
+  Future<ChatCompletionResult> completeText({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    return _emptyRouteDecision();
+  }
+
+  @override
   Stream<ChatStreamEvent> streamChat({
     required ModelProviderConfig provider,
     required String apiKey,
@@ -1559,4 +1735,16 @@ class _SlowChatClient extends OpenAiCompatibleChatClient {
     await Future<void>.delayed(const Duration(milliseconds: 50));
     yield const ChatStreamEvent(contentDelta: '这段内容不应该成为最终结果');
   }
+}
+
+ChatCompletionResult _emptyRouteDecision() {
+  return ChatCompletionResult(
+    ok: true,
+    content: jsonEncode({
+      'selected_tool_names': <String>[],
+      'required_tool_names': <String>[],
+      'uses_context': false,
+      'reason': 'test empty route',
+    }),
+  );
 }

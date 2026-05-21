@@ -86,6 +86,10 @@ class OpenAiCompatibleChatClient {
     this.streamIdleTimeout = const Duration(seconds: 45),
   }) : _httpClient = httpClient ?? http.Client();
 
+  static Object? diagnosticPayloadForLog(Object? value) {
+    return _diagnosticValue(value);
+  }
+
   final http.Client _httpClient;
   final Duration requestTimeout;
   final Duration streamIdleTimeout;
@@ -112,25 +116,34 @@ class OpenAiCompatibleChatClient {
     required List<Map<String, Object?>> messages,
     List<Map<String, Object?>> tools = const [],
   }) async* {
+    final requestBody = {
+      'model': provider.model,
+      'messages': messages,
+      ...provider.defaultParameters,
+      'stream': true,
+      if (tools.isNotEmpty) 'tools': tools,
+      if (tools.isNotEmpty) 'tool_choice': 'auto',
+    };
     AppLogger.info('model.stream_chat.start', {
       'provider': provider.id,
       'model': provider.model,
       'messageCount': messages.length,
       'toolCount': tools.length,
     });
+    AppLogger.info('model.stream_chat.request_prompt', {
+      'provider': provider.id,
+      'model': provider.model,
+      'messageCount': messages.length,
+      'toolCount': tools.length,
+      'toolNames': _toolNamesForLog(tools),
+      'messages': jsonEncode(diagnosticPayloadForLog(messages)),
+    });
     final request = http.Request('POST', provider.chatCompletionsEndpoint)
       ..headers.addAll({
         'Authorization': 'Bearer $apiKey',
         'Content-Type': 'application/json',
       })
-      ..body = jsonEncode({
-        'model': provider.model,
-        'messages': messages,
-        ...provider.defaultParameters,
-        'stream': true,
-        if (tools.isNotEmpty) 'tools': tools,
-        if (tools.isNotEmpty) 'tool_choice': 'auto',
-      });
+      ..body = jsonEncode(requestBody);
 
     late final http.StreamedResponse response;
     try {
@@ -430,6 +443,52 @@ class OpenAiCompatibleChatClient {
         message.contains('receive data') ||
         message.contains('receiving data') ||
         message.contains('network is unreachable');
+  }
+
+  static Object? _diagnosticValue(Object? value) {
+    if (value is Map<Object?, Object?>) {
+      return value.map(
+        (key, child) => MapEntry(key.toString(), _diagnosticValue(child)),
+      );
+    }
+    if (value is Iterable<Object?>) {
+      return value.map(_diagnosticValue).toList(growable: false);
+    }
+    if (value is String) {
+      return _diagnosticString(value);
+    }
+    return value;
+  }
+
+  static String _diagnosticString(String value) {
+    final redactedImages = value.replaceAllMapped(
+      RegExp(r'data:image/[^;\s]+;base64,[A-Za-z0-9+/=]+'),
+      (match) {
+        final token = match.group(0)!;
+        final prefixEnd = token.indexOf(';base64,') + ';base64,'.length;
+        return '${token.substring(0, prefixEnd)}<redacted ${token.length} chars>';
+      },
+    );
+    const maxChars = 24000;
+    if (redactedImages.length <= maxChars) {
+      return redactedImages;
+    }
+    return '${redactedImages.substring(0, maxChars)}...<truncated ${redactedImages.length - maxChars} chars>';
+  }
+
+  List<String> _toolNamesForLog(List<Map<String, Object?>> tools) {
+    final names = <String>[];
+    for (final tool in tools) {
+      final function = tool['function'];
+      if (function is! Map<String, Object?>) {
+        continue;
+      }
+      final name = function['name'];
+      if (name is String) {
+        names.add(name);
+      }
+    }
+    return names;
   }
 
   String _extractAssistantTextFromBody(String body) {

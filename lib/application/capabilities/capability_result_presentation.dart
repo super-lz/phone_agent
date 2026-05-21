@@ -55,7 +55,13 @@ Map<String, Object?> modelObservationForCapability({
         'longitude': output['longitude'],
         'accuracy': output['accuracy'],
         'timestamp': output['timestamp'],
+        'address': output['address'],
+        'provider': output['provider'],
+        'coordinateSystem': output['coordinateSystem'],
         'isMocked': output['isMocked'],
+        'isCurrent': output['isCurrent'],
+        'locationSource': output['locationSource'],
+        'warning': output['warning'],
         'providerHint': output['providerHint'],
         'mapsUrl': output['mapsUrl'],
       });
@@ -343,9 +349,10 @@ String _locationSummary(Map<String, Object?> output) {
       : '';
   final coordinateText =
       '纬度 ${latitude.toStringAsFixed(6)}，经度 ${longitude.toStringAsFixed(6)}';
+  final prefix = output['isCurrent'] == false ? '系统上次定位' : '当前位置';
   return address == null
-      ? '当前位置：$coordinateText$accuracyText。'
-      : '当前位置：$address（$coordinateText$accuracyText）。';
+      ? '$prefix：$coordinateText$accuracyText。'
+      : '$prefix：$address（$coordinateText$accuracyText）。';
 }
 
 String _notificationSummary(Map<String, Object?> output) {

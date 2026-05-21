@@ -1,10 +1,60 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:phone_agent/application/agent/agent_run_state.dart';
 import 'package:phone_agent/domain/conversation/message_block.dart';
 import 'package:phone_agent/domain/workspace/workspace.dart';
 import 'package:phone_agent/features/workbench/widgets/chat_panel.dart';
 
 void main() {
+  testWidgets('composer only shows send-area stop button while sending', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(420, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatPanel(
+            workspace: AgentWorkspace(
+              id: 'default',
+              name: '默认',
+              description: '测试工作区',
+              createdAt: DateTime(2026),
+            ),
+            messages: const [],
+            composerController: controller,
+            isSending: true,
+            currentRun: AgentRunSnapshot(
+              phase: AgentRunPhase.executingTool,
+              detail: '正在执行 web_search。',
+              toolCallsUsed: 3,
+              maxToolCalls: 48,
+              startedAt: DateTime(2026),
+            ),
+            onCancelRun: () {},
+            onSendPrompt: () {},
+            onOpenWebAppArtifact: (_) {},
+            onApproveCapability: (_) {},
+            onDenyCapability: (_) {},
+            pendingAttachments: const [],
+            onAddFile: () {},
+            onAddImage: () {},
+            onRemovePendingAttachment: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('停止'), findsOneWidget);
+    expect(find.byTooltip('停止本轮任务'), findsNothing);
+    expect(find.textContaining('3/48'), findsNothing);
+    expect(find.textContaining('执行工具'), findsOneWidget);
+  });
+
   testWidgets('shows jump to bottom button when user leaves bottom', (
     tester,
   ) async {

@@ -53,7 +53,7 @@ class PromptComposer extends StatelessWidget {
                 if (isSending) ...[
                   const LinearProgressIndicator(),
                   const SizedBox(height: 8),
-                  _AgentRunStatusBar(run: currentRun, onCancelRun: onCancelRun),
+                  _AgentRunStatusBar(run: currentRun),
                   const SizedBox(height: 8),
                 ],
                 if (pendingAttachments.isNotEmpty) ...[
@@ -152,19 +152,15 @@ class PromptComposer extends StatelessWidget {
 }
 
 class _AgentRunStatusBar extends StatelessWidget {
-  const _AgentRunStatusBar({required this.run, required this.onCancelRun});
+  const _AgentRunStatusBar({required this.run});
 
   final AgentRunSnapshot? run;
-  final VoidCallback onCancelRun;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final phase = run?.phaseLabel ?? '启动中';
     final detail = run?.detail ?? '正在启动本轮 Agent 任务。';
-    final calls = run == null
-        ? ''
-        : ' · 工具 ${run!.toolCallsUsed}/${run!.maxToolCalls}';
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
@@ -179,16 +175,11 @@ class _AgentRunStatusBar extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                '$phase$calls\n$detail',
+                '$phase\n$detail',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
-            ),
-            IconButton(
-              tooltip: '停止本轮任务',
-              onPressed: onCancelRun,
-              icon: const Icon(Icons.stop_circle_outlined),
             ),
           ],
         ),

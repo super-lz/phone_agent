@@ -27,6 +27,7 @@ enum AppLogLevel {
 class AppLogger {
   AppLogger._();
 
+  static const int _consoleChunkSize = 3000;
   static File? _logFile;
   static IOSink? _sink;
   static AppLogLevel consoleLevel = AppLogLevel.info;
@@ -45,7 +46,7 @@ class AppLogger {
       _sink = _logFile!.openWrite(mode: FileMode.append);
       info('logger.initialized', {'path': _logFile!.path});
     } on Object catch (error, stackTrace) {
-      debugPrint('[ERROR] logger.initialize_failed $error\n$stackTrace');
+      _printToConsole('[ERROR] logger.initialize_failed $error\n$stackTrace');
     }
   }
 
@@ -89,9 +90,25 @@ class AppLogger {
         '${DateTime.now().toIso8601String()} ${level.label} $event ${_formatData(data)}'
             .trimRight();
     if (level.index >= consoleLevel.index) {
-      debugPrint(line);
+      _printToConsole(line);
     }
     _sink?.writeln(line);
+  }
+
+  static void _printToConsole(String line) {
+    if (line.length <= _consoleChunkSize) {
+      debugPrint(line);
+      return;
+    }
+
+    final chunkCount = (line.length / _consoleChunkSize).ceil();
+    for (var index = 0; index < chunkCount; index += 1) {
+      final start = index * _consoleChunkSize;
+      final end = (start + _consoleChunkSize).clamp(0, line.length);
+      debugPrint(
+        '[chunk ${index + 1}/$chunkCount] ${line.substring(start, end)}',
+      );
+    }
   }
 
   static String _formatData(Map<String, Object?> data) {
