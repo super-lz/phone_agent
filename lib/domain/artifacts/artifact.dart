@@ -7,6 +7,7 @@ enum ArtifactType {
   taskList,
   file,
   webApp,
+  location,
 }
 
 class AgentArtifact {
@@ -50,6 +51,8 @@ extension ArtifactTypeLabel on ArtifactType {
         return '文件';
       case ArtifactType.webApp:
         return 'Web App';
+      case ArtifactType.location:
+        return '位置信息';
     }
   }
 }

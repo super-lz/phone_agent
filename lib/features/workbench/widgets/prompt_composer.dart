@@ -30,123 +30,158 @@ class PromptComposer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final keyboardBottom = MediaQuery.viewInsetsOf(context).bottom;
+    final colorScheme = Theme.of(context).colorScheme;
+
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.only(bottom: keyboardBottom),
       child: SafeArea(
         top: false,
-        child: DecoratedBox(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
+            color: colorScheme.surface,
             border: Border(
-              top: BorderSide(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
+              top: BorderSide(color: Colors.grey.shade200),
             ),
           ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (isSending) ...[
-                  const LinearProgressIndicator(),
-                  const SizedBox(height: 8),
-                  _AgentRunStatusBar(run: currentRun),
-                  const SizedBox(height: 8),
-                ],
-                if (pendingAttachments.isNotEmpty) ...[
-                  _PendingAttachmentStrip(
-                    attachments: pendingAttachments,
-                    onRemove: onRemovePendingAttachment,
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isSending && currentRun != null) ...[
+                _AgentRunStatusBar(run: currentRun),
+                const SizedBox(height: 8),
+              ],
+              if (pendingAttachments.isNotEmpty) ...[
+                _PendingAttachmentStrip(
+                  attachments: pendingAttachments,
+                  onRemove: onRemovePendingAttachment,
+                ),
+                const SizedBox(height: 8),
+              ],
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F4F6),
+                  borderRadius: BorderRadius.circular(28),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     IconButton(
-                      tooltip: '添加文件',
-                      icon: const Icon(Icons.attach_file),
-                      onPressed: isSending ? null : onAddFile,
-                    ),
-                    IconButton(
-                      tooltip: '添加图片',
-                      icon: const Icon(Icons.image_outlined),
-                      onPressed: isSending ? null : onAddImage,
+                      tooltip: '添加附件',
+                      icon: Icon(
+                        Icons.add_circle_outline,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      onPressed: isSending
+                          ? null
+                          : () => _showAttachmentMenu(context),
                     ),
                     Expanded(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(
-                          minHeight: 44,
-                          maxHeight: 132,
-                        ),
-                        child: TextField(
-                          controller: controller,
-                          minLines: 1,
-                          maxLines: 4,
-                          textInputAction: TextInputAction.send,
-                          decoration: InputDecoration(
-                            hintText: '输入任务',
-                            isDense: true,
-                            filled: true,
-                            fillColor: const Color(0xFFF7FAF6),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
-                            ),
-                            border: _composerBorder(context),
-                            enabledBorder: _composerBorder(context),
+                      child: TextField(
+                        controller: controller,
+                        minLines: 1,
+                        maxLines: 5,
+                        textInputAction: TextInputAction.send,
+                        style: const TextStyle(fontSize: 16),
+                        decoration: const InputDecoration(
+                          hintText: '问我任何问题...',
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 10,
                           ),
-                          onSubmitted: (_) {
-                            if (!isSending) {
-                              onSendPrompt();
-                            }
-                          },
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          filled: false,
                         ),
+                        onSubmitted: (_) {
+                          if (!isSending && controller.text.trim().isNotEmpty) {
+                            onSendPrompt();
+                          }
+                        },
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    if (isSending)
-                      FilledButton.tonalIcon(
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size(74, 44),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(22),
+                    const SizedBox(width: 4),
+                    ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: controller,
+                      builder: (context, value, child) {
+                        final canSend = !isSending &&
+                            (value.text.trim().isNotEmpty ||
+                                pendingAttachments.isNotEmpty);
+
+                        if (isSending) {
+                          return IconButton.filled(
+                            onPressed: onCancelRun,
+                            icon: const Icon(Icons.stop, size: 20),
+                            style: IconButton.styleFrom(
+                              backgroundColor: colorScheme.primary,
+                              foregroundColor: colorScheme.onPrimary,
+                              minimumSize: const Size(40, 40),
+                            ),
+                          );
+                        }
+
+                        return IconButton.filled(
+                          onPressed: canSend ? onSendPrompt : null,
+                          icon: const Icon(Icons.arrow_upward, size: 20),
+                          style: IconButton.styleFrom(
+                            backgroundColor: colorScheme.primary,
+                            foregroundColor: colorScheme.onPrimary,
+                            disabledBackgroundColor: Colors.grey.shade300,
+                            disabledForegroundColor: Colors.white,
+                            minimumSize: const Size(40, 40),
                           ),
-                        ),
-                        onPressed: onCancelRun,
-                        icon: const Icon(Icons.stop_circle_outlined, size: 18),
-                        label: const Text('停止'),
-                      )
-                    else
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size(68, 44),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(22),
-                          ),
-                        ),
-                        onPressed: onSendPrompt,
-                        child: const Text('发送'),
-                      ),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 4),
                   ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  OutlineInputBorder _composerBorder(BuildContext context) {
-    return OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide(
-        color: Theme.of(context).colorScheme.outlineVariant,
+  void _showAttachmentMenu(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.image_outlined),
+                title: const Text('上传图片'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onAddImage();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.insert_drive_file_outlined),
+                title: const Text('上传文件'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onAddFile();
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -160,29 +195,33 @@ class _AgentRunStatusBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final phase = run?.phaseLabel ?? '启动中';
-    final detail = run?.detail ?? '正在启动本轮 Agent 任务。';
-    return DecoratedBox(
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colorScheme.outlineVariant),
+        color: colorScheme.primaryContainer.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(16),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Row(
-          children: [
-            Icon(Icons.radar_outlined, size: 18, color: colorScheme.primary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                '$phase\n$detail',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation(colorScheme.primary),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            phase,
+            style: TextStyle(
+              fontSize: 12,
+              color: colorScheme.primary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }

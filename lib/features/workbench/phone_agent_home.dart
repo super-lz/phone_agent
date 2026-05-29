@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:open_filex/open_filex.dart';
 
 import '../../application/capabilities/capability_runtime.dart';
 import '../../data/models/model_api_key_store.dart';
@@ -16,13 +14,14 @@ import '../../domain/conversation/message_block.dart';
 import '../../domain/files/app_file_store.dart';
 import '../../domain/memory/memory.dart';
 import '../../domain/notes/note_store.dart';
-import '../../domain/permissions/permission_policy.dart';
 import '../../domain/workbench/workbench_store.dart';
 import '../settings/model_settings_page.dart';
 import '../settings/permission_settings_page.dart';
 import '../web_app_runtime/web_app_runtime_page.dart';
+import 'audit_log_page.dart';
 import 'controllers/workbench_controller.dart';
 import 'widgets/chat_panel.dart';
+import 'widgets/file_preview_page.dart';
 import 'widgets/local_data_clear_dialog.dart';
 import 'widgets/runtime_panel.dart';
 import 'widgets/workbench_shell.dart';
@@ -261,42 +260,59 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
 
   Future<void> _openWorkspaceFile(AppFileEntry entry) async {
     try {
+      final extension = entry.path.split('.').last.toLowerCase();
+      final isOfficeOrPdf = const {
+        'pdf',
+        'docx',
+        'xlsx',
+        'pptx',
+      }.contains(extension);
+      final isImage = const {
+        'png',
+        'jpg',
+        'jpeg',
+        'gif',
+        'webp',
+        'bmp',
+        'heic',
+      }.contains(extension);
+
+      if (isOfficeOrPdf) {
+        final filePath = entry.uri.toFilePath();
+        try {
+          final result = await OpenFilex.open(filePath);
+          if (result.type == ResultType.done) {
+            return;
+          }
+        } catch (_) {}
+      }
+
+      if (isImage) {
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (context) => FilePreviewPage(
+              entry: entry,
+              content: '', // Images don't need text content
+            ),
+          ),
+        );
+        return;
+      }
+
+      // Only read as text if it's not a known binary format
       final content = await _controller.readWorkspaceFile(entry);
       if (!mounted) {
         return;
       }
-      await showDialog<void>(
-        context: context,
-        builder: (context) {
-          return AlertDialog(
-            title: Text(entry.path),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: SingleChildScrollView(
-                child: SelectableText(
-                  content.content,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ),
-            ),
-            actions: [
-              TextButton.icon(
-                onPressed: () => _shareWorkspaceFile(entry),
-                icon: const Icon(Icons.ios_share),
-                label: const Text('分享'),
-              ),
-              TextButton.icon(
-                onPressed: () => _saveWorkspaceFile(entry),
-                icon: const Icon(Icons.save_alt),
-                label: const Text('另存'),
-              ),
-              FilledButton.tonal(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('关闭'),
-              ),
-            ],
-          );
-        },
+
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (context) => FilePreviewPage(
+            entry: entry,
+            content: content.content,
+          ),
+        ),
       );
     } on Object catch (error) {
       if (!mounted) {
@@ -305,56 +321,6 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('打开文件失败：$error')));
-    }
-  }
-
-  Future<void> _shareWorkspaceFile(AppFileEntry entry) async {
-    try {
-      final content = await _controller.readWorkspaceFile(entry);
-      final bytes = Uint8List.fromList(utf8.encode(content.content));
-      await Share.shareXFiles(
-        [
-          XFile.fromData(
-            bytes,
-            name: _fileName(entry.path),
-            mimeType: _mimeTypeForWorkspaceFile(entry.path),
-          ),
-        ],
-        subject: entry.path,
-        fileNameOverrides: [_fileName(entry.path)],
-      );
-    } on Object catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('分享文件失败：$error')));
-    }
-  }
-
-  Future<void> _saveWorkspaceFile(AppFileEntry entry) async {
-    try {
-      final content = await _controller.readWorkspaceFile(entry);
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: '保存工作区文件',
-        fileName: _fileName(entry.path),
-        bytes: Uint8List.fromList(utf8.encode(content.content)),
-        type: FileType.any,
-      );
-      if (!mounted || path == null) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('已保存到：$path')));
-    } on Object catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('保存文件失败：$error')));
     }
   }
 
@@ -388,132 +354,223 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
     }
   }
 
-  String _fileName(String path) {
-    final normalized = path.replaceAll('\\', '/');
-    final parts = normalized.split('/');
-    return parts.isEmpty ? normalized : parts.last;
-  }
-
-  String _mimeTypeForWorkspaceFile(String path) {
-    final lower = path.toLowerCase();
-    if (lower.endsWith('.html') || lower.endsWith('.htm')) {
-      return 'text/html';
-    }
-    if (lower.endsWith('.md')) {
-      return 'text/markdown';
-    }
-    if (lower.endsWith('.json')) {
-      return 'application/json';
-    }
-    if (lower.endsWith('.csv')) {
-      return 'text/csv';
-    }
-    if (lower.endsWith('.png')) {
-      return 'image/png';
-    }
-    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
-      return 'image/jpeg';
-    }
-    if (lower.endsWith('.webp')) {
-      return 'image/webp';
-    }
-    return 'text/plain';
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      resizeToAvoidBottomInset: false,
-      appBar: AppBar(
-        title: const Text('Phone Agent'),
-        actions: [
-          IconButton(
-            tooltip: '清理本地数据',
-            icon: const Icon(Icons.cleaning_services_outlined),
-            onPressed: _confirmClearLocalData,
-          ),
-          IconButton(
-            tooltip: '权限管理',
-            icon: const Icon(Icons.privacy_tip_outlined),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (context) => PermissionSettingsPage(
-                    permissionService: _permissionService,
-                  ),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            tooltip: '模型设置',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (context) => ModelSettingsPage(
-                    apiKeyStore: _apiKeyStore,
-                    modelSettingsStore: _modelSettingsStore,
-                  ),
-                ),
-              );
-            },
-          ),
-          DropdownButtonHideUnderline(
-            child: DropdownButton(
-              value: _controller.permissionMode,
-              items: _controller.permissionModes
-                  .map(
-                    (mode) =>
-                        DropdownMenuItem(value: mode, child: Text(mode.label)),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 1000;
+        return Scaffold(
+          resizeToAvoidBottomInset: false,
+          appBar: AppBar(
+            title: Text(
+              _controller.currentWorkspace.name,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            leading: isMobile
+                ? Builder(
+                    builder: (context) => IconButton(
+                      icon: const Icon(Icons.menu),
+                      onPressed: () => Scaffold.of(context).openDrawer(),
+                    ),
                   )
-                  .toList(),
-              onChanged: _controller.setPermissionMode,
+                : null,
+            actions: [
+              if (isMobile)
+                Builder(
+                  builder: (context) => IconButton(
+                    tooltip: '资源与运行时',
+                    icon: const Icon(Icons.hub_outlined),
+                    onPressed: () {
+                      unawaited(_controller.refreshWorkspaceFiles());
+                      Scaffold.of(context).openEndDrawer();
+                    },
+                  ),
+                ),
+              if (!isMobile) ...[
+                IconButton(
+                  tooltip: '清理本地数据',
+                  icon: const Icon(Icons.cleaning_services_outlined),
+                  onPressed: _confirmClearLocalData,
+                ),
+                IconButton(
+                  tooltip: '审计日志',
+                  icon: const Icon(Icons.history_outlined),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (context) => AuditLogPage(
+                          workbenchStore: widget.workbenchStore!,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                IconButton(
+                  tooltip: '权限管理',
+                  icon: const Icon(Icons.privacy_tip_outlined),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (context) => PermissionSettingsPage(
+                          permissionService: _permissionService,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                IconButton(
+                  tooltip: '模型设置',
+                  icon: const Icon(Icons.settings_outlined),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (context) => ModelSettingsPage(
+                          apiKeyStore: _apiKeyStore,
+                          modelSettingsStore: _modelSettingsStore,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+              const SizedBox(width: 8),
+            ],
+          ),
+          drawer: isMobile
+              ? Drawer(
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: WorkspacePanel(
+                          workspaces: _controller.workspaces,
+                          selectedWorkspaceId: _controller.workspaceId,
+                          visibleMemories: _controller.visibleMemories,
+                          onCreateWorkspace: _controller.createWorkspace,
+                          onSelectWorkspace: (id) {
+                            _controller.setWorkspace(id);
+                            Navigator.pop(context);
+                          },
+                          onCreateMemory: _openMemoryEditor,
+                          onEditMemory: _openMemoryEditor,
+                          onDeleteMemory: _confirmDeleteMemory,
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: const Icon(Icons.history_outlined),
+                        title: const Text('操作审计日志'),
+                        onTap: () {
+                          Navigator.pop(context);
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (context) => AuditLogPage(
+                                workbenchStore: widget.workbenchStore!,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.privacy_tip_outlined),
+                        title: const Text('权限管理'),
+                        onTap: () {
+                          Navigator.pop(context);
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (context) => PermissionSettingsPage(
+                                permissionService: _permissionService,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.settings_outlined),
+                        title: const Text('模型设置'),
+                        onTap: () {
+                          Navigator.pop(context);
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (context) => ModelSettingsPage(
+                                apiKeyStore: _apiKeyStore,
+                                modelSettingsStore: _modelSettingsStore,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.cleaning_services_outlined),
+                        title: const Text('清理本地数据'),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _confirmClearLocalData();
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                  ),
+                )
+              : null,
+          endDrawer: isMobile
+              ? Drawer(
+                  width: MediaQuery.of(context).size.width * 0.85,
+                  child: RuntimePanel(
+                    artifacts: _controller.workspaceArtifacts,
+                    files: _controller.workspaceFiles,
+                    notes: _controller.workspaceNotes,
+                    capabilities: _controller.capabilities,
+                    permissionMode: _controller.permissionMode,
+                    onOpenWebApp: _openWebApp,
+                    onOpenFile: _openWorkspaceFile,
+                    onRefreshFiles: () {
+                      unawaited(_controller.refreshWorkspaceFiles());
+                    },
+                  ),
+                )
+              : null,
+          body: WorkbenchShell(
+            workspacePanel: WorkspacePanel(
+              workspaces: _controller.workspaces,
+              selectedWorkspaceId: _controller.workspaceId,
+              visibleMemories: _controller.visibleMemories,
+              onCreateWorkspace: _controller.createWorkspace,
+              onSelectWorkspace: _controller.setWorkspace,
+              onCreateMemory: _openMemoryEditor,
+              onEditMemory: _openMemoryEditor,
+              onDeleteMemory: _confirmDeleteMemory,
+            ),
+            chatPanel: ChatPanel(
+              workspace: _controller.currentWorkspace,
+              messages: _controller.messages,
+              composerController: _composerController,
+              isSending: _controller.isSending,
+              currentRun: _controller.currentRun,
+              onSendPrompt: _sendPrompt,
+              onCancelRun: _controller.cancelCurrentRun,
+              onOpenWebAppArtifact: _openWebAppArtifact,
+              onApproveCapability: _controller.approveCapabilityRequest,
+              onDenyCapability: _controller.denyCapabilityRequest,
+              pendingAttachments: List.unmodifiable(_pendingAttachments),
+              onAddFile: _pickFileAttachment,
+              onAddImage: _pickImageAttachment,
+              onRemovePendingAttachment: _removePendingAttachment,
+            ),
+            runtimePanel: RuntimePanel(
+              artifacts: _controller.workspaceArtifacts,
+              files: _controller.workspaceFiles,
+              notes: _controller.workspaceNotes,
+              capabilities: _controller.capabilities,
+              permissionMode: _controller.permissionMode,
+              onOpenWebApp: _openWebApp,
+              onOpenFile: _openWorkspaceFile,
+              onRefreshFiles: () {
+                unawaited(_controller.refreshWorkspaceFiles());
+              },
             ),
           ),
-          const SizedBox(width: 12),
-        ],
-      ),
-      body: WorkbenchShell(
-        workspacePanel: WorkspacePanel(
-          workspaces: _controller.workspaces,
-          selectedWorkspaceId: _controller.workspaceId,
-          visibleMemories: _controller.visibleMemories,
-          onCreateWorkspace: _controller.createWorkspace,
-          onSelectWorkspace: _controller.setWorkspace,
-          onCreateMemory: _openMemoryEditor,
-          onEditMemory: _openMemoryEditor,
-          onDeleteMemory: _confirmDeleteMemory,
-        ),
-        chatPanel: ChatPanel(
-          workspace: _controller.currentWorkspace,
-          messages: _controller.messages,
-          composerController: _composerController,
-          isSending: _controller.isSending,
-          currentRun: _controller.currentRun,
-          onSendPrompt: _sendPrompt,
-          onCancelRun: _controller.cancelCurrentRun,
-          onOpenWebAppArtifact: _openWebAppArtifact,
-          onApproveCapability: _controller.approveCapabilityRequest,
-          onDenyCapability: _controller.denyCapabilityRequest,
-          pendingAttachments: List.unmodifiable(_pendingAttachments),
-          onAddFile: _pickFileAttachment,
-          onAddImage: _pickImageAttachment,
-          onRemovePendingAttachment: _removePendingAttachment,
-        ),
-        runtimePanel: RuntimePanel(
-          artifacts: _controller.workspaceArtifacts,
-          files: _controller.workspaceFiles,
-          notes: _controller.workspaceNotes,
-          capabilities: _controller.capabilities,
-          permissionMode: _controller.permissionMode,
-          onOpenWebApp: _openWebApp,
-          onOpenFile: _openWorkspaceFile,
-          onRefreshFiles: () {
-            unawaited(_controller.refreshWorkspaceFiles());
-          },
-        ),
-      ),
+        );
+      },
     );
   }
 }

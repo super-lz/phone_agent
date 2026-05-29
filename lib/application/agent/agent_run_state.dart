@@ -1,4 +1,5 @@
 enum AgentRunPhase {
+  thinking,
   routing,
   modelStreaming,
   waitingForToolCall,
@@ -38,9 +39,10 @@ class AgentRunSnapshot {
 
   String get phaseLabel {
     return switch (phase) {
-      AgentRunPhase.routing => '规划工具',
-      AgentRunPhase.modelStreaming => '模型响应',
-      AgentRunPhase.waitingForToolCall => '等待工具调用',
+      AgentRunPhase.thinking => '正在思考',
+      AgentRunPhase.routing => '准备工具',
+      AgentRunPhase.modelStreaming => '正在思考',
+      AgentRunPhase.waitingForToolCall => '调用工具',
       AgentRunPhase.executingTool => '执行工具',
       AgentRunPhase.waitingForeground => '等待前台',
       AgentRunPhase.finalizing => '整理回答',

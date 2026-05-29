@@ -255,34 +255,65 @@ class OfficeCapabilityHandler {
       return extractResult;
     }
     final content = officeString(extractResult.output['content']) ?? '';
+    
+    // Normalize content and oldText for comparison (remove/normalize whitespace)
+    final normalizedContent = content.replaceAll(RegExp(r'\s+'), ' ');
+    final normalizedOldText = oldText.replaceAll(RegExp(r'\s+'), ' ');
+    
     final matches = oldText.allMatches(content).length;
-    if (matches == 0) {
+    final normalizedMatches = RegExp(RegExp.escape(normalizedOldText)).allMatches(normalizedContent).length;
+
+    if (matches == 0 && normalizedMatches == 0) {
       return const CapabilityExecutionResult(
         capabilityId: 'document.apply_text_patch',
         output: {'ok': false, 'error': 'old_text_not_found'},
       );
     }
-    if (matches > 1 && arguments['replace_all'] != true) {
-      return CapabilityExecutionResult(
-        capabilityId: 'document.apply_text_patch',
-        output: {
-          'ok': false,
-          'error': 'old_text_not_unique',
-          'matches': matches,
-        },
+    
+    // Fallback to fuzzy match if exact match fails
+    String finalPatchedContent = content;
+    int finalReplacements = 0;
+
+    if (matches > 0) {
+      if (matches > 1 && arguments['replace_all'] != true) {
+        return CapabilityExecutionResult(
+          capabilityId: 'document.apply_text_patch',
+          output: {
+            'ok': false,
+            'error': 'old_text_not_unique',
+            'matches': matches,
+          },
+        );
+      }
+      finalPatchedContent = arguments['replace_all'] == true
+          ? content.replaceAll(oldText, newText)
+          : content.replaceFirst(oldText, newText);
+      finalReplacements = matches;
+    } else {
+      // Fuzzy match replacement logic
+      // Note: This is a best-effort approach for complex Office formats
+      // We look for the first block that matches the normalized text
+      final pattern = RegExp(
+        oldText.split(RegExp(r'\s+')).map(RegExp.escape).join(r'\s+'),
+        dotAll: true,
       );
+      if (arguments['replace_all'] == true) {
+        finalReplacements = pattern.allMatches(content).length;
+        finalPatchedContent = content.replaceAll(pattern, newText);
+      } else {
+        finalReplacements = 1;
+        finalPatchedContent = content.replaceFirst(pattern, newText);
+      }
     }
-    final patched = arguments['replace_all'] == true
-        ? content.replaceAll(oldText, newText)
-        : content.replaceFirst(oldText, newText);
+
     final format = officeExtension(path);
     final outputPath =
         officeString(arguments['output_path']) ??
         officePatchedPath(path, format);
     final title = officeString(arguments['title']) ?? 'Patched Document';
     final bytes = format == 'pdf'
-        ? codec.encodePdf(title: title, body: patched)
-        : codec.encodeDocx(title: title, body: patched);
+        ? codec.encodePdf(title: title, body: finalPatchedContent)
+        : codec.encodeDocx(title: title, body: finalPatchedContent);
     return _writeGenerated(
       capabilityId: 'document.apply_text_patch',
       workspaceId: workspaceId,
@@ -290,7 +321,7 @@ class OfficeCapabilityHandler {
       bytes: bytes,
       fileStore: fileStore,
       summary: '已完成受控局部修改并生成新文件：$outputPath。',
-      extra: {'preservedFormatting': false, 'replacements': matches},
+      extra: {'preservedFormatting': false, 'replacements': finalReplacements},
     );
   }
 

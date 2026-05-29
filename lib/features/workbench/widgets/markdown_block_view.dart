@@ -100,17 +100,40 @@ class _MarkdownText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDarkBackground = theme.textTheme.bodyMedium?.color == Colors.white;
+
     return MarkdownBody(
       data: MarkdownTextRepair.repair(content),
+      selectable: true,
       styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-        p: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
-        listBullet: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
+        p: theme.textTheme.bodyMedium?.copyWith(height: 1.6, fontSize: 15),
+        listBullet: theme.textTheme.bodyMedium?.copyWith(height: 1.6, fontSize: 15),
         blockquoteDecoration: BoxDecoration(
-          color: const Color(0xFFF6F8F5),
-          border: const Border(left: BorderSide(color: Color(0xFF9BB49E))),
+          color: isDarkBackground
+              ? Colors.white.withValues(alpha: 0.1)
+              : Colors.grey.shade100,
+          border: Border(
+            left: BorderSide(
+              color: isDarkBackground ? Colors.white54 : Colors.grey.shade300,
+              width: 4,
+            ),
+          ),
           borderRadius: BorderRadius.circular(4),
         ),
-        blockSpacing: 10,
+        code: theme.textTheme.bodyMedium?.copyWith(
+          backgroundColor: isDarkBackground
+              ? Colors.white.withValues(alpha: 0.15)
+              : Colors.grey.shade100,
+          fontFamily: 'monospace',
+          fontSize: 13,
+        ),
+        codeblockDecoration: BoxDecoration(
+          color: isDarkBackground
+              ? Colors.white.withValues(alpha: 0.1)
+              : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        blockSpacing: 12,
       ),
     );
   }

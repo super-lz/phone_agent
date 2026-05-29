@@ -8,7 +8,6 @@ import 'load_earlier_messages_button.dart';
 import 'message_display_coalescer.dart';
 import 'message_view.dart';
 import 'prompt_composer.dart';
-import 'workspace_header.dart';
 
 class ChatPanel extends StatefulWidget {
   const ChatPanel({
@@ -322,8 +321,6 @@ class _ChatPanelState extends State<ChatPanel> {
         : allDisplayMessages;
     return Column(
       children: [
-        WorkspaceHeader(workspace: widget.workspace),
-        const Divider(height: 1),
         Expanded(
           child: Stack(
             children: [

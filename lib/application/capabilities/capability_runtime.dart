@@ -17,11 +17,13 @@ import 'artifact_capability_handler.dart';
 import 'capability_execution_result.dart';
 import 'capability_tool_definitions.dart';
 import 'file_capability_handler.dart';
+import 'mcp_manager.dart';
 import 'memory_capability_handler.dart';
 import 'native_capability_handler.dart';
 import 'note_capability_handler.dart';
 import 'office_capability_handler.dart';
 import 'project_capability_handler.dart';
+import 'skill_sandbox.dart';
 import 'web_capability_handler.dart';
 import 'workspace_capability_handler.dart';
 
@@ -32,7 +34,9 @@ class CapabilityRuntime {
   }) : _webHandler = WebCapabilityHandler(webAdapter: webAdapter),
        _nativeHandler = NativeCapabilityHandler(
          adapter: nativeAdapter ?? NativeCapabilityAdapter(),
-       );
+       ) {
+    _initSkillSandbox();
+  }
 
   final MemoryCapabilityHandler _memoryHandler =
       const MemoryCapabilityHandler();
@@ -48,8 +52,16 @@ class CapabilityRuntime {
   final NativeCapabilityHandler _nativeHandler;
   final OfficeCapabilityHandler _officeHandler =
       const OfficeCapabilityHandler();
+  final McpManager _mcpManager = McpManager();
   final CapabilityToolDefinitions _toolDefinitions =
       const CapabilityToolDefinitions();
+
+  void _initSkillSandbox() {
+    SkillSandbox.instance.onCallCapability = (capabilityId, input) async {
+      AppLogger.info('capability.skill_bridge.callback', {'id': capabilityId});
+      return {'ok': false, 'error': 'Background bridge not fully implemented'};
+    };
+  }
 
   Future<CapabilityExecutionResult> execute({
     required ToolCallRequest toolCall,
@@ -88,7 +100,9 @@ class CapabilityRuntime {
           workspaces: workspaces,
           noteStore: noteStore,
           fileStore: fileStore,
+          workbenchStore: workbenchStore,
           apiKey: apiKey,
+          permissionMode: permissionMode,
         );
     await _persistResultSideEffects(
       result: result,
@@ -117,7 +131,9 @@ class CapabilityRuntime {
     List<AgentWorkspace>? workspaces,
     AgentNoteStore? noteStore,
     AppFileStore? fileStore,
+    WorkbenchStore? workbenchStore,
     String? apiKey,
+    required PermissionMode permissionMode,
   }) async {
     switch (toolCall.name) {
       case 'memory_create':
@@ -325,10 +341,32 @@ class CapabilityRuntime {
       case 'skill_install':
         return await _installSkill(toolCall.arguments);
       case 'skill_invoke':
-        return _skillInvokeUnavailable(toolCall.arguments);
+        return await _invokeSkill(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          memories: memories,
+          notes: notes,
+          artifacts: artifacts,
+          workspaces: workspaces,
+          noteStore: noteStore,
+          fileStore: fileStore,
+          workbenchStore: workbenchStore,
+          apiKey: apiKey,
+          permissionMode: permissionMode,
+        );
       case 'mcp_connect':
-        return _connectMcp(toolCall.arguments);
+        return await _connectMcp(toolCall.arguments);
       default:
+        // Try MCP tools
+        final mcpResult =
+            await _mcpManager.callTool(toolCall.name, toolCall.arguments);
+        if (mcpResult['ok'] == true) {
+          return CapabilityExecutionResult(
+            capabilityId: toolCall.name,
+            output: mcpResult['result'] as Map<String, Object?>,
+          );
+        }
+
         return CapabilityExecutionResult(
           capabilityId: toolCall.name,
           output: {'ok': false, 'error': 'Unsupported tool: ${toolCall.name}'},
@@ -402,27 +440,91 @@ class CapabilityRuntime {
     );
   }
 
-  CapabilityExecutionResult _skillInvokeUnavailable(
-    Map<String, Object?> arguments,
-  ) {
+  Future<CapabilityExecutionResult> _invokeSkill({
+    required String workspaceId,
+    required Map<String, Object?> arguments,
+    required List<AgentMemory> memories,
+    required List<AgentNote> notes,
+    required List<AgentArtifact> artifacts,
+    List<AgentWorkspace>? workspaces,
+    AgentNoteStore? noteStore,
+    AppFileStore? fileStore,
+    WorkbenchStore? workbenchStore,
+    String? apiKey,
+    required PermissionMode permissionMode,
+  }) async {
     final skillId = arguments['skill_id'] ?? arguments['skillId'];
-    return CapabilityExecutionResult(
-      capabilityId: 'skill.invoke',
-      output: {
-        'ok': false,
-        'error': 'execution_backend_unavailable',
-        'detail': '当前版本还没有安全脚本执行后端，不能直接执行 Skill 脚本。',
-        if (skillId is String) 'skillId': skillId,
-      },
-    );
+    final input = arguments['input'] as Map<String, Object?>? ?? {};
+
+    if (skillId is! String || skillId.trim().isEmpty) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'skill.invoke',
+        output: {'ok': false, 'error': 'skill_id is required'},
+      );
+    }
+
+    // Update the callback with current state before execution
+    SkillSandbox.instance.onCallCapability = (cid, input) async {
+      final res = await execute(
+        toolCall: ToolCallRequest(
+          id: 'skill-callback-${DateTime.now().microsecondsSinceEpoch}',
+          name: _capabilityIdForToolName(cid),
+          arguments: input,
+        ),
+        workspaceId: workspaceId,
+        memories: memories,
+        notes: notes,
+        artifacts: artifacts,
+        workspaces: workspaces,
+        noteStore: noteStore,
+        fileStore: fileStore,
+        workbenchStore: workbenchStore,
+        apiKey: apiKey,
+        permissionMode: permissionMode,
+        skipPermissionCheck: true, // Callback is pre-approved by the skill execution
+      );
+      return res.output;
+    };
+
+    try {
+      final script = arguments['script'] as String?;
+      if (script == null || script.trim().isEmpty) {
+        return const CapabilityExecutionResult(
+          capabilityId: 'skill.invoke',
+          output: {
+            'ok': false,
+            'error': 'script_required',
+            'detail': '第一版 Skill Invoke 需要直接提供 script 参数。',
+          },
+        );
+      }
+      final result = await SkillSandbox.instance.execute(script, context: input);
+
+      return CapabilityExecutionResult(
+        capabilityId: 'skill.invoke',
+        output: result,
+      );
+    } catch (e) {
+      return CapabilityExecutionResult(
+        capabilityId: 'skill.invoke',
+        output: {
+          'ok': false,
+          'error': 'execution_failed',
+          'detail': e.toString(),
+        },
+      );
+    }
   }
 
-  CapabilityExecutionResult _connectMcp(Map<String, Object?> arguments) {
+  Future<CapabilityExecutionResult> _connectMcp(
+    Map<String, Object?> arguments,
+  ) async {
     final rawUrl = arguments['url'];
     final rawTransport = arguments['transport'];
-    final transport = rawTransport is String && rawTransport.trim().isNotEmpty
-        ? rawTransport.trim().toLowerCase()
-        : 'http';
+    final transport =
+        rawTransport is String && rawTransport.trim().isNotEmpty
+            ? rawTransport.trim().toLowerCase()
+            : 'http';
     if (rawUrl is! String || rawUrl.trim().isEmpty) {
       return const CapabilityExecutionResult(
         capabilityId: 'mcp.connect',
@@ -452,17 +554,31 @@ class CapabilityRuntime {
         },
       );
     }
-    return CapabilityExecutionResult(
-      capabilityId: 'mcp.connect',
-      output: {
-        'ok': true,
-        'connection': {
-          'url': uri.toString(),
-          'transport': transport,
-          'status': 'configured',
+
+    try {
+      final session = await _mcpManager.connect(uri.toString(), transport);
+      return CapabilityExecutionResult(
+        capabilityId: 'mcp.connect',
+        output: {
+          'ok': true,
+          'connection': {
+            'url': uri.toString(),
+            'transport': transport,
+            'status': 'connected',
+            'toolsCount': session.tools.length,
+          },
         },
-      },
-    );
+      );
+    } catch (e) {
+      return CapabilityExecutionResult(
+        capabilityId: 'mcp.connect',
+        output: {
+          'ok': false,
+          'error': 'connection_failed',
+          'detail': e.toString(),
+        },
+      );
+    }
   }
 
   Future<void> _persistResultSideEffects({
@@ -545,11 +661,12 @@ class CapabilityRuntime {
         capabilityId: result.capabilityId,
         input: toolCall.arguments,
         status: status,
-        permissionDecision: skippedPermissionCheck
-            ? 'approved'
-            : permissionDecision is String
-            ? permissionDecision
-            : permissionMode.name,
+        permissionDecision:
+            skippedPermissionCheck
+                ? 'approved'
+                : permissionDecision is String
+                ? permissionDecision
+                : permissionMode.name,
         output: result.output,
         error: error is String ? error : null,
         createdAt: DateTime.now(),
@@ -573,7 +690,9 @@ class CapabilityRuntime {
   }
 
   List<Map<String, Object?>> get toolDefinitions {
-    return _toolDefinitions.all;
+    final staticTools = _toolDefinitions.all;
+    final dynamicTools = _mcpManager.allTools.map((t) => t.toToolMap());
+    return [...staticTools, ...dynamicTools];
   }
 
   CapabilityExecutionResult? _permissionBlockedResult({

@@ -58,14 +58,16 @@ class _PermissionSettingsPageState extends State<PermissionSettingsPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF9FAFB),
       appBar: AppBar(
         title: const Text('权限管理'),
         actions: [
           IconButton(
-            tooltip: '刷新权限状态',
-            icon: const Icon(Icons.refresh_outlined),
+            tooltip: '刷新',
+            icon: const Icon(Icons.refresh),
             onPressed: _reload,
           ),
+          const SizedBox(width: 8),
         ],
       ),
       body: FutureBuilder<List<AppPermissionSnapshot>>(
@@ -76,17 +78,19 @@ class _PermissionSettingsPageState extends State<PermissionSettingsPage>
               data == null) {
             return const Center(child: CircularProgressIndicator());
           }
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
+          return ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            itemCount: data.length,
             itemBuilder: (context, index) {
-              return _PermissionTile(
-                snapshot: data[index],
-                onRequest: () => _request(data[index].descriptor.id),
-                onOpenSettings: _openSettings,
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: _PermissionTile(
+                  snapshot: data[index],
+                  onRequest: () => _request(data[index].descriptor.id),
+                  onOpenSettings: _openSettings,
+                ),
               );
             },
-            separatorBuilder: (context, index) => const SizedBox(height: 12),
-            itemCount: data.length,
           );
         },
       ),
@@ -108,59 +112,94 @@ class _PermissionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final descriptor = snapshot.descriptor;
+    final colorScheme = Theme.of(context).colorScheme;
     return Card(
-      margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    _iconFor(descriptor.id),
+                    size: 20,
+                    color: colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     descriptor.title,
-                    style: Theme.of(context).textTheme.titleMedium,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 _StatusChip(status: snapshot.status),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Text(
               descriptor.description,
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: const TextStyle(fontSize: 14, color: Color(0xFF4B5563)),
             ),
-            const SizedBox(height: 6),
-            Text(snapshot.detail, style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
+            Text(
+              snapshot.detail,
+              style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              '影响的能力:',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF6B7280),
+              ),
+            ),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 6,
               runSpacing: 6,
               children: [
                 for (final capability in descriptor.affectedCapabilities)
-                  Chip(
-                    label: Text(capability),
-                    visualDensity: VisualDensity.compact,
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      capability,
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                    ),
                   ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 if (snapshot.canRequestInApp)
-                  FilledButton.tonalIcon(
+                  FilledButton.icon(
                     onPressed: onRequest,
-                    icon: const Icon(Icons.verified_user_outlined),
-                    label: const Text('申请'),
+                    icon: const Icon(Icons.verified_user_outlined, size: 18),
+                    label: const Text('立即授权'),
                   ),
                 if (snapshot.canRequestInApp && snapshot.shouldOpenSettings)
                   const SizedBox(width: 8),
                 if (snapshot.canOpenSettings && snapshot.shouldOpenSettings)
                   OutlinedButton.icon(
                     onPressed: onOpenSettings,
-                    icon: const Icon(Icons.settings_outlined),
+                    icon: const Icon(Icons.settings_outlined, size: 18),
                     label: const Text('系统设置'),
                   ),
               ],
@@ -169,6 +208,13 @@ class _PermissionTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  IconData _iconFor(AppPermissionId id) {
+    return switch (id) {
+      AppPermissionId.location => Icons.location_on_outlined,
+      AppPermissionId.notifications => Icons.notifications_outlined,
+    };
   }
 }
 
@@ -179,32 +225,30 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final color = switch (status) {
+    final (bg, fg) = switch (status) {
       AppPermissionStatusKind.granted ||
       AppPermissionStatusKind.limited ||
-      AppPermissionStatusKind.provisional => colorScheme.primaryContainer,
-      AppPermissionStatusKind.denied => colorScheme.secondaryContainer,
+      AppPermissionStatusKind.provisional =>
+        (const Color(0xFFDCFCE7), const Color(0xFF166534)),
+      AppPermissionStatusKind.denied =>
+        (const Color(0xFFFEF3C7), const Color(0xFF92400E)),
       AppPermissionStatusKind.permanentlyDenied ||
       AppPermissionStatusKind.restricted ||
       AppPermissionStatusKind.serviceDisabled ||
-      AppPermissionStatusKind.unavailable => colorScheme.errorContainer,
+      AppPermissionStatusKind.unavailable =>
+        (const Color(0xFFFEE2E2), const Color(0xFF991B1B)),
     };
-    final textColor = switch (status) {
-      AppPermissionStatusKind.granted ||
-      AppPermissionStatusKind.limited ||
-      AppPermissionStatusKind.provisional => colorScheme.onPrimaryContainer,
-      AppPermissionStatusKind.denied => colorScheme.onSecondaryContainer,
-      AppPermissionStatusKind.permanentlyDenied ||
-      AppPermissionStatusKind.restricted ||
-      AppPermissionStatusKind.serviceDisabled ||
-      AppPermissionStatusKind.unavailable => colorScheme.onErrorContainer,
-    };
-    return Chip(
-      label: Text(status.label),
-      backgroundColor: color,
-      labelStyle: TextStyle(color: textColor),
-      visualDensity: VisualDensity.compact,
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        status.label,
+        style: TextStyle(fontSize: 11, color: fg, fontWeight: FontWeight.w600),
+      ),
     );
   }
 }

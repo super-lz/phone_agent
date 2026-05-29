@@ -25,41 +25,93 @@ class MessageView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isUser = message.role == MessageRole.user;
+    final colorScheme = Theme.of(context).colorScheme;
     final displayBlocks = _displayBlocks(message);
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 720),
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: isUser ? const Color(0xFFE3F2EA) : Colors.white,
-              border: Border.all(color: const Color(0xFFE0E5DD)),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _roleLabel(message.role),
-                    style: Theme.of(context).textTheme.labelMedium,
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      child: Column(
+        crossAxisAlignment:
+            isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment:
+                isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!isUser) ...[
+                _buildAvatar(context, isUser),
+                const SizedBox(width: 8),
+              ],
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
                   ),
-                  const SizedBox(height: 8),
-                  for (final block in displayBlocks)
-                    MessageBlockView(
-                      block: block,
-                      onOpenWebAppArtifact: onOpenWebAppArtifact,
-                      onApproveCapability: onApproveCapability,
-                      onDenyCapability: onDenyCapability,
+                  decoration: BoxDecoration(
+                    color: isUser ? colorScheme.primary : Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(16),
+                      topRight: const Radius.circular(16),
+                      bottomLeft: Radius.circular(isUser ? 16 : 4),
+                      bottomRight: Radius.circular(isUser ? 4 : 16),
                     ),
-                ],
+                    boxShadow: [
+                      if (!isUser)
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        ),
+                    ],
+                  ),
+                  child: Theme(
+                    data: Theme.of(context).copyWith(
+                      textTheme: Theme.of(context).textTheme.copyWith(
+                            bodyMedium: TextStyle(
+                              color: isUser ? Colors.white : Colors.black87,
+                              fontSize: 15,
+                              height: 1.4,
+                            ),
+                          ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final block in displayBlocks)
+                          MessageBlockView(
+                            block: block,
+                            onOpenWebAppArtifact: onOpenWebAppArtifact,
+                            onApproveCapability: onApproveCapability,
+                            onDenyCapability: onDenyCapability,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            ),
+              if (isUser) ...[
+                const SizedBox(width: 8),
+                _buildAvatar(context, isUser),
+              ],
+            ],
           ),
-        ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAvatar(BuildContext context, bool isUser) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return CircleAvatar(
+      radius: 16,
+      backgroundColor: isUser ? Colors.grey.shade200 : colorScheme.primary,
+      child: Icon(
+        isUser ? Icons.person : Icons.bolt,
+        size: 18,
+        color: isUser ? Colors.grey.shade600 : Colors.white,
       ),
     );
   }
@@ -144,17 +196,6 @@ class MessageView extends StatelessWidget {
       case MessageBlockType.webAppCard:
       case MessageBlockType.errorCard:
         return false;
-    }
-  }
-
-  static String _roleLabel(MessageRole role) {
-    switch (role) {
-      case MessageRole.user:
-        return 'User';
-      case MessageRole.assistant:
-        return 'Agent';
-      case MessageRole.system:
-        return 'System';
     }
   }
 }

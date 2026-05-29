@@ -153,93 +153,151 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
+      backgroundColor: const Color(0xFFF9FAFB),
       appBar: AppBar(title: const Text('模型设置')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [
-          Text('模型厂商', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          SegmentedButton<ModelProviderConfig>(
-            segments: [
-              for (final provider in ModelProviders.all)
-                ButtonSegment(
-                  value: provider,
-                  label: Text(provider.vendorName),
-                  icon: const Icon(Icons.cloud_outlined),
+          _buildSectionHeader('模型提供方'),
+          Card(
+            margin: const EdgeInsets.only(bottom: 24),
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: SegmentedButton<ModelProviderConfig>(
+                style: SegmentedButton.styleFrom(
+                  side: BorderSide.none,
+                  backgroundColor: Colors.transparent,
+                  selectedBackgroundColor: colorScheme.primary,
+                  selectedForegroundColor: colorScheme.onPrimary,
                 ),
-            ],
-            selected: {_provider},
-            onSelectionChanged: (selection) => _setProvider(selection.first),
-          ),
-          const SizedBox(height: 16),
-          _ProviderSummary(provider: _effectiveProvider()),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _modelController,
-            enabled: !_loading,
-            decoration: InputDecoration(
-              labelText: '模型名称',
-              helperText: '填写百炼控制台里的模型名，例如 qwen3.6-flash。',
-              border: const OutlineInputBorder(),
-              suffixIcon: IconButton(
-                tooltip: '恢复默认模型',
-                icon: const Icon(Icons.restore),
-                onPressed: _loading ? null : _restoreDefaultModel,
+                segments: [
+                  for (final provider in ModelProviders.all)
+                    ButtonSegment(
+                      value: provider,
+                      label: Text(provider.vendorName),
+                      icon: const Icon(Icons.cloud_outlined, size: 18),
+                    ),
+                ],
+                selected: {_provider},
+                showSelectedIcon: false,
+                onSelectionChanged: (selection) => _setProvider(selection.first),
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _apiKeyController,
-            enabled: !_loading,
-            obscureText: _obscureApiKey,
-            decoration: InputDecoration(
-              labelText: '${_provider.vendorName} API Key',
-              helperText: 'API Key 和模型名称会保存在本机。',
-              border: const OutlineInputBorder(),
-              suffixIcon: IconButton(
-                tooltip: _obscureApiKey ? '显示 API Key' : '隐藏 API Key',
-                icon: Icon(
-                  _obscureApiKey
-                      ? Icons.visibility_outlined
-                      : Icons.visibility_off_outlined,
-                ),
-                onPressed: () {
-                  setState(() => _obscureApiKey = !_obscureApiKey);
-                },
+          _buildSectionHeader('连接配置'),
+          Card(
+            margin: const EdgeInsets.only(bottom: 24),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _modelController,
+                    enabled: !_loading,
+                    decoration: InputDecoration(
+                      labelText: '模型名称',
+                      hintText: '例如 qwen3.6-flash',
+                      prefixIcon: const Icon(Icons.psychology_outlined),
+                      suffixIcon: IconButton(
+                        tooltip: '恢复默认',
+                        icon: const Icon(Icons.restore, size: 20),
+                        onPressed: _loading ? null : _restoreDefaultModel,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _apiKeyController,
+                    enabled: !_loading,
+                    obscureText: _obscureApiKey,
+                    decoration: InputDecoration(
+                      labelText: '${_provider.vendorName} API Key',
+                      hintText: '输入您的 API 密钥',
+                      prefixIcon: const Icon(Icons.key_outlined),
+                      suffixIcon: IconButton(
+                        tooltip: _obscureApiKey ? '显示' : '隐藏',
+                        icon: Icon(
+                          _obscureApiKey
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                          size: 20,
+                        ),
+                        onPressed: () {
+                          setState(() => _obscureApiKey = !_obscureApiKey);
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _ProviderSummary(provider: _effectiveProvider()),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _loading ? null : _saveSettings,
+                          icon: const Icon(Icons.save_outlined, size: 18),
+                          label: const Text('保存配置'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed:
+                              _loading || _testing ? null : _testConnection,
+                          icon: _testing
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2))
+                              : const Icon(Icons.network_check, size: 18),
+                          label: Text(_testing ? '测试中...' : '连接测试'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_status != null) ...[
+                    const SizedBox(height: 16),
+                    _StatusCard(message: _status!),
+                  ],
+                ],
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                icon: const Icon(Icons.save_outlined),
-                label: const Text('保存'),
-                onPressed: _loading ? null : _saveSettings,
-              ),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.network_check),
-                label: Text(_testing ? '测试中...' : '测试连接'),
-                onPressed: _loading || _testing ? null : _testConnection,
-              ),
-              TextButton.icon(
-                icon: const Icon(Icons.delete_outline),
-                label: const Text('清除'),
-                onPressed: _loading ? null : _clearApiKey,
-              ),
-            ],
+          _buildSectionHeader('其他'),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text('清除 API Key',
+                      style: TextStyle(color: Colors.red, fontSize: 14)),
+                  onTap: _loading ? null : _clearApiKey,
+                ),
+                const Divider(height: 1, indent: 56),
+                _DiagnosticsSection(logFilePath: AppLogger.logFilePath),
+              ],
+            ),
           ),
-          if (_status != null) ...[
-            const SizedBox(height: 16),
-            _StatusCard(message: _status!),
-          ],
-          const SizedBox(height: 24),
-          _DiagnosticsSection(logFilePath: AppLogger.logFilePath),
+          const SizedBox(height: 32),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF6B7280),
+        ),
       ),
     );
   }
@@ -252,34 +310,34 @@ class _ProviderSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final entries = [
-      ('模型', provider.model),
-      ('Base URL', provider.baseUrl.toString()),
-      ('默认参数', provider.defaultParameters.toString()),
-    ];
-
-    return DecoratedBox(
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade100),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              provider.displayName,
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            const SizedBox(height: 8),
-            for (final entry in entries)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text('${entry.$1}: ${entry.$2}'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.info_outline, size: 14, color: Colors.grey),
+              const SizedBox(width: 6),
+              Text(
+                '厂商: ${provider.vendorName}',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
-          ],
-        ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Endpoint: ${provider.baseUrl}',
+            style: const TextStyle(
+                fontSize: 11, color: Colors.grey, fontFamily: 'monospace'),
+          ),
+        ],
       ),
     );
   }
@@ -292,12 +350,23 @@ class _StatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    final isError = message.contains('失败') || message.contains('不能为空');
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
+        color: isError ? Colors.red.shade50 : Colors.green.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: isError ? Colors.red.shade100 : Colors.green.shade100),
       ),
-      child: Padding(padding: const EdgeInsets.all(12), child: Text(message)),
+      child: Text(
+        message,
+        style: TextStyle(
+          fontSize: 13,
+          color: isError ? Colors.red.shade700 : Colors.green.shade700,
+        ),
+      ),
     );
   }
 }
@@ -309,21 +378,14 @@ class _DiagnosticsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('诊断日志', style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 8),
-            Text(logFilePath ?? '日志文件尚未初始化。'),
-          ],
-        ),
+    return ListTile(
+      leading: const Icon(Icons.bug_report_outlined),
+      title: const Text('诊断日志', style: TextStyle(fontSize: 14)),
+      subtitle: Text(
+        logFilePath ?? '尚未初始化',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 12),
       ),
     );
   }

@@ -21,24 +21,36 @@ class AmapLocationPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const config = AmapRuntimeConfig();
     return Scaffold(
       appBar: AppBar(title: Text(title ?? '地图查看')),
-      body: !config.supportsCurrentPlatform
-          ? _MapUnavailable(message: '当前平台暂不支持高德地图：${config.platformName}。')
-          : !config.hasCurrentPlatformKey
-          ? const _MapUnavailable(
+      body: FutureBuilder<AmapRuntimeConfig>(
+        future: AmapRuntimeConfig.load(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final config = snapshot.data ?? const AmapRuntimeConfig();
+          if (!config.supportsCurrentPlatform) {
+            return _MapUnavailable(
+              message: '当前平台暂不支持高德地图：${config.platformName}。',
+            );
+          }
+          if (!config.hasCurrentPlatformKey) {
+            return const _MapUnavailable(
               message:
-                  '缺少高德地图 Key。请通过 --dart-define-from-file=config/amap_keys.local.json 启动应用。',
-            )
-          : _MapBody(
-              config: config,
-              latitude: latitude,
-              longitude: longitude,
-              accuracy: accuracy,
-              title: title,
-              subtitle: subtitle,
-            ),
+                  '缺少高德地图 Key。请在 config/amap_keys.json 中配置，或通过 --dart-define-from-file=config/amap_keys.local.json 启动应用。',
+            );
+          }
+          return _MapBody(
+            config: config,
+            latitude: latitude,
+            longitude: longitude,
+            accuracy: accuracy,
+            title: title,
+            subtitle: subtitle,
+          );
+        },
+      ),
     );
   }
 }

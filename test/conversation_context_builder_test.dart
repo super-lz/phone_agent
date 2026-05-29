@@ -3,9 +3,9 @@ import 'package:phone_agent/application/agent/conversation_context_builder.dart'
 import 'package:phone_agent/domain/conversation/message_block.dart';
 
 void main() {
-  test('keeps recent conversation entries verbatim', () {
-    final context = const ConversationContextBuilder(maxRecentChars: 1000)
-        .build([
+  test('keeps recent conversation entries verbatim', () async {
+    final context = await const ConversationContextBuilder(maxRecentChars: 1000)
+        .build(messages: [
           AgentMessage(
             id: 'user-1',
             role: MessageRole.user,
@@ -27,10 +27,10 @@ void main() {
     ]);
   });
 
-  test('keeps todo list restored from json in transcript context', () {
+  test('keeps todo list restored from json in transcript context', () async {
     final restoredItems = <dynamic>['补齐本地会话', '切换工作区'];
-    final context = const ConversationContextBuilder(maxRecentChars: 1000)
-        .build([
+    final context = await const ConversationContextBuilder(maxRecentChars: 1000)
+        .build(messages: [
           AgentMessage(
             id: 'assistant-todo',
             role: MessageRole.assistant,
@@ -48,9 +48,9 @@ void main() {
     expect(context.recentEntries.single.content, contains('- 切换工作区'));
   });
 
-  test('drops raw tool process from transcript context', () {
-    final context = const ConversationContextBuilder(maxRecentChars: 1000)
-        .build([
+  test('drops raw tool process from transcript context', () async {
+    final context = await const ConversationContextBuilder(maxRecentChars: 1000)
+        .build(messages: [
           AgentMessage(
             id: 'assistant-tool',
             role: MessageRole.assistant,
@@ -71,9 +71,9 @@ void main() {
     expect(context.recentEntries, isEmpty);
   });
 
-  test('drops nested process block data from transcript context', () {
-    final context = const ConversationContextBuilder(maxRecentChars: 1000)
-        .build([
+  test('drops nested process block data from transcript context', () async {
+    final context = await const ConversationContextBuilder(maxRecentChars: 1000)
+        .build(messages: [
           AgentMessage(
             id: 'assistant-process',
             role: MessageRole.assistant,
@@ -98,7 +98,7 @@ void main() {
     expect(context.recentEntries.single.content, '你的手机信息已经读取完成。');
   });
 
-  test('compacts older entries when recent context budget is full', () {
+  test('compacts older entries when recent context budget is full', () async {
     final messages = List.generate(8, (index) {
       return AgentMessage(
         id: 'msg-$index',
@@ -108,10 +108,10 @@ void main() {
       );
     });
 
-    final context = const ConversationContextBuilder(
+    final context = await const ConversationContextBuilder(
       maxRecentChars: 90,
       maxSummaryChars: 300,
-    ).build(messages);
+    ).build(messages: messages);
 
     expect(context.summary, contains('第 0 条消息'));
     expect(context.recentEntries.last.content, contains('第 7 条消息'));

@@ -37,10 +37,10 @@ class _CodeBlockCardState extends State<CodeBlockCard> {
     final lineCount = '\n'.allMatches(widget.code).length + 1;
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF17211B),
-        borderRadius: BorderRadius.circular(8),
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -50,27 +50,35 @@ class _CodeBlockCardState extends State<CodeBlockCard> {
               _userToggled = true;
               _expanded = !_expanded;
             }),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               child: Row(
                 children: [
-                  const Icon(Icons.code, size: 18, color: Color(0xFF9CCFB5)),
+                  const Icon(Icons.code, size: 16, color: Color(0xFF94A3B8)),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      widget.language.isEmpty ? 'code' : widget.language,
-                      style: const TextStyle(color: Color(0xFF9CCFB5)),
+                      widget.language.isEmpty ? '代码' : widget.language,
+                      style: const TextStyle(
+                        color: Color(0xFF94A3B8),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                   Text(
                     '$lineCount 行',
-                    style: const TextStyle(color: Color(0xFF9CCFB5)),
+                    style: const TextStyle(
+                      color: Color(0xFF64748B),
+                      fontSize: 12,
+                    ),
                   ),
-                  const SizedBox(width: 4),
+                  const SizedBox(width: 8),
                   Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
-                    color: const Color(0xFF9CCFB5),
+                    _expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    size: 18,
+                    color: const Color(0xFF94A3B8),
                   ),
                 ],
               ),
@@ -78,36 +86,38 @@ class _CodeBlockCardState extends State<CodeBlockCard> {
           ),
           if (_expanded)
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
               child: SelectableText(
                 widget.code,
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: Color(0xFFE2E8F0),
                   fontFamily: 'monospace',
-                  height: 1.35,
+                  fontSize: 13,
+                  height: 1.5,
                 ),
               ),
             )
           else
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
               child: widget.showCollapsedPreview
                   ? Text(
                       _preview(widget.code),
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: Color(0xFFE6F1EA),
+                        color: Color(0xFFCBD5E1),
                         fontFamily: 'monospace',
-                        height: 1.35,
+                        fontSize: 13,
+                        height: 1.5,
                       ),
                     )
                   : const Text(
                       '代码已折叠，点击展开查看。',
                       style: TextStyle(
-                        color: Color(0xFFE6F1EA),
+                        color: Color(0xFF94A3B8),
                         fontFamily: 'monospace',
-                        height: 1.35,
+                        fontSize: 13,
                       ),
                     ),
             ),
@@ -168,33 +178,39 @@ class WebAppArtifactCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: const Color(0xFFF7FBF8),
-        borderRadius: BorderRadius.circular(8),
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFC7DCCB)),
-            ),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
             child: Row(
               children: [
                 Container(
-                  width: 40,
-                  height: 40,
+                  width: 48,
+                  height: 48,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFDFF3E5),
-                    borderRadius: BorderRadius.circular(8),
+                    color: colorScheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.web_asset, color: Color(0xFF227A45)),
+                  child: Icon(Icons.web_asset, color: colorScheme.primary),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -203,33 +219,28 @@ class WebAppArtifactCard extends StatelessWidget {
                         title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '本地 Web App · 点击预览',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF58705F),
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1F2937),
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        artifactId,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: const Color(0xFF78877B),
-                          fontFamily: 'monospace',
+                      const SizedBox(height: 2),
+                      const Text(
+                        '本地应用 · 点击预览',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF6B7280),
                         ),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
-                FilledButton.icon(
-                  onPressed: onTap,
-                  icon: const Icon(Icons.open_in_new, size: 16),
-                  label: const Text('打开'),
+                Icon(
+                  Icons.arrow_forward_ios,
+                  size: 14,
+                  color: Colors.grey.shade400,
                 ),
               ],
             ),

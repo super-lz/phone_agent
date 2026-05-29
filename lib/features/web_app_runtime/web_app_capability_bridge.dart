@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import '../../application/capabilities/capability_runtime.dart';
 import '../../data/models/model_api_key_store.dart';
 import '../../data/models/openai_compatible_chat_client.dart';
@@ -181,10 +184,11 @@ class WebAppCapabilityBridge {
         'error': 'web app is not in current workspace',
       };
     }
-    if (!_allowsCapability(webApp, capabilityId)) {
+    if (!await _allowsCapability(webApp, capabilityId, currentWorkspaceId)) {
       return {
         'ok': false,
-        'error': 'permission denied',
+        'error': 'permission_denied',
+        'detail': '该 Web App 未在 manifest.json 中声明 "$capabilityId" 权限。',
         'capabilityId': capabilityId,
       };
     }
@@ -230,12 +234,47 @@ class WebAppCapabilityBridge {
     };
   }
 
-  bool _allowsCapability(AgentArtifact webApp, String capabilityId) {
-    final permissions = webApp.metadata['permissions'];
-    if (permissions is! List<Object?>) {
-      return false;
+  Future<bool> _allowsCapability(
+    AgentArtifact webApp,
+    String capabilityId,
+    String workspaceId,
+  ) async {
+    final permissions = await _getEffectivePermissions(webApp, workspaceId);
+    return permissions.contains(capabilityId);
+  }
+
+  Future<List<String>> _getEffectivePermissions(
+    AgentArtifact webApp,
+    String workspaceId,
+  ) async {
+    // 1. Try metadata first (cached)
+    final metaPermissions = webApp.metadata['permissions'];
+    if (metaPermissions is List<Object?> && metaPermissions.isNotEmpty) {
+      return metaPermissions.whereType<String>().toList();
     }
-    return permissions.whereType<String>().contains(capabilityId);
+
+    // 2. Try manifest.json on disk (source of truth for projects)
+    final manifestPath = webApp.metadata['manifestPath'];
+    if (manifestPath is String) {
+      try {
+        final result = await _fileStore.readText(
+          workspaceId: workspaceId,
+          path: manifestPath,
+          maxChars: 1024 * 1024,
+        );
+        final manifest = jsonDecode(result.content);
+        if (manifest is Map<String, Object?>) {
+          final permissions = manifest['permissions'];
+          if (permissions is List<Object?>) {
+            return permissions.whereType<String>().toList();
+          }
+        }
+      } on Object {
+        // Fallback to empty if manifest is missing or invalid
+      }
+    }
+
+    return const [];
   }
 
   String? _toolNameForCapability(String capabilityId) {

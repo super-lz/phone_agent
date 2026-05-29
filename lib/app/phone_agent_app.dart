@@ -32,8 +32,9 @@ class PhoneAgentApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF1C7C54),
+      seedColor: const Color(0xFF007AFF),
       brightness: Brightness.light,
+      surface: Colors.white,
     );
 
     return MaterialApp(
@@ -41,14 +42,37 @@ class PhoneAgentApp extends StatelessWidget {
       title: 'Phone Agent',
       theme: ThemeData(
         colorScheme: colorScheme,
-        scaffoldBackgroundColor: const Color(0xFFF7F8F5),
+        scaffoldBackgroundColor: const Color(0xFFF9FAFB),
         useMaterial3: true,
-        cardTheme: const CardThemeData(
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.white,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          centerTitle: true,
+          titleTextStyle: TextStyle(
+            color: Color(0xFF1F2937),
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        cardTheme: CardThemeData(
           elevation: 0,
           margin: EdgeInsets.zero,
+          color: Colors.white,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(8)),
+            side: BorderSide(color: Colors.grey.shade200),
+            borderRadius: const BorderRadius.all(Radius.circular(16)),
           ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(24),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         ),
       ),
       home: PhoneAgentHome(

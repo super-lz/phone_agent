@@ -25,42 +25,57 @@ class _AgentProcessBlockState extends State<AgentProcessBlock> {
 
   @override
   Widget build(BuildContext context) {
-    final summary = _summary(widget.blocks);
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF6F8F5),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFDCE3D8)),
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
       ),
       child: InkWell(
         onTap: () => setState(() => _expanded = !_expanded),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Icon(_statusIcon(), size: 18, color: const Color(0xFF787F76)),
-                  const SizedBox(width: 8),
+                  if (widget.status == 'processing')
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation(Colors.grey),
+                      ),
+                    )
+                  else
+                    Icon(Icons.check_circle_outline,
+                        size: 16, color: Colors.grey.shade500),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       _statusTitle(),
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: const Color(0xFF6F766D),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.grey.shade600,
                       ),
                     ),
                   ),
-                  Text(summary, style: Theme.of(context).textTheme.bodySmall),
-                  const SizedBox(width: 4),
-                  Icon(_expanded ? Icons.expand_less : Icons.expand_more),
+                  const SizedBox(width: 8),
+                  Icon(
+                    _expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    size: 18,
+                    color: Colors.grey.shade400,
+                  ),
                 ],
               ),
               if (_expanded) ...[
-                const SizedBox(height: 10),
+                const Divider(height: 20),
                 for (final block in widget.blocks) widget.blockBuilder(block),
               ],
             ],
@@ -70,41 +85,13 @@ class _AgentProcessBlockState extends State<AgentProcessBlock> {
     );
   }
 
-  IconData _statusIcon() {
-    return widget.status == 'processing'
-        ? Icons.more_horiz
-        : Icons.check_circle_outline;
-  }
-
   String _statusTitle() {
-    return widget.status == 'processing' ? '处理中' : '已处理';
-  }
-
-  String _summary(List<MessageBlock> blocks) {
-    final toolCalls = blocks
+    final toolCalls = widget.blocks
         .where((block) => block.type == MessageBlockType.toolCall)
         .length;
-    final toolResults = blocks
-        .where((block) => block.type == MessageBlockType.toolResult)
-        .length;
-    final contentBlocks = blocks
-        .where(
-          (block) =>
-              block.type == MessageBlockType.markdownText ||
-              block.type == MessageBlockType.codeBlock ||
-              block.type == MessageBlockType.todoList,
-        )
-        .length;
-    final parts = <String>[];
-    if (toolCalls > 0) {
-      parts.add('$toolCalls 次调用');
+    if (widget.status == 'processing') {
+      return toolCalls > 0 ? '正在调用工具 ($toolCalls)...' : '正在思考...';
     }
-    if (toolResults > 0) {
-      parts.add('$toolResults 个结果');
-    }
-    if (contentBlocks > 0) {
-      parts.add('$contentBlocks 段中间输出');
-    }
-    return parts.isEmpty ? '详情' : parts.join(' · ');
+    return toolCalls > 0 ? '已使用 $toolCalls 个工具' : '已思考完成';
   }
 }

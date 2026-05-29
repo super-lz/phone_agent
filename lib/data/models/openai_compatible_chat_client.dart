@@ -217,6 +217,30 @@ class OpenAiCompatibleChatClient {
     }
   }
 
+  Future<String> generateResponse({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required String prompt,
+    String? systemPrompt,
+  }) async {
+    final messages = [
+      if (systemPrompt != null) {'role': 'system', 'content': systemPrompt},
+      {'role': 'user', 'content': prompt},
+    ];
+
+    final result = await completeText(
+      provider: provider,
+      apiKey: apiKey,
+      messages: messages,
+    );
+
+    if (!result.ok) {
+      throw ModelRequestException(result.content);
+    }
+
+    return result.content;
+  }
+
   Future<ChatCompletionResult> completeText({
     required ModelProviderConfig provider,
     required String apiKey,

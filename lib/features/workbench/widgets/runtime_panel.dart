@@ -5,7 +5,6 @@ import '../../../domain/capabilities/capability.dart';
 import '../../../domain/files/app_file_store.dart';
 import '../../../domain/notes/note.dart';
 import '../../../domain/permissions/permission_policy.dart';
-import 'workbench_panel.dart';
 
 class RuntimePanel extends StatelessWidget {
   const RuntimePanel({
@@ -32,84 +31,156 @@ class RuntimePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final policy = PermissionPolicy(permissionMode);
-    return WorkbenchPanel(
-      title: 'Runtime',
-      child: ListView(
-        padding: const EdgeInsets.all(12),
+    return Scaffold(
+      backgroundColor: const Color(0xFFF9FAFB),
+      appBar: AppBar(
+        title: const Text('资源与运行时', style: TextStyle(fontSize: 16)),
+        automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.close),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         children: [
-          Text('Artifact', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          for (final artifact in artifacts)
-            InfoRow(
-              icon: artifact.type == ArtifactType.webApp
-                  ? Icons.web_asset
-                  : Icons.inventory_2_outlined,
-              title: artifact.title,
-              body: '${artifact.type.label} · ${artifact.summary}',
-              onTap: artifact.type == ArtifactType.webApp
-                  ? () => onOpenWebApp(artifact)
-                  : null,
+          _buildSectionHeader(context, '应用与产物 (Artifacts)'),
+          if (artifacts.isEmpty)
+            _buildEmptyState(Icons.inventory_2_outlined, '暂无产物')
+          else
+            ...artifacts.map((artifact) => _buildArtifactTile(context, artifact)),
+          const SizedBox(height: 24),
+          _buildSectionHeader(
+            context,
+            '工作区文件',
+            trailing: IconButton(
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.refresh, size: 20),
+              onPressed: onRefreshFiles,
             ),
-          const SizedBox(height: 16),
-          Row(
+          ),
+          if (files.isEmpty)
+            _buildEmptyState(Icons.folder_open_outlined, '暂无文件')
+          else
+            ...files.map((file) => _buildFileTile(context, file)),
+          const SizedBox(height: 24),
+          _buildSectionHeader(context, '备忘录 (Notes)'),
+          if (notes.isEmpty)
+            _buildEmptyState(Icons.note_alt_outlined, '暂无 Note')
+          else
+            ...notes.map((note) => _buildNoteTile(context, note)),
+          const SizedBox(height: 24),
+          ExpansionTile(
+            title: const Text('能力注册表 (Capabilities)',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
             children: [
-              Expanded(
-                child: Text(
-                  'Workspace Files',
-                  style: Theme.of(context).textTheme.titleSmall,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  children: capabilities
+                      .map((c) => _CapabilityRow(
+                            capability: c,
+                            decision: policy.decide(c),
+                          ))
+                      .toList(),
                 ),
               ),
-              IconButton(
-                tooltip: '刷新文件列表',
-                icon: const Icon(Icons.refresh),
-                onPressed: onRefreshFiles,
-              ),
+              const SizedBox(height: 16),
             ],
           ),
-          const SizedBox(height: 8),
-          if (files.isEmpty)
-            const InfoRow(
-              icon: Icons.folder_open_outlined,
-              title: '暂无文件',
-              body: 'AI 通过 file.write_app_file 写入的工作区文件会出现在这里。',
-            )
-          else
-            for (final file in files)
-              InfoRow(
-                icon: Icons.insert_drive_file_outlined,
-                title: file.path,
-                body:
-                    '${_formatBytes(file.bytes)} · ${_formatModified(file.modifiedAt)} · 点击预览/导出',
-                onTap: () => onOpenFile(file),
-              ),
-          const SizedBox(height: 16),
-          Text('Note', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          if (notes.isEmpty)
-            const InfoRow(
-              icon: Icons.note_alt_outlined,
-              title: '暂无 Note',
-              body: 'AI 可以通过 db.note.create 写入当前 Workspace 的本地 Note。',
-            )
-          else
-            for (final note in notes)
-              InfoRow(
-                icon: Icons.note_alt_outlined,
-                title: note.title,
-                body: note.content,
-              ),
-          const SizedBox(height: 16),
-          Text(
-            'Capability Registry',
-            style: Theme.of(context).textTheme.titleSmall,
-          ),
-          const SizedBox(height: 8),
-          for (final capability in capabilities)
-            _CapabilityRow(
-              capability: capability,
-              decision: policy.decide(capability),
-            ),
+          const SizedBox(height: 32),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(BuildContext context, String title,
+      {Widget? trailing}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF374151),
+              ),
+            ),
+          ),
+          if (trailing != null) trailing,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(IconData icon, String label) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Column(
+        children: [
+          Icon(icon, size: 32, color: Colors.grey.shade300),
+          const SizedBox(height: 8),
+          Text(label,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildArtifactTile(BuildContext context, AgentArtifact artifact) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Icon(
+          artifact.type == ArtifactType.webApp
+              ? Icons.web_asset
+              : artifact.type == ArtifactType.location
+              ? Icons.map_outlined
+              : Icons.inventory_2_outlined,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        title: Text(artifact.title, style: const TextStyle(fontSize: 14)),
+        subtitle: Text('${artifact.type.label} · ${artifact.summary}',
+            style: const TextStyle(fontSize: 12)),
+        onTap: artifact.type == ArtifactType.webApp
+            ? () => onOpenWebApp(artifact)
+            : null,
+      ),
+    );
+  }
+
+  Widget _buildFileTile(BuildContext context, AppFileEntry file) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: const Icon(Icons.insert_drive_file_outlined),
+        title: Text(file.path, style: const TextStyle(fontSize: 14)),
+        subtitle: Text(
+          '${_formatBytes(file.bytes)} · ${_formatModified(file.modifiedAt)}',
+          style: const TextStyle(fontSize: 12),
+        ),
+        onTap: () => onOpenFile(file),
+      ),
+    );
+  }
+
+  Widget _buildNoteTile(BuildContext context, AgentNote note) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: const Icon(Icons.note_alt_outlined),
+        title: Text(note.title.isEmpty ? '未命名笔记' : note.title,
+            style: const TextStyle(fontSize: 14)),
+        subtitle: Text(note.content,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12)),
       ),
     );
   }

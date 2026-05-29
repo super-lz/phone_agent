@@ -26,16 +26,13 @@ class NativeCapabilityAdapter {
     DeviceInfoPlugin? deviceInfo,
     FlutterLocalNotificationsPlugin? notifications,
     AppPermissionService? permissionService,
-    AmapRuntimeConfig? amapConfig,
   }) : _deviceInfo = deviceInfo ?? DeviceInfoPlugin(),
        _notifications = notifications ?? FlutterLocalNotificationsPlugin(),
-       _permissionService = permissionService ?? const AppPermissionService(),
-       _amapConfig = amapConfig ?? const AmapRuntimeConfig();
+       _permissionService = permissionService ?? const AppPermissionService();
 
   final DeviceInfoPlugin _deviceInfo;
   final FlutterLocalNotificationsPlugin _notifications;
   final AppPermissionService _permissionService;
-  final AmapRuntimeConfig _amapConfig;
   Future<bool>? _notificationInitialization;
 
   Future<Map<String, Object?>> getDeviceInfo() async {
@@ -327,24 +324,26 @@ class NativeCapabilityAdapter {
         );
       }
 
-      if (!_amapConfig.supportsCurrentPlatform) {
+      final config = await AmapRuntimeConfig.load();
+
+      if (!config.supportsCurrentPlatform) {
         return {
           'ok': false,
           'error': 'amap_platform_unsupported',
-          'platform': _amapConfig.platformName,
-          'userMessage': '当前平台暂不支持高德定位：${_amapConfig.platformName}。',
+          'platform': config.platformName,
+          'userMessage': '当前平台暂不支持高德定位：${config.platformName}。',
         };
       }
-      if (!_amapConfig.hasCurrentPlatformKey) {
+      if (!config.hasCurrentPlatformKey) {
         return {
           'ok': false,
           'error': 'amap_key_required',
-          'platform': _amapConfig.platformName,
+          'platform': config.platformName,
           'userMessage':
-              '缺少高德 ${_amapConfig.platformName} Key。请通过 --dart-define-from-file=config/amap_keys.local.json 启动应用。',
+              '缺少高德 ${config.platformName} Key。请在 config/amap_keys.json 中配置，或通过 --dart-define-from-file=config/amap_keys.local.json 启动应用。',
         };
       }
-      return await _getCurrentAmapLocation();
+      return await _getCurrentAmapLocation(config);
     } on TimeoutException catch (error, stackTrace) {
       AppLogger.warning('native.location_get_current.timeout', {
         'error': error.toString(),
@@ -368,13 +367,15 @@ class NativeCapabilityAdapter {
     }
   }
 
-  Future<Map<String, Object?>> _getCurrentAmapLocation() async {
+  Future<Map<String, Object?>> _getCurrentAmapLocation(
+    AmapRuntimeConfig config,
+  ) async {
     final location = AMapFlutterLocation();
     StreamSubscription<Map<String, Object>>? subscription;
     try {
       AMapFlutterLocation.updatePrivacyShow(true, true);
       AMapFlutterLocation.updatePrivacyAgree(true);
-      AMapFlutterLocation.setApiKey(_amapConfig.androidKey, _amapConfig.iosKey);
+      AMapFlutterLocation.setApiKey(config.androidKey, config.iosKey);
       location.setLocationOption(
         AMapLocationOption(
           onceLocation: true,
