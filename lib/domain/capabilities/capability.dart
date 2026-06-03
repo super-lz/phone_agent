@@ -58,3 +58,63 @@ class CapabilityInvocation {
 }
 
 enum CapabilityInvocationStatus { pending, approved, completed, denied, failed }
+
+class McpConnection {
+  const McpConnection({
+    required this.url,
+    required this.transport,
+    required this.createdAt,
+  });
+
+  final String url;
+  final String transport;
+  final DateTime createdAt;
+
+  Map<String, Object?> toJson() => {
+    'url': url,
+    'transport': transport,
+    'createdAt': createdAt.toIso8601String(),
+  };
+
+  factory McpConnection.fromJson(Map<String, Object?> json) => McpConnection(
+    url: json['url']! as String,
+    transport: json['transport']! as String,
+    createdAt: DateTime.parse(json['createdAt']! as String),
+  );
+}
+
+class AgentSkill {
+  const AgentSkill({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.script,
+    required this.createdAt,
+    this.manifestPath,
+  });
+
+  final String id;
+  final String name;
+  final String description;
+  final String script;
+  final DateTime createdAt;
+  final String? manifestPath;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'name': name,
+    'description': description,
+    'script': script,
+    'createdAt': createdAt.toIso8601String(),
+    'manifestPath': manifestPath,
+  };
+
+  factory AgentSkill.fromJson(Map<String, Object?> json) => AgentSkill(
+    id: json['id']! as String,
+    name: json['name']! as String,
+    description: json['description']! as String,
+    script: json['script']! as String,
+    createdAt: DateTime.parse(json['createdAt']! as String),
+    manifestPath: json['manifestPath'] as String?,
+  );
+}

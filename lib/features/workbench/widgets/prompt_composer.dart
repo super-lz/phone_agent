@@ -13,6 +13,7 @@ class PromptComposer extends StatelessWidget {
     required this.pendingAttachments,
     required this.onAddFile,
     required this.onAddImage,
+    required this.onTakePhoto,
     required this.onRemovePendingAttachment,
     super.key,
   });
@@ -25,6 +26,7 @@ class PromptComposer extends StatelessWidget {
   final List<MessageBlock> pendingAttachments;
   final VoidCallback onAddFile;
   final VoidCallback onAddImage;
+  final VoidCallback onTakePhoto;
   final ValueChanged<int> onRemovePendingAttachment;
 
   @override
@@ -36,16 +38,20 @@ class PromptComposer extends StatelessWidget {
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.only(bottom: keyboardBottom),
-      child: SafeArea(
-        top: false,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            border: Border(
-              top: BorderSide(color: Colors.grey.shade200),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, -2),
             ),
-          ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -58,51 +64,60 @@ class PromptComposer extends StatelessWidget {
                   attachments: pendingAttachments,
                   onRemove: onRemovePendingAttachment,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
               ],
               Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF3F4F6),
-                  borderRadius: BorderRadius.circular(28),
+                  color: colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(24),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     IconButton(
+                      visualDensity: VisualDensity.compact,
                       tooltip: '添加附件',
                       icon: Icon(
-                        Icons.add_circle_outline,
-                        color: colorScheme.onSurfaceVariant,
+                        Icons.add_rounded,
+                        color: colorScheme.primary,
+                        size: 26,
                       ),
                       onPressed: isSending
                           ? null
                           : () => _showAttachmentMenu(context),
                     ),
                     Expanded(
-                      child: TextField(
-                        controller: controller,
-                        minLines: 1,
-                        maxLines: 5,
-                        textInputAction: TextInputAction.send,
-                        style: const TextStyle(fontSize: 16),
-                        decoration: const InputDecoration(
-                          hintText: '问我任何问题...',
-                          isDense: true,
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 10,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: TextField(
+                          controller: controller,
+                          minLines: 1,
+                          maxLines: 5,
+                          textInputAction: TextInputAction.send,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            height: 1.4,
+                            letterSpacing: -0.2,
                           ),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          filled: false,
+                          decoration: const InputDecoration(
+                            hintText: '问我任何问题...',
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 10,
+                            ),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            filled: false,
+                          ),
+                          onSubmitted: (_) {
+                            if (!isSending && controller.text.trim().isNotEmpty) {
+                              onSendPrompt();
+                            }
+                          },
                         ),
-                        onSubmitted: (_) {
-                          if (!isSending && controller.text.trim().isNotEmpty) {
-                            onSendPrompt();
-                          }
-                        },
                       ),
                     ),
                     const SizedBox(width: 4),
@@ -114,31 +129,37 @@ class PromptComposer extends StatelessWidget {
                                 pendingAttachments.isNotEmpty);
 
                         if (isSending) {
-                          return IconButton.filled(
-                            onPressed: onCancelRun,
-                            icon: const Icon(Icons.stop, size: 20),
-                            style: IconButton.styleFrom(
-                              backgroundColor: colorScheme.primary,
-                              foregroundColor: colorScheme.onPrimary,
-                              minimumSize: const Size(40, 40),
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 2, right: 4),
+                            child: IconButton.filled(
+                              onPressed: onCancelRun,
+                              tooltip: '停止',
+                              icon: const Icon(Icons.stop_rounded, size: 20),
+                              style: IconButton.styleFrom(
+                                backgroundColor: colorScheme.primary,
+                                foregroundColor: colorScheme.onPrimary,
+                                minimumSize: const Size(40, 40),
+                              ),
                             ),
                           );
                         }
 
-                        return IconButton.filled(
-                          onPressed: canSend ? onSendPrompt : null,
-                          icon: const Icon(Icons.arrow_upward, size: 20),
-                          style: IconButton.styleFrom(
-                            backgroundColor: colorScheme.primary,
-                            foregroundColor: colorScheme.onPrimary,
-                            disabledBackgroundColor: Colors.grey.shade300,
-                            disabledForegroundColor: Colors.white,
-                            minimumSize: const Size(40, 40),
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 2, right: 4),
+                          child: IconButton.filled(
+                            onPressed: canSend ? onSendPrompt : null,
+                            icon: const Icon(Icons.arrow_upward_rounded, size: 20),
+                            style: IconButton.styleFrom(
+                              backgroundColor: colorScheme.primary,
+                              foregroundColor: colorScheme.onPrimary,
+                              disabledBackgroundColor: colorScheme.onSurface.withValues(alpha: 0.12),
+                              disabledForegroundColor: colorScheme.onSurface.withValues(alpha: 0.38),
+                              minimumSize: const Size(40, 40),
+                            ),
                           ),
                         );
                       },
                     ),
-                    const SizedBox(width: 4),
                   ],
                 ),
               ),
@@ -162,8 +183,16 @@ class PromptComposer extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
+                leading: const Icon(Icons.camera_alt_outlined),
+                title: const Text('拍照上传'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onTakePhoto();
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.image_outlined),
-                title: const Text('上传图片'),
+                title: const Text('从相册选择'),
                 onTap: () {
                   Navigator.pop(context);
                   onAddImage();

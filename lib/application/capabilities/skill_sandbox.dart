@@ -73,6 +73,12 @@ class SkillSandbox {
           },
         );
       },
+      onConsoleMessage: (controller, message) {
+        AppLogger.info('skill.sandbox.console', {
+          'level': message.messageLevel.toString(),
+          'message': message.message,
+        });
+      },
       onLoadStop: (controller, url) {
         _isReady = true;
         if (!_readyCompleter.isCompleted) _readyCompleter.complete();
@@ -101,7 +107,12 @@ class SkillSandbox {
           })();
           return { ok: true, result: result };
         } catch (e) {
-          return { ok: false, error: e.toString() };
+          return { 
+            ok: false, 
+            error: e.message || e.toString(),
+            stack: e.stack,
+            type: e.name
+          };
         }
       })()
     ''';

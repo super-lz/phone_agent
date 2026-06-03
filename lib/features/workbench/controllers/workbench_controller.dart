@@ -9,6 +9,7 @@ import '../../../application/agent/agent_run_state.dart';
 import '../../../application/capabilities/capability_execution_result.dart';
 import '../../../application/capabilities/capability_result_presentation.dart';
 import '../../../application/capabilities/capability_runtime.dart';
+import '../../../application/capabilities/office_document_codec.dart';
 import '../../../core/logging/app_logger.dart';
 import '../../../data/bootstrap/phone_agent_seed.dart';
 import '../../../data/models/model_api_key_store.dart';
@@ -96,7 +97,10 @@ class WorkbenchController extends ChangeNotifier {
   final List<AgentArtifact> _artifacts;
   final List<AgentNote> _notes;
   final List<AppFileEntry> _workspaceFiles = [];
+  final List<McpConnection> _mcpConnections = [];
+  final List<AgentSkill> _skills = [];
   final List<Completer<void>> _foregroundWaiters = [];
+  final OfficeDocumentCodec _officeCodec = const OfficeDocumentCodec();
 
   PermissionMode _permissionMode = PermissionMode.defaultMode;
   String _workspaceId = 'default';
@@ -128,6 +132,8 @@ class WorkbenchController extends ChangeNotifier {
   }
 
   List<AppFileEntry> get workspaceFiles => List.unmodifiable(_workspaceFiles);
+  List<McpConnection> get mcpConnections => List.unmodifiable(_mcpConnections);
+  List<AgentSkill> get skills => List.unmodifiable(_skills);
 
   AgentArtifact? artifactById(String artifactId) {
     for (final artifact in _artifacts) {
@@ -207,6 +213,8 @@ class WorkbenchController extends ChangeNotifier {
       final loadedWorkspaces = await _workbenchStore.loadWorkspaces();
       final loadedMemories = await _workbenchStore.loadMemories();
       final loadedArtifacts = await _workbenchStore.loadArtifacts();
+      final loadedMcpConnections = await _workbenchStore.loadMcpConnections();
+      final loadedSkills = await _workbenchStore.loadSkills();
       final storedWorkspaceId = await _workbenchStore.loadCurrentWorkspaceId();
       final nextWorkspaceId =
           loadedWorkspaces.any((workspace) => workspace.id == storedWorkspaceId)
@@ -225,6 +233,12 @@ class WorkbenchController extends ChangeNotifier {
       _artifacts
         ..clear()
         ..addAll(loadedArtifacts);
+      _mcpConnections
+        ..clear()
+        ..addAll(loadedMcpConnections);
+      _skills
+        ..clear()
+        ..addAll(loadedSkills);
       _workspaceId = nextWorkspaceId;
       _messages
         ..clear()
@@ -234,6 +248,7 @@ class WorkbenchController extends ChangeNotifier {
         await _persistCurrentMessages();
       }
       await _workbenchStore.saveCurrentWorkspaceId(_workspaceId);
+      await _initializeMcpConnections();
       await _refreshWorkspaceFiles(notify: false);
       AppLogger.info('workbench.state.loaded', {
         'workspaceCount': _workspaces.length,
@@ -300,6 +315,12 @@ class WorkbenchController extends ChangeNotifier {
     }
     for (final artifact in _artifacts) {
       unawaited(_workbenchStore.upsertArtifact(artifact));
+    }
+    for (final connection in _mcpConnections) {
+      unawaited(_workbenchStore.upsertMcpConnection(connection));
+    }
+    for (final skill in _skills) {
+      unawaited(_workbenchStore.upsertSkill(skill));
     }
     unawaited(_workbenchStore.saveCurrentWorkspaceId(_workspaceId));
   }
@@ -444,6 +465,7 @@ class WorkbenchController extends ChangeNotifier {
       allNotes: _notes,
       allArtifacts: _artifacts,
       allWorkspaces: _workspaces,
+      allSkills: _skills,
       allCapabilities: _capabilities,
       noteStore: _noteStore,
       fileStore: _fileStore,
@@ -452,6 +474,39 @@ class WorkbenchController extends ChangeNotifier {
       permissionMode: _permissionMode,
       switchWorkspace: _switchWorkspaceFromAgent,
     );
+
+    if (result.capabilityId == 'mcp.connect' && result.output['ok'] == true) {
+      final connData = result.output['connection'] as Map<String, Object?>;
+      final url = connData['url'] as String;
+      final transport = connData['transport'] as String;
+      if (!_mcpConnections.any((c) => c.url == url)) {
+        final conn = McpConnection(
+          url: url,
+          transport: transport,
+          createdAt: DateTime.now(),
+        );
+        _mcpConnections.add(conn);
+        unawaited(_workbenchStore.upsertMcpConnection(conn));
+      }
+    }
+    
+    if (result.capabilityId == 'skill.install' && result.output['ok'] == true) {
+      final skillData = result.output['skill'] as Map<String, Object?>;
+      final skillId = skillData['id'] as String;
+      if (!_skills.any((s) => s.id == skillId)) {
+        final skill = AgentSkill(
+          id: skillId,
+          name: skillData['name'] as String? ?? skillId,
+          description: skillData['description'] as String? ?? '',
+          script: skillData['script'] as String? ?? '',
+          manifestPath: skillData['manifest'] as String?,
+          createdAt: DateTime.now(),
+        );
+        _skills.add(skill);
+        unawaited(_workbenchStore.upsertSkill(skill));
+      }
+    }
+
     final presentation = presentCapabilityResult(
       capabilityId: result.capabilityId,
       output: result.output,
@@ -593,6 +648,19 @@ class WorkbenchController extends ChangeNotifier {
 
   Future<void> refreshWorkspaceFiles() async {
     await _refreshWorkspaceFiles();
+  }
+
+  Future<void> _initializeMcpConnections() async {
+    for (final conn in _mcpConnections) {
+      try {
+        await _agentLoop.capabilityRuntime.mcpManager.connect(conn.url, conn.transport);
+      } catch (e) {
+        AppLogger.warning('workbench.mcp.auto_connect_failed', {
+          'url': conn.url,
+          'error': e.toString(),
+        });
+      }
+    }
   }
 
   Future<void> clearLocalWorkspaceData() async {
@@ -844,6 +912,10 @@ class WorkbenchController extends ChangeNotifier {
       return null;
     }
     final extension = (block.data['extension'] as String? ?? '').toLowerCase();
+    
+    // Support Office and PDF extraction
+    final isOfficeOrPdf = const {'pdf', 'docx', 'xlsx', 'pptx'}.contains(extension);
+    
     const textExtensions = {
       'txt',
       'md',
@@ -859,15 +931,32 @@ class WorkbenchController extends ChangeNotifier {
       'ts',
       'dart',
     };
-    if (!textExtensions.contains(extension)) {
+    
+    if (!textExtensions.contains(extension) && !isOfficeOrPdf) {
       return null;
     }
+    
     try {
       final fileUri = Uri.parse(uri);
       if (!fileUri.isScheme('file')) {
         return null;
       }
-      final content = await File(fileUri.toFilePath()).readAsString();
+      final file = File(fileUri.toFilePath());
+      if (!await file.exists()) {
+        return null;
+      }
+
+      if (isOfficeOrPdf) {
+        final bytes = await file.readAsBytes();
+        final content = _officeCodec.extractText(file.path, bytes);
+        final normalized = content.replaceAll(RegExp(r'\s+'), ' ').trim();
+        if (normalized.length <= 6000) {
+          return normalized;
+        }
+        return '${normalized.substring(0, 6000)}...';
+      }
+
+      final content = await file.readAsString();
       final normalized = content.replaceAll(RegExp(r'\s+'), ' ').trim();
       if (normalized.length <= 4000) {
         return normalized;
@@ -917,6 +1006,7 @@ class WorkbenchController extends ChangeNotifier {
         allNotes: _notes,
         allArtifacts: _artifacts,
         allWorkspaces: _workspaces,
+        allSkills: _skills,
         allCapabilities: _capabilities,
         noteStore: _noteStore,
         fileStore: _fileStore,

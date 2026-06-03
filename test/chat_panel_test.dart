@@ -43,13 +43,14 @@ void main() {
             pendingAttachments: const [],
             onAddFile: () {},
             onAddImage: () {},
+            onTakePhoto: () {},
             onRemovePendingAttachment: (_) {},
           ),
         ),
       ),
     );
 
-    expect(find.text('停止'), findsOneWidget);
+    expect(find.byTooltip('停止'), findsOneWidget);
     expect(find.byTooltip('停止本轮任务'), findsNothing);
     expect(find.textContaining('3/48'), findsNothing);
     expect(find.textContaining('执行工具'), findsOneWidget);
@@ -96,6 +97,7 @@ void main() {
             pendingAttachments: const [],
             onAddFile: () {},
             onAddImage: () {},
+            onTakePhoto: () {},
             onRemovePendingAttachment: (_) {},
           ),
         ),
@@ -159,6 +161,7 @@ void main() {
               pendingAttachments: const [],
               onAddFile: () {},
               onAddImage: () {},
+              onTakePhoto: () {},
               onRemovePendingAttachment: (_) {},
             ),
           ),
@@ -218,6 +221,7 @@ void main() {
                 pendingAttachments: const [],
                 onAddFile: () {},
                 onAddImage: () {},
+                onTakePhoto: () {},
                 onRemovePendingAttachment: (_) {},
               );
             },
@@ -302,14 +306,15 @@ void main() {
             pendingAttachments: const [],
             onAddFile: () {},
             onAddImage: () {},
+            onTakePhoto: () {},
             onRemovePendingAttachment: (_) {},
           ),
         ),
       ),
     );
 
-    expect(find.text('Agent'), findsOneWidget);
-    expect(find.text('已处理'), findsOneWidget);
+    expect(find.byTooltip('Agent'), findsOneWidget);
+    expect(find.textContaining('已处理'), findsOneWidget);
     expect(find.text('今天适合出门。'), findsOneWidget);
     expect(find.text('联网搜索结果'), findsNothing);
   });

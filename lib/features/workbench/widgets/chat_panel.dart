@@ -24,6 +24,7 @@ class ChatPanel extends StatefulWidget {
     required this.pendingAttachments,
     required this.onAddFile,
     required this.onAddImage,
+    required this.onTakePhoto,
     required this.onRemovePendingAttachment,
     super.key,
   });
@@ -41,6 +42,7 @@ class ChatPanel extends StatefulWidget {
   final List<MessageBlock> pendingAttachments;
   final VoidCallback onAddFile;
   final VoidCallback onAddImage;
+  final VoidCallback onTakePhoto;
   final ValueChanged<int> onRemovePendingAttachment;
 
   @override
@@ -319,6 +321,8 @@ class _ChatPanelState extends State<ChatPanel> {
     final displayMessages = hasOlderMessages
         ? allDisplayMessages.sublist(hiddenMessageCount)
         : allDisplayMessages;
+    final theme = Theme.of(context);
+    
     return Column(
       children: [
         Expanded(
@@ -329,7 +333,12 @@ class _ChatPanelState extends State<ChatPanel> {
                 child: ListView.builder(
                   controller: _scrollController,
                   reverse: true,
-                  padding: const EdgeInsets.all(16),
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    16,
+                    16,
+                    MediaQuery.of(context).padding.bottom + 16,
+                  ),
                   keyboardDismissBehavior:
                       ScrollViewKeyboardDismissBehavior.onDrag,
                   itemCount:
@@ -354,8 +363,11 @@ class _ChatPanelState extends State<ChatPanel> {
               if (_showScrollToBottom)
                 Positioned(
                   right: 16,
-                  bottom: 12,
+                  bottom: 16,
                   child: FloatingActionButton.small(
+                    elevation: 2,
+                    backgroundColor: theme.colorScheme.surface,
+                    foregroundColor: theme.colorScheme.primary,
                     tooltip: '滚动到底部',
                     onPressed: _jumpToBottom,
                     child: const Icon(Icons.keyboard_arrow_down),
@@ -364,7 +376,6 @@ class _ChatPanelState extends State<ChatPanel> {
             ],
           ),
         ),
-        const Divider(height: 1),
         PromptComposer(
           controller: widget.composerController,
           isSending: widget.isSending,
@@ -374,6 +385,7 @@ class _ChatPanelState extends State<ChatPanel> {
           pendingAttachments: widget.pendingAttachments,
           onAddFile: widget.onAddFile,
           onAddImage: widget.onAddImage,
+          onTakePhoto: widget.onTakePhoto,
           onRemovePendingAttachment: widget.onRemovePendingAttachment,
         ),
       ],

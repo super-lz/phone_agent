@@ -56,6 +56,8 @@ class CapabilityRuntime {
   final CapabilityToolDefinitions _toolDefinitions =
       const CapabilityToolDefinitions();
 
+  McpManager get mcpManager => _mcpManager;
+
   void _initSkillSandbox() {
     SkillSandbox.instance.onCallCapability = (capabilityId, input) async {
       AppLogger.info('capability.skill_bridge.callback', {'id': capabilityId});
@@ -70,6 +72,7 @@ class CapabilityRuntime {
     required List<AgentNote> notes,
     required List<AgentArtifact> artifacts,
     List<AgentWorkspace>? workspaces,
+    List<AgentSkill>? skills,
     List<CapabilityDefinition>? capabilities,
     AgentNoteStore? noteStore,
     AppFileStore? fileStore,
@@ -98,6 +101,7 @@ class CapabilityRuntime {
           notes: notes,
           artifacts: artifacts,
           workspaces: workspaces,
+          skills: skills,
           noteStore: noteStore,
           fileStore: fileStore,
           workbenchStore: workbenchStore,
@@ -129,6 +133,7 @@ class CapabilityRuntime {
     required List<AgentNote> notes,
     required List<AgentArtifact> artifacts,
     List<AgentWorkspace>? workspaces,
+    List<AgentSkill>? skills,
     AgentNoteStore? noteStore,
     AppFileStore? fileStore,
     WorkbenchStore? workbenchStore,
@@ -207,6 +212,13 @@ class CapabilityRuntime {
           workspaceId: workspaceId,
           arguments: toolCall.arguments,
           artifacts: artifacts,
+        );
+      case 'artifact_inspect_logs':
+        return await _artifactHandler.inspectLogs(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          artifacts: artifacts,
+          fileStore: fileStore,
         );
       case 'workspace_create':
         return _workspaceHandler.create(
@@ -348,6 +360,7 @@ class CapabilityRuntime {
           notes: notes,
           artifacts: artifacts,
           workspaces: workspaces,
+          skills: skills,
           noteStore: noteStore,
           fileStore: fileStore,
           workbenchStore: workbenchStore,
@@ -426,15 +439,24 @@ class CapabilityRuntime {
     final name = directory.uri.pathSegments
         .where((segment) => segment.isNotEmpty)
         .last;
+        
+    String script = '';
+    final scriptFile = File('${directory.path}/index.js');
+    if (scriptFile.existsSync()) {
+      script = scriptFile.readAsStringSync();
+    }
+
     return CapabilityExecutionResult(
       capabilityId: 'skill.install',
       output: {
         'ok': true,
         'skill': {
           'id': name,
+          'name': name,
           'source': normalized,
           'manifest': manifest.path,
-          'status': 'indexed',
+          'script': script,
+          'status': 'installed',
         },
       },
     );
@@ -447,6 +469,7 @@ class CapabilityRuntime {
     required List<AgentNote> notes,
     required List<AgentArtifact> artifacts,
     List<AgentWorkspace>? workspaces,
+    List<AgentSkill>? skills,
     AgentNoteStore? noteStore,
     AppFileStore? fileStore,
     WorkbenchStore? workbenchStore,
@@ -463,6 +486,26 @@ class CapabilityRuntime {
       );
     }
 
+    var script = arguments['script'] as String?;
+    if (script == null || script.trim().isEmpty) {
+      final skill = skills?.firstWhere(
+        (s) => s.id == skillId,
+        orElse: () => throw StateError('Skill not found: $skillId'),
+      );
+      script = skill?.script;
+    }
+
+    if (script == null || script.trim().isEmpty) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'skill.invoke',
+        output: {
+          'ok': false,
+          'error': 'script_required',
+          'detail': 'Skill does not have a script and none was provided.',
+        },
+      );
+    }
+
     // Update the callback with current state before execution
     SkillSandbox.instance.onCallCapability = (cid, input) async {
       final res = await execute(
@@ -476,6 +519,7 @@ class CapabilityRuntime {
         notes: notes,
         artifacts: artifacts,
         workspaces: workspaces,
+        skills: skills,
         noteStore: noteStore,
         fileStore: fileStore,
         workbenchStore: workbenchStore,
@@ -487,17 +531,6 @@ class CapabilityRuntime {
     };
 
     try {
-      final script = arguments['script'] as String?;
-      if (script == null || script.trim().isEmpty) {
-        return const CapabilityExecutionResult(
-          capabilityId: 'skill.invoke',
-          output: {
-            'ok': false,
-            'error': 'script_required',
-            'detail': '第一版 Skill Invoke 需要直接提供 script 参数。',
-          },
-        );
-      }
       final result = await SkillSandbox.instance.execute(script, context: input);
 
       return CapabilityExecutionResult(

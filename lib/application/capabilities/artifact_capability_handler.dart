@@ -1,5 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
+
 import '../../domain/artifacts/artifact.dart';
 import '../../domain/artifacts/web_app_runtime_log.dart';
+import '../../domain/files/app_file_store.dart';
 import 'capability_execution_result.dart';
 
 class ArtifactCapabilityHandler {
@@ -96,6 +100,89 @@ class ArtifactCapabilityHandler {
       capabilityId: 'artifact.query',
       output: {'ok': true, 'items': matched},
     );
+  }
+
+  Future<CapabilityExecutionResult> inspectLogs({
+    required String workspaceId,
+    required Map<String, Object?> arguments,
+    required List<AgentArtifact> artifacts,
+    required AppFileStore? fileStore,
+  }) async {
+    final artifactId = arguments['artifactId'];
+    if (artifactId is! String || artifactId.trim().isEmpty) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'artifact.inspect_logs',
+        output: {'ok': false, 'error': 'artifactId is required'},
+      );
+    }
+
+    final artifact = artifacts.firstWhere(
+      (a) => a.id == artifactId,
+      orElse: () => throw StateError('Artifact not found: $artifactId'),
+    );
+
+    if (artifact.type != ArtifactType.webApp) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'artifact.inspect_logs',
+        output: {'ok': false, 'error': 'artifact is not a web app'},
+      );
+    }
+
+    final logPath = WebAppRuntimeLogPaths.forArtifact(artifact);
+    if (fileStore == null) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'artifact.inspect_logs',
+        output: {'ok': false, 'error': 'file store unavailable'},
+      );
+    }
+
+    try {
+      final maxLines = arguments['max_lines'] is int ? arguments['max_lines'] as int : 50;
+      final result = await fileStore.readText(
+        workspaceId: artifact.workspaceId,
+        path: logPath,
+        maxChars: 128 * 1024,
+      );
+      
+      final lines = result.content.split('\n').where((l) => l.trim().isNotEmpty).toList();
+      final start = (lines.length - maxLines).clamp(0, lines.length);
+      final recentLines = lines.sublist(start);
+      
+      return CapabilityExecutionResult(
+        capabilityId: 'artifact.inspect_logs',
+        output: {
+          'ok': true,
+          'artifactId': artifactId,
+          'logPath': logPath,
+          'lineCount': recentLines.length,
+          'logs': recentLines.map((l) {
+            try {
+              return jsonDecode(l);
+            } catch (_) {
+              return {'raw': l};
+            }
+          }).toList(),
+        },
+      );
+    } on AppFileStoreException catch (e) {
+      if (e.code == 'not_found') {
+        return CapabilityExecutionResult(
+          capabilityId: 'artifact.inspect_logs',
+          output: {
+            'ok': true, 
+            'artifactId': artifactId,
+            'logs': <Object?>[],
+            'message': 'No logs found yet.'
+          },
+        );
+      }
+      rethrow;
+    } catch (e) {
+      return CapabilityExecutionResult(
+        capabilityId: 'artifact.inspect_logs',
+        output: {'ok': false, 'error': e.toString()},
+      );
+    }
   }
 
   ArtifactType _parseType(Object? value) {

@@ -7,10 +7,17 @@ class OfficeDocumentCodec {
   const OfficeDocumentCodec();
 
   Uint8List encodeDocx({required String title, required String body}) {
-    final paragraphs = [
+    final lines = [
       title,
       ...body.split('\n'),
-    ].where((line) => line.trim().isNotEmpty).map(_wordParagraph).join();
+    ].where((line) => line.trim().isNotEmpty).toList();
+
+    final paragraphs = <String>[];
+    for (var i = 0; i < lines.length; i++) {
+      final isTitle = i == 0;
+      paragraphs.add(_wordParagraph(lines[i], isTitle: isTitle));
+    }
+
     return _zip({
       '[Content_Types].xml': _contentTypes({
         '/word/document.xml':
@@ -23,7 +30,7 @@ class OfficeDocumentCodec {
       'word/document.xml':
           '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
           '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-          '<w:body>$paragraphs<w:sectPr/></w:body></w:document>',
+          '<w:body>${paragraphs.join()}<w:sectPr/></w:body></w:document>',
     });
   }
 
@@ -32,7 +39,12 @@ class OfficeDocumentCodec {
       final rowIndex = rowEntry.key + 1;
       final cells = rowEntry.value.asMap().entries.map((cellEntry) {
         final ref = '${_columnName(cellEntry.key + 1)}$rowIndex';
-        return '<c r="$ref" t="inlineStr"><is><t>${_xml(cellEntry.value)}</t></is></c>';
+        final val = cellEntry.value;
+        final isNum = num.tryParse(val) != null;
+        if (isNum) {
+          return '<c r="$ref"><v>$val</v></c>';
+        }
+        return '<c r="$ref" t="inlineStr"><is><t>${_xml(val)}</t></is></c>';
       }).join();
       return '<row r="$rowIndex">$cells</row>';
     }).join();
@@ -103,17 +115,15 @@ class OfficeDocumentCodec {
   }
 
   Uint8List encodePdf({required String title, required String body}) {
-    final lines = [
-      title,
-      ...body.split('\n'),
-    ].where((line) => line.trim().isNotEmpty).take(42).toList(growable: false);
+    final wrappedLines = _wrapPdfText([title, ...body.split('\n')], maxWidth: 45);
+    final lines = wrappedLines.take(38).toList(growable: false);
+    
     final stream = StringBuffer('BT /F1 18 Tf 72 760 Td ');
     for (var index = 0; index < lines.length; index += 1) {
       if (index == 1) {
-        stream.write('/F1 12 Tf ');
-      }
-      if (index > 0) {
-        stream.write('0 -22 Td ');
+        stream.write('/F1 12 Tf 0 -28 Td ');
+      } else if (index > 1) {
+        stream.write('0 -18 Td ');
       }
       stream.write('<${_pdfHexText(lines[index])}> Tj ');
     }
@@ -151,19 +161,23 @@ class OfficeDocumentCodec {
 
   String extractText(String path, Uint8List bytes) {
     final lower = path.toLowerCase();
-    if (lower.endsWith('.docx')) {
-      return _extractZipText(bytes, ['word/document.xml']);
+    try {
+      if (lower.endsWith('.docx')) {
+        return _extractDocxText(bytes);
+      }
+      if (lower.endsWith('.xlsx')) {
+        return _extractXlsxText(bytes);
+      }
+      if (lower.endsWith('.pptx')) {
+        return _extractZipText(bytes, ['ppt/slides/slide']);
+      }
+      if (lower.endsWith('.pdf')) {
+        return _extractPdfText(bytes);
+      }
+      return utf8.decode(bytes, allowMalformed: true);
+    } catch (e) {
+      return 'Extraction failed for $path: $e';
     }
-    if (lower.endsWith('.xlsx')) {
-      return _extractZipText(bytes, ['xl/worksheets/sheet1.xml']);
-    }
-    if (lower.endsWith('.pptx')) {
-      return _extractZipText(bytes, ['ppt/slides/']);
-    }
-    if (lower.endsWith('.pdf')) {
-      return _extractPdfText(bytes);
-    }
-    return utf8.decode(bytes, allowMalformed: true);
   }
 
   Uint8List _zip(Map<String, String> files) {
@@ -174,6 +188,64 @@ class OfficeDocumentCodec {
     }
     final encoded = ZipEncoder().encode(archive);
     return Uint8List.fromList(encoded);
+  }
+
+  String _extractDocxText(Uint8List bytes) {
+    final archive = ZipDecoder().decodeBytes(bytes);
+    final file = archive.findFile('word/document.xml');
+    if (file == null) return '';
+    final xml = utf8.decode(file.content, allowMalformed: true);
+    var text = xml.replaceAll(RegExp(r'<w:p[ >]'), '\n');
+    text = text.replaceAll('<w:br/>', '\n');
+    text = text.replaceAll(RegExp(r'<[^>]+>'), '');
+    return text.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).join('\n');
+  }
+
+  String _extractXlsxText(Uint8List bytes) {
+    final archive = ZipDecoder().decodeBytes(bytes);
+    final sharedStrings = <String>[];
+    final ssFile = archive.findFile('xl/sharedStrings.xml');
+    if (ssFile != null) {
+      final ssXml = utf8.decode(ssFile.content, allowMalformed: true);
+      final matches = RegExp(r'<t[^>]*>(.*?)</t>', dotAll: true).allMatches(ssXml);
+      for (final m in matches) {
+        sharedStrings.add(m.group(1) ?? '');
+      }
+    }
+
+    final sheetFile = archive.findFile('xl/worksheets/sheet1.xml');
+    if (sheetFile == null) return '';
+    final sheetXml = utf8.decode(sheetFile.content, allowMalformed: true);
+    
+    final rows = <List<String>>[];
+    final rowMatches = RegExp(r'<row[^>]*>(.*?)</row>', dotAll: true).allMatches(sheetXml);
+    for (final rm in rowMatches) {
+      final rowText = rm.group(1) ?? '';
+      final cells = <String>[];
+      final cellMatches = RegExp(r'<c[^>]*>(.*?)</c>', dotAll: true).allMatches(rowText);
+      for (final cm in cellMatches) {
+        final cellText = cm.group(1) ?? '';
+        final fullCellTag = cm.group(0) ?? '';
+        final tMatch = RegExp(r' t="([^"]*)"').firstMatch(fullCellTag);
+        final type = tMatch?.group(1);
+        
+        final vMatch = RegExp(r'<v>(.*?)</v>', dotAll: true).firstMatch(cellText);
+        var value = vMatch?.group(1)?.trim() ?? '';
+        
+        if (type == 's') {
+          final idx = int.tryParse(value);
+          if (idx != null && idx >= 0 && idx < sharedStrings.length) {
+            value = sharedStrings[idx];
+          }
+        } else if (type == 'inlineStr') {
+          final tMatch = RegExp(r'<t[^>]*>(.*?)</t>', dotAll: true).firstMatch(cellText);
+          value = tMatch?.group(1) ?? '';
+        }
+        cells.add(value);
+      }
+      rows.add(cells);
+    }
+    return rows.map((r) => r.join('\t')).join('\n');
   }
 
   String _extractZipText(Uint8List bytes, List<String> pathsOrPrefixes) {
@@ -229,16 +301,33 @@ class OfficeDocumentCodec {
         'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
         '<p:cSld><p:spTree><p:nvGrpSpPr/><p:grpSpPr/>'
         '<p:sp><p:txBody><a:bodyPr/><a:lstStyle/>'
-        '${_paragraph(slide.title)}$bullets'
+        '${_paragraph(slide.title, fontSize: 3200)}$bullets'
         '</p:txBody></p:sp></p:spTree></p:cSld></p:sld>';
   }
 
-  String _wordParagraph(String text) {
-    return '<w:p><w:r><w:t>${_xml(text)}</w:t></w:r></w:p>';
+  String _wordParagraph(String text, {bool isTitle = false}) {
+    final runs = <String>[];
+    final boldParts = text.split('**');
+    for (var i = 0; i < boldParts.length; i++) {
+      final isBold = i % 2 != 0 || isTitle;
+      if (boldParts[i].isNotEmpty) {
+        runs.add(_wordRun(boldParts[i], bold: isBold, fontSize: isTitle ? 32 : 24));
+      }
+    }
+    return '<w:p>${runs.join()}</w:p>';
   }
 
-  String _paragraph(String text) {
-    return '<a:p><a:r><a:t>${_xml(text)}</a:t></a:r></a:p>';
+  String _wordRun(String text, {bool bold = false, int fontSize = 24}) {
+    final rPr = [
+      if (bold) '<w:b/>',
+      '<w:sz w="$fontSize"/>',
+      '<w:szCs w="$fontSize"/>',
+    ].join();
+    return '<w:r><w:rPr>$rPr</w:rPr><w:t xml:space="preserve">${_xml(text)}</w:t></w:r>';
+  }
+
+  String _paragraph(String text, {int fontSize = 1800}) {
+    return '<a:p><a:r><a:rPr sz="$fontSize"/><a:t>${_xml(text)}</a:t></a:r></a:p>';
   }
 
   String _rels(Map<String, String> relationships) {
@@ -282,6 +371,29 @@ class OfficeDocumentCodec {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&apos;');
+  }
+
+  List<String> _wrapPdfText(List<String> rawLines, {required int maxWidth}) {
+    final result = <String>[];
+    for (final line in rawLines) {
+      if (line.isEmpty) {
+        result.add('');
+        continue;
+      }
+      var currentLine = line;
+      while (currentLine.isNotEmpty) {
+        if (currentLine.length <= maxWidth) {
+          result.add(currentLine);
+          break;
+        }
+        var splitAt = maxWidth;
+        // Basic split - in a real app we'd look for whitespace but for Chinese/Mixed 
+        // a hard split is often necessary.
+        result.add(currentLine.substring(0, splitAt));
+        currentLine = currentLine.substring(splitAt);
+      }
+    }
+    return result;
   }
 
   String _pdfHexText(String value) {

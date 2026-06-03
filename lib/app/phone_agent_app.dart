@@ -35,6 +35,7 @@ class PhoneAgentApp extends StatelessWidget {
       seedColor: const Color(0xFF007AFF),
       brightness: Brightness.light,
       surface: Colors.white,
+      surfaceContainerHighest: const Color(0xFFF3F4F6),
     );
 
     return MaterialApp(
@@ -44,16 +45,20 @@ class PhoneAgentApp extends StatelessWidget {
         colorScheme: colorScheme,
         scaffoldBackgroundColor: const Color(0xFFF9FAFB),
         useMaterial3: true,
+        fontFamily: '.SF Pro Text', // Native iOS feel on Darwin
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.white,
           elevation: 0,
           scrolledUnderElevation: 0,
           centerTitle: true,
+          surfaceTintColor: Colors.transparent,
           titleTextStyle: TextStyle(
-            color: Color(0xFF1F2937),
+            color: Color(0xFF111827),
             fontSize: 17,
             fontWeight: FontWeight.w600,
+            letterSpacing: -0.4,
           ),
+          iconTheme: IconThemeData(color: Color(0xFF4B5563)),
         ),
         cardTheme: CardThemeData(
           elevation: 0,
@@ -66,13 +71,19 @@ class PhoneAgentApp extends StatelessWidget {
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: Colors.white,
+          fillColor: const Color(0xFFF3F4F6),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(24),
             borderSide: BorderSide.none,
           ),
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          hintStyle: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 16),
+        ),
+        dividerTheme: const DividerThemeData(
+          color: Color(0xFFE5E7EB),
+          thickness: 1,
+          space: 1,
         ),
       ),
       home: PhoneAgentHome(

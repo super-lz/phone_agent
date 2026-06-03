@@ -12,6 +12,7 @@ import '../../domain/workbench/workbench_store.dart';
 import '../../domain/workspace/workspace.dart';
 import '../capabilities/capability_execution_result.dart';
 import '../capabilities/capability_runtime.dart';
+import '../capabilities/mcp_manager.dart';
 import 'agent_loop_budget.dart';
 import 'agent_run_state.dart';
 import 'conversation_context_builder.dart';
@@ -40,6 +41,8 @@ class AgentLoop {
   final AgentLoopBudget budget;
   final AgentToolRouter _toolRouter = const AgentToolRouter();
 
+  CapabilityRuntime get capabilityRuntime => _capabilityRuntime;
+
   Future<CapabilityExecutionResult> executeApprovedTool({
     required ToolCallRequest toolCall,
     required String workspaceId,
@@ -47,6 +50,7 @@ class AgentLoop {
     required List<AgentNote> allNotes,
     required List<AgentArtifact> allArtifacts,
     required List<AgentWorkspace> allWorkspaces,
+    required List<AgentSkill> allSkills,
     required List<CapabilityDefinition> allCapabilities,
     required AgentNoteStore noteStore,
     required AppFileStore fileStore,
@@ -62,6 +66,7 @@ class AgentLoop {
       notes: allNotes,
       artifacts: allArtifacts,
       workspaces: allWorkspaces,
+      skills: allSkills,
       capabilities: allCapabilities,
       noteStore: noteStore,
       fileStore: fileStore,
@@ -89,6 +94,7 @@ class AgentLoop {
     required List<AgentNote> allNotes,
     required List<AgentArtifact> allArtifacts,
     required List<AgentWorkspace> allWorkspaces,
+    required List<AgentSkill> allSkills,
     required List<CapabilityDefinition> allCapabilities,
     required AgentNoteStore noteStore,
     required AppFileStore fileStore,
@@ -127,7 +133,10 @@ class AgentLoop {
 
     report(AgentRunPhase.thinking, '正在处理您的请求...');
     final latestRoutingPrompt = _extractTextForRouting(prompt);
-    final routingContext = _routingContextText(priorMessages: priorMessages);
+    final routingContext = _routingContextText(
+      priorMessages: priorMessages,
+      allSkills: allSkills,
+    );
 
     report(AgentRunPhase.routing, '正在选择本轮需要暴露的工具集合。');
     final toolRoute = await _toolRouter.route(
@@ -284,6 +293,7 @@ class AgentLoop {
           notes: allNotes,
           artifacts: allArtifacts,
           workspaces: allWorkspaces,
+          skills: allSkills,
           capabilities: allCapabilities,
           noteStore: noteStore,
           fileStore: fileStore,
@@ -345,18 +355,31 @@ class AgentLoop {
     report(AgentRunPhase.completed, '已完成');
   }
 
-  String _routingContextText({required List<AgentMessage> priorMessages}) {
+  String _routingContextText({
+    required List<AgentMessage> priorMessages,
+    required List<AgentSkill>? allSkills,
+  }) {
     final recentMessages =
         priorMessages
             .where((message) => message.id != 'msg-welcome')
             .toList(growable: false);
-    return recentMessages.reversed
+    final history = recentMessages.reversed
         .take(6)
         .toList(growable: false)
         .reversed
         .map(_messageTextForRouting)
         .where((text) => text.trim().isNotEmpty)
         .join('\n');
+
+    final skillInfo = allSkills == null || allSkills.isEmpty
+        ? ''
+        : '\n\n当前已安装 Skill：\n${allSkills.map((s) => '- ${s.id}: ${s.description}').join('\n')}';
+
+    final mcpInfo = _capabilityRuntime.mcpManager.allTools.isEmpty
+        ? ''
+        : '\n\n当前已连接 MCP 工具：\n${_capabilityRuntime.mcpManager.allTools.map((McpToolDefinition t) => '- ${t.name}').join('\n')}';
+
+    return '$history$skillInfo$mcpInfo';
   }
 
   String _messageTextForRouting(AgentMessage message) {

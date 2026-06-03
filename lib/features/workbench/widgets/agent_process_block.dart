@@ -90,8 +90,8 @@ class _AgentProcessBlockState extends State<AgentProcessBlock> {
         .where((block) => block.type == MessageBlockType.toolCall)
         .length;
     if (widget.status == 'processing') {
-      return toolCalls > 0 ? '正在调用工具 ($toolCalls)...' : '正在思考...';
+      return toolCalls > 0 ? '正在处理 ($toolCalls 个工具)...' : '正在思考...';
     }
-    return toolCalls > 0 ? '已使用 $toolCalls 个工具' : '已思考完成';
+    return toolCalls > 0 ? '已处理 ($toolCalls 个工具)' : '已处理';
   }
 }

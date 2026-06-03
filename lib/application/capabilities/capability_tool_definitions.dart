@@ -278,6 +278,24 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'artifact_inspect_logs',
+          'description': '读取 Web App Artifact 的运行时日志。当 Web App 运行出错、JSBridge 调用失败或用户反馈应用行为异常时，用于查看 console.log 和 window.error 输出。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'artifactId': {'type': 'string', 'description': '目标 Artifact ID。'},
+              'max_lines': {
+                'type': 'integer',
+                'description': '最多返回多少行日志，默认 50。',
+              },
+            },
+            'required': ['artifactId'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'workspace_create',
           'description': '当用户明确要求新建工作区时，创建一个 Workspace 并切换过去。',
           'parameters': {
@@ -602,12 +620,13 @@ class CapabilityToolDefinitions {
         'type': 'function',
         'function': {
           'name': 'skill_invoke',
-          'description': '调用已安装 Skill。当前无安全脚本执行后端时返回明确不可用。',
+          'description': '调用已安装的 Agent Skill。',
           'parameters': {
             'type': 'object',
             'properties': {
-              'skill_id': {'type': 'string', 'description': 'Skill ID。'},
-              'input': {'type': 'object', 'description': '调用参数。'},
+              'skill_id': {'type': 'string', 'description': '要调用的 Skill ID。'},
+              'input': {'type': 'object', 'description': '传递给脚本的参数对象。'},
+              'script': {'type': 'string', 'description': '可选：直接提供脚本执行，不推荐。'},
             },
             'required': ['skill_id'],
           },

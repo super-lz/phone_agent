@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:open_filex/open_filex.dart';
 
 import '../../application/capabilities/capability_runtime.dart';
@@ -118,6 +119,38 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
 
   Future<void> _pickImageAttachment() async {
     await _pickAttachment(type: FileType.image);
+  }
+
+  Future<void> _takePhoto() async {
+    try {
+      final picker = ImagePicker();
+      final photo = await picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 2000,
+        maxHeight: 2000,
+        imageQuality: 85,
+      );
+      if (photo == null) {
+        return;
+      }
+      final size = await photo.length();
+      final block = MessageBlock.image(
+        name: photo.name,
+        uri: Uri.file(photo.path).toString(),
+        bytes: size,
+        mimeType: _imageMimeType(photo.path.split('.').last),
+      );
+      setState(() {
+        _pendingAttachments.add(block);
+      });
+    } on Object catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('拍照失败：$error')));
+    }
   }
 
   Future<void> _pickAttachment({required FileType type}) async {
@@ -359,12 +392,23 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 1000;
+        final theme = Theme.of(context);
+        
         return Scaffold(
           resizeToAvoidBottomInset: false,
           appBar: AppBar(
-            title: Text(
-              _controller.currentWorkspace.name,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            title: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_controller.currentWorkspace.name),
+                Text(
+                  _controller.workspaceId == 'default' ? '默认工作区' : '当前工作区',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.normal,
+                  ),
+                ),
+              ],
             ),
             leading: isMobile
                 ? Builder(
@@ -440,6 +484,7 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
               ? Drawer(
                   child: Column(
                     children: [
+                      _buildDrawerHeader(context),
                       Expanded(
                         child: WorkspacePanel(
                           workspaces: _controller.workspaces,
@@ -455,59 +500,8 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
                           onDeleteMemory: _confirmDeleteMemory,
                         ),
                       ),
-                      const Divider(height: 1),
-                      ListTile(
-                        leading: const Icon(Icons.history_outlined),
-                        title: const Text('操作审计日志'),
-                        onTap: () {
-                          Navigator.pop(context);
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (context) => AuditLogPage(
-                                workbenchStore: widget.workbenchStore!,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                      ListTile(
-                        leading: const Icon(Icons.privacy_tip_outlined),
-                        title: const Text('权限管理'),
-                        onTap: () {
-                          Navigator.pop(context);
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (context) => PermissionSettingsPage(
-                                permissionService: _permissionService,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                      ListTile(
-                        leading: const Icon(Icons.settings_outlined),
-                        title: const Text('模型设置'),
-                        onTap: () {
-                          Navigator.pop(context);
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (context) => ModelSettingsPage(
-                                apiKeyStore: _apiKeyStore,
-                                modelSettingsStore: _modelSettingsStore,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                      ListTile(
-                        leading: const Icon(Icons.cleaning_services_outlined),
-                        title: const Text('清理本地数据'),
-                        onTap: () {
-                          Navigator.pop(context);
-                          _confirmClearLocalData();
-                        },
-                      ),
-                      const SizedBox(height: 12),
+                      const Divider(),
+                      _buildDrawerFooter(context),
                     ],
                   ),
                 )
@@ -554,6 +548,7 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
               pendingAttachments: List.unmodifiable(_pendingAttachments),
               onAddFile: _pickFileAttachment,
               onAddImage: _pickImageAttachment,
+              onTakePhoto: _takePhoto,
               onRemovePendingAttachment: _removePendingAttachment,
             ),
             runtimePanel: RuntimePanel(
@@ -573,6 +568,135 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
       },
     );
   }
+
+  Widget _buildDrawerHeader(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      bottom: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 16, 16, 12),
+        alignment: Alignment.centerLeft,
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.bolt, color: Colors.white, size: 24),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Phone Agent',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+                letterSpacing: -0.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDrawerFooter(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          children: [
+            _DrawerActionTile(
+              icon: Icons.history_outlined,
+              label: '操作审计日志',
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (context) => AuditLogPage(
+                      workbenchStore: widget.workbenchStore!,
+                    ),
+                  ),
+                );
+              },
+            ),
+            _DrawerActionTile(
+              icon: Icons.privacy_tip_outlined,
+              label: '权限管理',
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (context) => PermissionSettingsPage(
+                      permissionService: _permissionService,
+                    ),
+                  ),
+                );
+              },
+            ),
+            _DrawerActionTile(
+              icon: Icons.settings_outlined,
+              label: '模型设置',
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (context) => ModelSettingsPage(
+                      apiKeyStore: _apiKeyStore,
+                      modelSettingsStore: _modelSettingsStore,
+                    ),
+                  ),
+                );
+              },
+            ),
+            _DrawerActionTile(
+              icon: Icons.cleaning_services_outlined,
+              label: '清理本地数据',
+              color: Colors.redAccent,
+              onTap: () {
+                Navigator.pop(context);
+                _confirmClearLocalData();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DrawerActionTile extends StatelessWidget {
+  const _DrawerActionTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListTile(
+      visualDensity: const VisualDensity(vertical: -2),
+      leading: Icon(icon, color: color ?? theme.colorScheme.onSurface, size: 22),
+      title: Text(
+        label,
+        style: TextStyle(
+          color: color ?? theme.colorScheme.onSurface,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      onTap: onTap,
+    );
+  }
+}
 }
 
 class _MemoryEditorResult {

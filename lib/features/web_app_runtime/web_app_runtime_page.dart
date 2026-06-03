@@ -71,6 +71,8 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
   Uri? _localServerUrl;
   String? _localServerError;
   bool _isClosing = false;
+  bool _showConsole = false;
+  final List<WebAppRuntimeLogEntry> _localLogs = [];
 
   @override
   void initState() {
@@ -227,6 +229,14 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
   }
 
   Future<void> _recordRuntimeLog(WebAppRuntimeLogEntry entry) async {
+    if (mounted) {
+      setState(() {
+        _localLogs.add(entry);
+        if (_localLogs.length > 200) {
+          _localLogs.removeAt(0);
+        }
+      });
+    }
     final writer = widget.runtimeLogWriter;
     if (writer == null) {
       return;
@@ -357,8 +367,10 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
     (function() {
       function formatArg(value) {
         if (value instanceof Error) return value.stack || value.message;
-        if (typeof value === 'string') return value;
-        try { return JSON.stringify(value); } catch (_) { return String(value); }
+        if (typeof value === 'object' && value !== null) {
+          try { return JSON.stringify(value); } catch (_) { return String(value); }
+        }
+        return String(value);
       }
       function viewport() {
         return {
@@ -377,12 +389,12 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
           }, payload));
         } catch (_) {}
       }
-      ['warn', 'error'].forEach(function(level) {
+      ['log', 'info', 'warn', 'error'].forEach(function(level) {
         const original = console[level];
         console[level] = function() {
           const args = Array.prototype.slice.call(arguments);
           sendRuntimeLog({
-            level: level === 'warn' ? 'warning' : 'error',
+            level: (level === 'warn' ? 'warning' : (level === 'log' ? 'info' : level)),
             source: 'console.' + level,
             message: args.map(formatArg).join(' ')
           });
@@ -521,8 +533,20 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
                       if (_permissionDecision ==
                           WebAppPermissionDecision.denied)
                         const WebAppPermissionDeniedBanner(),
+                      if (_showConsole) _buildConsoleOverlay(),
                     ],
                   ),
+            floatingActionButton: _permissionDecision == WebAppPermissionDecision.granted
+                ? FloatingActionButton(
+                    mini: true,
+                    onPressed: () {
+                      setState(() {
+                        _showConsole = !_showConsole;
+                      });
+                    },
+                    child: Icon(_showConsole ? Icons.bug_report : Icons.bug_report_outlined),
+                  )
+                : null,
           ),
           IgnorePointer(
             ignoring: !_isClosing,
@@ -537,6 +561,69 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildConsoleOverlay() {
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: MediaQuery.of(context).size.height * 0.4,
+      child: Material(
+        elevation: 16,
+        color: const Color(0xFF1E1E1E),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: Colors.black,
+              child: Row(
+                children: [
+                  const Icon(Icons.terminal, color: Colors.green, size: 16),
+                  const SizedBox(width: 8),
+                  const Text(
+                    '开发者控制台',
+                    style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.delete_sweep, color: Colors.white70, size: 18),
+                    onPressed: () {
+                      setState(() {
+                        _localLogs.clear();
+                      });
+                    },
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                  const SizedBox(width: 12),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white70, size: 18),
+                    onPressed: () {
+                      setState(() {
+                        _showConsole = false;
+                      });
+                    },
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                itemCount: _localLogs.length,
+                itemBuilder: (context, index) {
+                  final entry = _localLogs[_localLogs.length - 1 - index];
+                  return _ConsoleLogRow(entry: entry);
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -585,13 +672,69 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
         return NavigationActionPolicy.ALLOW;
       },
       onConsoleMessage: (_, message) {
-        if (kDebugMode) {
-          debugPrint(
-            '[PhoneAgent WebApp] '
-            '${message.messageLevel}: ${message.message}',
-          );
-        }
+        _recordRuntimeLog(
+          WebAppRuntimeLogEntry(
+            timestamp: DateTime.now(),
+            level: message.messageLevel.toLogString(),
+            source: 'webview.console',
+            message: message.message,
+          ),
+        );
       },
+    );
+  }
+}
+
+extension on ConsoleMessageLevel {
+  String toLogString() {
+    switch (this) {
+      case ConsoleMessageLevel.TIP:
+      case ConsoleMessageLevel.LOG:
+        return 'info';
+      case ConsoleMessageLevel.WARNING:
+        return 'warning';
+      case ConsoleMessageLevel.ERROR:
+        return 'error';
+      default:
+        return 'info';
+    }
+  }
+}
+
+class _ConsoleLogRow extends StatelessWidget {
+  const _ConsoleLogRow({required this.entry});
+
+  final WebAppRuntimeLogEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (entry.level) {
+      'error' => Colors.redAccent,
+      'warning' => Colors.orangeAccent,
+      _ => Colors.white,
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Colors.white10, width: 0.5)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${entry.timestamp.hour.toString().padLeft(2, '0')}:${entry.timestamp.minute.toString().padLeft(2, '0')}:${entry.timestamp.second.toString().padLeft(2, '0')}',
+            style: const TextStyle(color: Colors.white38, fontSize: 10, fontFamily: 'monospace'),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              entry.message,
+              style: TextStyle(color: color, fontSize: 11, fontFamily: 'monospace'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

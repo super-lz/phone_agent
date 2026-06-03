@@ -42,6 +42,18 @@ abstract class WorkbenchStore {
 
   Future<List<CapabilityInvocation>> loadInvocations();
 
+  Future<List<McpConnection>> loadMcpConnections();
+
+  Future<void> upsertMcpConnection(McpConnection connection);
+
+  Future<void> deleteMcpConnection(String url);
+
+  Future<List<AgentSkill>> loadSkills();
+
+  Future<void> upsertSkill(AgentSkill skill);
+
+  Future<void> deleteSkill(String skillId);
+
   Future<void> resetLocalData({
     required AgentWorkspace defaultWorkspace,
     required List<AgentMessage> defaultMessages,
@@ -56,6 +68,8 @@ class InMemoryWorkbenchStore implements WorkbenchStore {
   final _artifacts = <String, AgentArtifact>{};
   final _messagesByWorkspace = <String, Map<String, AgentMessage>>{};
   final _invocations = <CapabilityInvocation>[];
+  final _mcpConnections = <String, McpConnection>{};
+  final _skills = <String, AgentSkill>{};
   String? _currentWorkspaceId;
 
   @override
@@ -153,6 +167,38 @@ class InMemoryWorkbenchStore implements WorkbenchStore {
   @override
   Future<List<CapabilityInvocation>> loadInvocations() async {
     return List.unmodifiable(_invocations);
+  }
+
+  @override
+  Future<List<McpConnection>> loadMcpConnections() async {
+    return _mcpConnections.values.toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  }
+
+  @override
+  Future<void> upsertMcpConnection(McpConnection connection) async {
+    _mcpConnections[connection.url] = connection;
+  }
+
+  @override
+  Future<void> deleteMcpConnection(String url) async {
+    _mcpConnections.remove(url);
+  }
+
+  @override
+  Future<List<AgentSkill>> loadSkills() async {
+    return _skills.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
+
+  @override
+  Future<void> upsertSkill(AgentSkill skill) async {
+    _skills[skill.id] = skill;
+  }
+
+  @override
+  Future<void> deleteSkill(String skillId) async {
+    _skills.remove(skillId);
   }
 
   @override

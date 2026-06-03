@@ -28,15 +28,16 @@ class WorkspacePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return WorkbenchPanel(
-      title: 'Workspace',
+      title: '工作区与上下文',
       trailing: IconButton(
-        tooltip: '创建工作区',
-        icon: const Icon(Icons.add),
+        tooltip: '新建工作区',
+        icon: const Icon(Icons.create_new_folder_outlined, size: 22),
         onPressed: onCreateWorkspace,
       ),
       child: ListView(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         children: [
           for (final workspace in workspaces)
             _WorkspaceTile(
@@ -44,28 +45,38 @@ class WorkspacePanel extends StatelessWidget {
               selected: workspace.id == selectedWorkspaceId,
               onTap: () => onSelectWorkspace(workspace.id),
             ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '长期记忆',
-                  style: Theme.of(context).textTheme.titleSmall,
+          const SizedBox(height: 24),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '长期记忆',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
-              ),
-              IconButton(
-                tooltip: '新增记忆',
-                icon: const Icon(Icons.add_circle_outline),
-                onPressed: onCreateMemory,
-              ),
-            ],
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: '新增记忆',
+                  icon: const Icon(Icons.add_circle_outline, size: 20),
+                  onPressed: onCreateMemory,
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           if (visibleMemories.isEmpty)
-            const InfoRow(
-              icon: Icons.memory,
-              title: '暂无记忆',
-              body: '长期记忆会在所有 Workspace 中自动作为上下文使用。',
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: InfoRow(
+                icon: Icons.lightbulb_outline,
+                title: '还没有长期记忆',
+                body: 'AI 会自动记住跨工作区的偏好和重要事实，通过对话或手动添加。',
+              ),
             )
           else
             for (final memory in visibleMemories)
@@ -93,24 +104,51 @@ class _MemoryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: const Icon(Icons.memory),
-        title: const Text('长期记忆'),
-        subtitle: Text(memory.content),
-        trailing: Wrap(
-          spacing: 4,
+      margin: const EdgeInsets.only(bottom: 10),
+      color: theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.5)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            IconButton(
-              tooltip: '编辑记忆',
-              icon: const Icon(Icons.edit_outlined),
-              onPressed: onEdit,
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(Icons.auto_awesome, size: 16, color: theme.colorScheme.primary),
             ),
-            IconButton(
-              tooltip: '删除记忆',
-              icon: const Icon(Icons.delete_outline),
-              onPressed: onDelete,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    memory.content,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontSize: 14,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              children: [
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  onPressed: onEdit,
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  onPressed: onDelete,
+                ),
+              ],
             ),
           ],
         ),
@@ -132,17 +170,41 @@ class _WorkspaceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      selected: selected,
-      leading: const Icon(Icons.folder_open),
-      title: Text(workspace.name),
-      subtitle: Text(
-        workspace.description,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      decoration: BoxDecoration(
+        color: selected ? colorScheme.primary.withValues(alpha: 0.08) : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      onTap: onTap,
+      child: ListTile(
+        selected: selected,
+        leading: Icon(
+          selected ? Icons.folder_rounded : Icons.folder_outlined,
+          color: selected ? colorScheme.primary : colorScheme.onSurfaceVariant,
+        ),
+        title: Text(
+          workspace.name,
+          style: TextStyle(
+            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+            color: selected ? colorScheme.primary : colorScheme.onSurface,
+          ),
+        ),
+        subtitle: Text(
+          workspace.description,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 12,
+            color: selected ? colorScheme.primary.withValues(alpha: 0.7) : colorScheme.onSurfaceVariant,
+          ),
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        onTap: onTap,
+        visualDensity: const VisualDensity(vertical: -1),
+      ),
     );
   }
 }

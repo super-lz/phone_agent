@@ -12,10 +12,13 @@ class PermissionPolicy {
   PermissionDecision decide(CapabilityDefinition capability) {
     switch (mode) {
       case PermissionMode.defaultMode:
-        return capability.risk == CapabilityRisk.high
+        // Default mode asks for both high and medium risk actions
+        return (capability.risk == CapabilityRisk.high || 
+                capability.risk == CapabilityRisk.medium)
             ? PermissionDecision.ask
             : PermissionDecision.allow;
       case PermissionMode.autoReview:
+        // Auto-review mode only asks for high risk actions, allowing medium risk
         return capability.risk == CapabilityRisk.high
             ? PermissionDecision.ask
             : PermissionDecision.allow;

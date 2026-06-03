@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../domain/conversation/message_block.dart';
@@ -59,21 +61,29 @@ class MessageView extends StatelessWidget {
                       bottomRight: Radius.circular(isUser ? 4 : 16),
                     ),
                     boxShadow: [
-                      if (!isUser)
+                      if (isUser)
+                        BoxShadow(
+                          color: colorScheme.primary.withValues(alpha: 0.2),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        )
+                      else
                         BoxShadow(
                           color: Colors.black.withValues(alpha: 0.04),
                           blurRadius: 10,
                           offset: const Offset(0, 2),
                         ),
                     ],
+                    border: isUser ? null : Border.all(color: const Color(0xFFE5E7EB)),
                   ),
                   child: Theme(
                     data: Theme.of(context).copyWith(
                       textTheme: Theme.of(context).textTheme.copyWith(
                             bodyMedium: TextStyle(
-                              color: isUser ? Colors.white : Colors.black87,
+                              color: isUser ? Colors.white : const Color(0xFF1F2937),
                               fontSize: 15,
-                              height: 1.4,
+                              height: 1.5,
+                              letterSpacing: -0.1,
                             ),
                           ),
                     ),
@@ -81,11 +91,14 @@ class MessageView extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         for (final block in displayBlocks)
-                          MessageBlockView(
-                            block: block,
-                            onOpenWebAppArtifact: onOpenWebAppArtifact,
-                            onApproveCapability: onApproveCapability,
-                            onDenyCapability: onDenyCapability,
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: MessageBlockView(
+                              block: block,
+                              onOpenWebAppArtifact: onOpenWebAppArtifact,
+                              onApproveCapability: onApproveCapability,
+                              onDenyCapability: onDenyCapability,
+                            ),
                           ),
                       ],
                     ),
@@ -105,7 +118,7 @@ class MessageView extends StatelessWidget {
 
   Widget _buildAvatar(BuildContext context, bool isUser) {
     final colorScheme = Theme.of(context).colorScheme;
-    return CircleAvatar(
+    final avatar = CircleAvatar(
       radius: 16,
       backgroundColor: isUser ? Colors.grey.shade200 : colorScheme.primary,
       child: Icon(
@@ -113,6 +126,15 @@ class MessageView extends StatelessWidget {
         size: 18,
         color: isUser ? Colors.grey.shade600 : Colors.white,
       ),
+    );
+
+    if (isUser) {
+      return avatar;
+    }
+
+    return Tooltip(
+      message: 'Agent',
+      child: avatar,
     );
   }
 
@@ -239,10 +261,17 @@ class MessageBlockView extends StatelessWidget {
       case MessageBlockType.todoList:
         return TodoBlock(items: MessageBlock.stringList(block.data['items']));
       case MessageBlockType.image:
-        return AttachmentBlock(
-          icon: Icons.image_outlined,
-          title: block.data['name'] as String? ?? '图片附件',
-          detail: _attachmentDetail(block.data),
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AttachmentBlock(
+              icon: Icons.image_outlined,
+              title: block.data['name'] as String? ?? '图片附件',
+              detail: _attachmentDetail(block.data),
+            ),
+            const SizedBox(height: 8),
+            _ImagePreview(uri: block.data['uri'] as String?),
+          ],
         );
       case MessageBlockType.fileAttachment:
         return AttachmentBlock(
@@ -333,5 +362,109 @@ class MessageBlockView extends StatelessWidget {
     }
     final mb = kb / 1024;
     return '${mb.toStringAsFixed(mb < 10 ? 1 : 0)} MB';
+  }
+}
+
+class _ImagePreview extends StatelessWidget {
+  const _ImagePreview({required this.uri});
+
+  final String? uri;
+
+  @override
+  Widget build(BuildContext context) {
+    if (uri == null || uri!.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    Widget? image;
+    try {
+      final fileUri = Uri.parse(uri!);
+      if (fileUri.isScheme('file')) {
+        image = Image.file(
+          File(fileUri.toFilePath()),
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _ErrorPlaceholder(error: error),
+        );
+      } else if (fileUri.isScheme('http') || fileUri.isScheme('https')) {
+        image = Image.network(
+          uri!,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _ErrorPlaceholder(error: error),
+        );
+      }
+    } catch (e) {
+      return _ErrorPlaceholder(error: e);
+    }
+
+    if (image == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 200, maxWidth: 300),
+      margin: const EdgeInsets.only(top: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          // Open full screen preview
+          showDialog<void>(
+            context: context,
+            builder: (context) => Dialog.fullscreen(
+              backgroundColor: Colors.black,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: InteractiveViewer(
+                      child: Center(
+                        child: image!,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 40,
+                    right: 20,
+                    child: IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+        child: image,
+      ),
+    );
+  }
+}
+
+class _ErrorPlaceholder extends StatelessWidget {
+  const _ErrorPlaceholder({required this.error});
+
+  final Object error;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 100,
+      width: 150,
+      color: Colors.grey.shade100,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.broken_image_outlined, color: Colors.grey.shade400),
+          const SizedBox(height: 4),
+          Text(
+            '图片读取失败',
+            style: TextStyle(color: Colors.grey.shade500, fontSize: 10),
+          ),
+        ],
+      ),
+    );
   }
 }

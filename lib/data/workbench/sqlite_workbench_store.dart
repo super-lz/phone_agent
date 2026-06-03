@@ -167,6 +167,60 @@ class SqliteWorkbenchStore implements WorkbenchStore {
   }
 
   @override
+  Future<List<McpConnection>> loadMcpConnections() async {
+    final rows = await (await _open()).query(
+      'mcp_connections',
+      orderBy: 'created_at ASC',
+    );
+    return rows.map(_mcpConnectionFromRow).toList(growable: false);
+  }
+
+  @override
+  Future<void> upsertMcpConnection(McpConnection connection) async {
+    await (await _open()).insert(
+      'mcp_connections',
+      _mcpConnectionToRow(connection),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<void> deleteMcpConnection(String url) async {
+    await (await _open()).delete(
+      'mcp_connections',
+      where: 'url = ?',
+      whereArgs: [url],
+    );
+  }
+
+  @override
+  Future<List<AgentSkill>> loadSkills() async {
+    final rows = await (await _open()).query(
+      'skills',
+      orderBy: 'created_at ASC',
+    );
+    return rows.map(_skillFromRow).toList(growable: false);
+  }
+
+  @override
+  Future<void> upsertSkill(AgentSkill skill) async {
+    await (await _open()).insert(
+      'skills',
+      _skillToRow(skill),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<void> deleteSkill(String skillId) async {
+    await (await _open()).delete(
+      'skills',
+      where: 'id = ?',
+      whereArgs: [skillId],
+    );
+  }
+
+  @override
   Future<void> resetLocalData({
     required AgentWorkspace defaultWorkspace,
     required List<AgentMessage> defaultMessages,
@@ -280,6 +334,23 @@ class SqliteWorkbenchStore implements WorkbenchStore {
         permission_decision TEXT,
         output_json TEXT,
         error TEXT,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS mcp_connections (
+        url TEXT PRIMARY KEY,
+        transport TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS skills (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        script TEXT NOT NULL,
+        manifest_path TEXT,
         created_at TEXT NOT NULL
       )
     ''');
@@ -499,6 +570,36 @@ class SqliteWorkbenchStore implements WorkbenchStore {
         error: row['error'] as String?,
         createdAt: DateTime.parse(row['created_at']! as String),
       );
+
+  Map<String, Object?> _mcpConnectionToRow(McpConnection connection) => {
+    'url': connection.url,
+    'transport': connection.transport,
+    'created_at': connection.createdAt.toIso8601String(),
+  };
+
+  McpConnection _mcpConnectionFromRow(Map<String, Object?> row) => McpConnection(
+    url: row['url']! as String,
+    transport: row['transport']! as String,
+    createdAt: DateTime.parse(row['created_at']! as String),
+  );
+
+  Map<String, Object?> _skillToRow(AgentSkill skill) => {
+    'id': skill.id,
+    'name': skill.name,
+    'description': skill.description,
+    'script': skill.script,
+    'manifest_path': skill.manifestPath,
+    'created_at': skill.createdAt.toIso8601String(),
+  };
+
+  AgentSkill _skillFromRow(Map<String, Object?> row) => AgentSkill(
+    id: row['id']! as String,
+    name: row['name']! as String,
+    description: row['description']! as String,
+    script: row['script']! as String,
+    manifestPath: row['manifest_path'] as String?,
+    createdAt: DateTime.parse(row['created_at']! as String),
+  );
 
   Map<String, Object?> _decodeMap(String value) =>
       _objectMap(jsonDecode(value));
