@@ -697,7 +697,6 @@ class _DrawerActionTile extends StatelessWidget {
     );
   }
 }
-}
 
 class _MemoryEditorResult {
   const _MemoryEditorResult({required this.content});

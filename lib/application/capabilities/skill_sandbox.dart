@@ -14,9 +14,6 @@ class SkillSandbox {
   final Completer<void> _readyCompleter = Completer<void>();
   bool _isReady = false;
 
-  /// Map of pending call requests from the sandbox.
-  final Map<String, Completer<Map<String, Object?>>> _pendingCalls = {};
-
   /// Callback to handle capability calls from the sandbox.
   Future<Map<String, Object?>> Function(String capabilityId, Map<String, Object?> input)? onCallCapability;
 
