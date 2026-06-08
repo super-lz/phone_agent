@@ -33,7 +33,7 @@ class RuntimePanel extends StatelessWidget {
     final policy = PermissionPolicy(permissionMode);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    
+
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
@@ -54,14 +54,20 @@ class RuntimePanel extends StatelessWidget {
           if (artifacts.isEmpty)
             _buildEmptyState(Icons.inventory_2_outlined, '当前工作区暂无产物')
           else
-            ...artifacts.map((artifact) => _buildArtifactTile(context, artifact)),
+            ...artifacts.map(
+              (artifact) => _buildArtifactTile(context, artifact),
+            ),
           const SizedBox(height: 24),
           _buildSectionHeader(
             context,
             '工作区文件',
             trailing: IconButton(
               visualDensity: VisualDensity.compact,
-              icon: Icon(Icons.refresh_rounded, size: 20, color: colorScheme.primary),
+              icon: Icon(
+                Icons.refresh_rounded,
+                size: 20,
+                color: colorScheme.primary,
+              ),
               onPressed: onRefreshFiles,
             ),
           ),
@@ -92,10 +98,12 @@ class RuntimePanel extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 8, bottom: 16),
                   child: Column(
                     children: capabilities
-                        .map((c) => _CapabilityRow(
-                              capability: c,
-                              decision: policy.decide(c),
-                            ))
+                        .map(
+                          (c) => _CapabilityRow(
+                            capability: c,
+                            decision: policy.decide(c),
+                          ),
+                        )
                         .toList(),
                   ),
                 ),
@@ -108,8 +116,11 @@ class RuntimePanel extends StatelessWidget {
     );
   }
 
-  Widget _buildSectionHeader(BuildContext context, String title,
-      {Widget? trailing}) {
+  Widget _buildSectionHeader(
+    BuildContext context,
+    String title, {
+    Widget? trailing,
+  }) {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -124,7 +135,7 @@ class RuntimePanel extends StatelessWidget {
               ),
             ),
           ),
-          if (trailing != null) trailing,
+          ?trailing,
         ],
       ),
     );
@@ -142,10 +153,7 @@ class RuntimePanel extends StatelessWidget {
         children: [
           Icon(icon, size: 32, color: Colors.grey.shade300),
           const SizedBox(height: 8),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
-          ),
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
         ],
       ),
     );
@@ -194,7 +202,11 @@ class RuntimePanel extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         visualDensity: const VisualDensity(vertical: -1),
-        leading: const Icon(Icons.description_outlined, color: Colors.blueGrey, size: 22),
+        leading: const Icon(
+          Icons.description_outlined,
+          color: Colors.blueGrey,
+          size: 22,
+        ),
         title: Text(
           file.path,
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
@@ -213,7 +225,11 @@ class RuntimePanel extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         visualDensity: const VisualDensity(vertical: -1),
-        leading: const Icon(Icons.sticky_note_2_outlined, color: Colors.amber, size: 22),
+        leading: const Icon(
+          Icons.sticky_note_2_outlined,
+          color: Colors.amber,
+          size: 22,
+        ),
         title: Text(
           note.title.isEmpty ? '未命名笔记' : note.title,
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),

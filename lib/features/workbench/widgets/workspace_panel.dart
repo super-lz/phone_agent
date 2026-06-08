@@ -119,7 +119,11 @@ class _MemoryTile extends StatelessWidget {
           children: [
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: Icon(Icons.auto_awesome, size: 16, color: theme.colorScheme.primary),
+              child: Icon(
+                Icons.auto_awesome,
+                size: 16,
+                color: theme.colorScheme.primary,
+              ),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -140,11 +144,13 @@ class _MemoryTile extends StatelessWidget {
               children: [
                 IconButton(
                   visualDensity: VisualDensity.compact,
+                  tooltip: '编辑记忆',
                   icon: const Icon(Icons.edit_outlined, size: 18),
                   onPressed: onEdit,
                 ),
                 IconButton(
                   visualDensity: VisualDensity.compact,
+                  tooltip: '删除记忆',
                   icon: const Icon(Icons.delete_outline, size: 18),
                   onPressed: onDelete,
                 ),
@@ -172,11 +178,13 @@ class _WorkspaceTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    
+
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(
-        color: selected ? colorScheme.primary.withValues(alpha: 0.08) : Colors.transparent,
+        color: selected
+            ? colorScheme.primary.withValues(alpha: 0.08)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(12),
       ),
       child: ListTile(
@@ -198,7 +206,9 @@ class _WorkspaceTile extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: 12,
-            color: selected ? colorScheme.primary.withValues(alpha: 0.7) : colorScheme.onSurfaceVariant,
+            color: selected
+                ? colorScheme.primary.withValues(alpha: 0.7)
+                : colorScheme.onSurfaceVariant,
           ),
         ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

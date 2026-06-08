@@ -160,6 +160,8 @@ class AgentLoop {
     );
 
     final currentTurnToolResults = <CapabilityExecutionResult>[];
+    var requiredToolCorrectionAttempts = 0;
+    var rawFinalCorrectionAttempts = 0;
 
     for (var round = 0; round < budget.maxModelRounds; round += 1) {
       throwIfCancelled();
@@ -206,9 +208,6 @@ class AgentLoop {
                     contentBuffer.toString(),
                   ),
                 );
-                if (contentBuffer.length == event.contentDelta.length) {
-                  addMessage(_emptyAssistantMessage(assistantMessageId));
-                }
                 notifyChange();
               }
             }
@@ -232,6 +231,19 @@ class AgentLoop {
             );
             continue;
           }
+          if (contentBuffer.isNotEmpty) {
+            replaceMessage(
+              assistantMessageId,
+              _assistantInterruptedMessage(
+                assistantMessageId,
+                contentBuffer.toString(),
+                error.message,
+              ),
+            );
+            notifyChange();
+            report(AgentRunPhase.completed, '模型连接中断');
+            return;
+          }
           rethrow;
         }
       }
@@ -247,12 +259,61 @@ class AgentLoop {
           );
           notifyChange();
         } else {
+          final finalText = contentBuffer.toString();
+          if (!_requiredToolsSatisfied(toolRoute, currentTurnToolResults)) {
+            if (requiredToolCorrectionAttempts < 2) {
+              requiredToolCorrectionAttempts += 1;
+              replaceMessage(
+                assistantMessageId,
+                _assistantIntermediateMessage(assistantMessageId, finalText),
+              );
+              modelMessages
+                ..add({'role': 'assistant', 'content': finalText})
+                ..add({
+                  'role': 'user',
+                  'content':
+                      '本轮存在必需工具：${toolRoute.requiredToolNames.join('、')}。'
+                      '在必需工具成功执行前，不能声称产物已经创建、已保存或可预览。'
+                      '请立即调用缺失的必需工具；如果无法调用，请明确说明未创建。',
+                });
+              notifyChange();
+              continue;
+            }
+            replaceMessage(
+              assistantMessageId,
+              _requiredToolErrorResponse(
+                assistantMessageId,
+                toolRoute.requiredToolNames,
+              ),
+            );
+            notifyChange();
+            report(AgentRunPhase.completed, '必需工具没有成功完成');
+            return;
+          }
+
+          if (_looksLikeRawToolProcess(finalText) &&
+              rawFinalCorrectionAttempts < 1) {
+            rawFinalCorrectionAttempts += 1;
+            replaceMessage(
+              assistantMessageId,
+              _assistantIntermediateMessage(assistantMessageId, finalText),
+            );
+            modelMessages
+              ..add({'role': 'assistant', 'content': finalText})
+              ..add({
+                'role': 'user',
+                'content':
+                    '上一条回复复述了工具调用过程或原始结构化结果，不能作为最终回答。'
+                    '请基于已有 observation 重新生成面向用户的自然语言结论，'
+                    '不要出现工具调用、工具结果、原始 JSON、Map 或 capability 字段。',
+              });
+            notifyChange();
+            continue;
+          }
+
           replaceMessage(
             assistantMessageId,
-            _assistantMarkdownMessage(
-              assistantMessageId,
-              contentBuffer.toString(),
-            ),
+            _assistantMarkdownMessage(assistantMessageId, finalText),
           );
           notifyChange();
         }
@@ -348,7 +409,6 @@ class AgentLoop {
           blocks: turnBlocks,
         ),
       );
-      if (round == 0) addMessage(_emptyAssistantMessage(processMessageId));
       notifyChange();
     }
 
@@ -359,10 +419,9 @@ class AgentLoop {
     required List<AgentMessage> priorMessages,
     required List<AgentSkill>? allSkills,
   }) {
-    final recentMessages =
-        priorMessages
-            .where((message) => message.id != 'msg-welcome')
-            .toList(growable: false);
+    final recentMessages = priorMessages
+        .where((message) => message.id != 'msg-welcome')
+        .toList(growable: false);
     final history = recentMessages.reversed
         .take(6)
         .toList(growable: false)
@@ -384,13 +443,12 @@ class AgentLoop {
 
   String _messageTextForRouting(AgentMessage message) {
     final role = _modelRole(message.role);
-    final text =
-        message.blocks
-            .where((block) => block.type == MessageBlockType.markdownText)
-            .map((block) => block.data['text'])
-            .whereType<String>()
-            .join('\n')
-            .trim();
+    final text = message.blocks
+        .where((block) => block.type == MessageBlockType.markdownText)
+        .map((block) => block.data['text'])
+        .whereType<String>()
+        .join('\n')
+        .trim();
     return text.isEmpty ? '' : '$role: $text';
   }
 
@@ -541,8 +599,10 @@ class AgentLoop {
     final sign = offset.isNegative ? '-' : '+';
     final absoluteOffset = offset.abs();
     final hours = absoluteOffset.inHours.toString().padLeft(2, '0');
-    final minutes =
-        absoluteOffset.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final minutes = absoluteOffset.inMinutes
+        .remainder(60)
+        .toString()
+        .padLeft(2, '0');
     return '${now.toIso8601String()} '
         '(UTC$sign$hours:$minutes, ${now.timeZoneName}, weekday=${now.weekday})';
   }
@@ -638,8 +698,46 @@ class AgentLoop {
             'webapp';
   }
 
-  AgentMessage _emptyAssistantMessage(String id) {
-    return _assistantMarkdownMessage(id, '');
+  bool _requiredToolsSatisfied(
+    ToolRoute toolRoute,
+    List<CapabilityExecutionResult> results,
+  ) {
+    if (toolRoute.requiredToolNames.isEmpty) {
+      return true;
+    }
+    final successfulCapabilityIds = results
+        .where((result) => result.output['ok'] == true)
+        .map((result) => result.capabilityId)
+        .toSet();
+    return toolRoute.requiredToolNames.every((toolName) {
+      final capabilityId = _capabilityIdForToolName(toolName);
+      return capabilityId != null &&
+          successfulCapabilityIds.contains(capabilityId);
+    });
+  }
+
+  String? _capabilityIdForToolName(String toolName) {
+    switch (toolName) {
+      case 'project_create_web_app':
+        return 'project.create_web_app';
+      case 'artifact_create':
+        return 'artifact.create';
+      case 'file_write_app_file':
+        return 'file.write_app_file';
+      default:
+        return toolName.replaceFirst('_', '.');
+    }
+  }
+
+  bool _looksLikeRawToolProcess(String text) {
+    final normalized = text.toLowerCase();
+    return text.contains('工具调用') ||
+        text.contains('工具结果') ||
+        normalized.contains('tool_call') ||
+        normalized.contains('tool result') ||
+        normalized.contains('capability') ||
+        normalized.contains('{ok:') ||
+        normalized.contains('"ok":');
   }
 
   AgentMessage _assistantMarkdownMessage(String id, String text) {
@@ -658,6 +756,40 @@ class AgentLoop {
       role: MessageRole.assistant,
       createdAt: DateTime.now(),
       blocks: [MessageBlock.intermediateMarkdown(content)],
+    );
+  }
+
+  AgentMessage _assistantInterruptedMessage(
+    String id,
+    String partialText,
+    String detail,
+  ) {
+    return AgentMessage(
+      id: id,
+      role: MessageRole.assistant,
+      createdAt: DateTime.now(),
+      blocks: [
+        MessageBlock.markdown(partialText),
+        MessageBlock.error('模型连接中断', detail),
+      ],
+    );
+  }
+
+  AgentMessage _requiredToolErrorResponse(
+    String id,
+    List<String> requiredToolNames,
+  ) {
+    return AgentMessage(
+      id: id,
+      role: MessageRole.assistant,
+      createdAt: DateTime.now(),
+      blocks: [
+        MessageBlock.error(
+          '未创建真实产物',
+          '必需工具没有成功完成：${requiredToolNames.join('、')}。'
+              '系统已阻止模型把未完成的创建、保存或预览操作当作成功结果展示。',
+        ),
+      ],
     );
   }
 

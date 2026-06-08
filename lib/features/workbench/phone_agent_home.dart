@@ -24,6 +24,8 @@ import 'controllers/workbench_controller.dart';
 import 'widgets/chat_panel.dart';
 import 'widgets/file_preview_page.dart';
 import 'widgets/local_data_clear_dialog.dart';
+import 'widgets/memory_editor_dialog.dart';
+import 'widgets/mobile_drawer_sections.dart';
 import 'widgets/runtime_panel.dart';
 import 'widgets/workbench_shell.dart';
 import 'widgets/workspace_panel.dart';
@@ -229,19 +231,19 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
   }
 
   Future<void> _openMemoryEditor([AgentMemory? memory]) async {
-    final result = await showDialog<_MemoryEditorResult>(
+    final content = await showDialog<String>(
       context: context,
-      builder: (context) => _MemoryEditorDialog(memory: memory),
+      builder: (context) => MemoryEditorDialog(memory: memory),
     );
 
-    if (result == null) {
+    if (content == null) {
       return;
     }
     if (memory == null) {
-      _controller.createMemory(content: result.content);
+      _controller.createMemory(content: content);
       return;
     }
-    _controller.updateMemory(memoryId: memory.id, content: result.content);
+    _controller.updateMemory(memoryId: memory.id, content: content);
   }
 
   Future<void> _confirmDeleteMemory(AgentMemory memory) async {
@@ -341,10 +343,8 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
 
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (context) => FilePreviewPage(
-            entry: entry,
-            content: content.content,
-          ),
+          builder: (context) =>
+              FilePreviewPage(entry: entry, content: content.content),
         ),
       );
     } on Object catch (error) {
@@ -393,7 +393,7 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 1000;
         final theme = Theme.of(context);
-        
+
         return Scaffold(
           resizeToAvoidBottomInset: false,
           appBar: AppBar(
@@ -484,7 +484,7 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
               ? Drawer(
                   child: Column(
                     children: [
-                      _buildDrawerHeader(context),
+                      const MobileDrawerHeader(),
                       Expanded(
                         child: WorkspacePanel(
                           workspaces: _controller.workspaces,
@@ -501,7 +501,13 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
                         ),
                       ),
                       const Divider(),
-                      _buildDrawerFooter(context),
+                      MobileDrawerFooter(
+                        workbenchStore: widget.workbenchStore,
+                        permissionService: _permissionService,
+                        apiKeyStore: _apiKeyStore,
+                        modelSettingsStore: _modelSettingsStore,
+                        onClearLocalData: _confirmClearLocalData,
+                      ),
                     ],
                   ),
                 )
@@ -566,207 +572,6 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
           ),
         );
       },
-    );
-  }
-
-  Widget _buildDrawerHeader(BuildContext context) {
-    final theme = Theme.of(context);
-    return SafeArea(
-      bottom: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 16, 16, 12),
-        alignment: Alignment.centerLeft,
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.bolt, color: Colors.white, size: 24),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              'Phone Agent',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                letterSpacing: -0.5,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDrawerFooter(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Column(
-          children: [
-            _DrawerActionTile(
-              icon: Icons.history_outlined,
-              label: '操作审计日志',
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (context) => AuditLogPage(
-                      workbenchStore: widget.workbenchStore!,
-                    ),
-                  ),
-                );
-              },
-            ),
-            _DrawerActionTile(
-              icon: Icons.privacy_tip_outlined,
-              label: '权限管理',
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (context) => PermissionSettingsPage(
-                      permissionService: _permissionService,
-                    ),
-                  ),
-                );
-              },
-            ),
-            _DrawerActionTile(
-              icon: Icons.settings_outlined,
-              label: '模型设置',
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (context) => ModelSettingsPage(
-                      apiKeyStore: _apiKeyStore,
-                      modelSettingsStore: _modelSettingsStore,
-                    ),
-                  ),
-                );
-              },
-            ),
-            _DrawerActionTile(
-              icon: Icons.cleaning_services_outlined,
-              label: '清理本地数据',
-              color: Colors.redAccent,
-              onTap: () {
-                Navigator.pop(context);
-                _confirmClearLocalData();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DrawerActionTile extends StatelessWidget {
-  const _DrawerActionTile({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.color,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final Color? color;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return ListTile(
-      visualDensity: const VisualDensity(vertical: -2),
-      leading: Icon(icon, color: color ?? theme.colorScheme.onSurface, size: 22),
-      title: Text(
-        label,
-        style: TextStyle(
-          color: color ?? theme.colorScheme.onSurface,
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      onTap: onTap,
-    );
-  }
-}
-
-class _MemoryEditorResult {
-  const _MemoryEditorResult({required this.content});
-
-  final String content;
-}
-
-class _MemoryEditorDialog extends StatefulWidget {
-  const _MemoryEditorDialog({this.memory});
-
-  final AgentMemory? memory;
-
-  @override
-  State<_MemoryEditorDialog> createState() => _MemoryEditorDialogState();
-}
-
-class _MemoryEditorDialogState extends State<_MemoryEditorDialog> {
-  late final TextEditingController _textController;
-
-  @override
-  void initState() {
-    super.initState();
-    final memory = widget.memory;
-    _textController = TextEditingController(text: memory?.content ?? '');
-  }
-
-  @override
-  void dispose() {
-    _textController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.memory == null ? '新增记忆' : '编辑记忆'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '长期记忆会在所有 Workspace 中自动作为上下文使用。',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _textController,
-            minLines: 3,
-            maxLines: 5,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: '记忆内容',
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () {
-            Navigator.of(
-              context,
-            ).pop(_MemoryEditorResult(content: _textController.text));
-          },
-          child: const Text('保存'),
-        ),
-      ],
     );
   }
 }

@@ -30,7 +30,7 @@ class WorkbenchPanel extends StatelessWidget {
                   ),
                 ),
               ),
-              if (trailing != null) trailing!,
+              ?trailing,
             ],
           ),
         ),

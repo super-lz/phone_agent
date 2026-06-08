@@ -182,13 +182,13 @@ void main() {
       ),
     );
 
-    expect(find.text('已处理'), findsOneWidget);
-    expect(find.textContaining('1 次调用'), findsOneWidget);
+    expect(find.textContaining('已处理'), findsOneWidget);
+    expect(find.textContaining('1 个工具'), findsOneWidget);
     expect(find.text('最终回答。'), findsOneWidget);
     expect(find.text('我先查询一下。'), findsNothing);
     expect(find.text('联网搜索结果'), findsNothing);
 
-    await tester.tap(find.text('已处理'));
+    await tester.tap(find.textContaining('已处理'));
     await tester.pumpAndSettle();
 
     expect(find.text('我先查询一下。'), findsOneWidget);
@@ -224,11 +224,11 @@ void main() {
       ),
     );
 
-    expect(find.text('处理中'), findsOneWidget);
+    expect(find.text('正在思考...'), findsOneWidget);
     expect(find.textContaining('正在生成的网页代码'), findsNothing);
 
-    await tester.tap(find.text('处理中'));
-    await tester.pumpAndSettle();
+    await tester.tap(find.text('正在思考...'));
+    await tester.pump();
 
     expect(find.text('代码已折叠，点击展开查看。'), findsOneWidget);
   });
@@ -337,9 +337,9 @@ $repeatedScript
     );
 
     expect(find.text('美食网页'), findsOneWidget);
-    expect(find.text('本地 Web App · 点击预览'), findsOneWidget);
+    expect(find.text('本地应用 · 点击预览'), findsOneWidget);
 
-    await tester.tap(find.text('打开'));
+    await tester.tap(find.text('本地应用 · 点击预览'));
     await tester.pumpAndSettle();
 
     expect(openedArtifactId, 'artifact-webapp-1');

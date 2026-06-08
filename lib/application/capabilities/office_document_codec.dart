@@ -115,9 +115,12 @@ class OfficeDocumentCodec {
   }
 
   Uint8List encodePdf({required String title, required String body}) {
-    final wrappedLines = _wrapPdfText([title, ...body.split('\n')], maxWidth: 45);
+    final wrappedLines = _wrapPdfText([
+      title,
+      ...body.split('\n'),
+    ], maxWidth: 45);
     final lines = wrappedLines.take(38).toList(growable: false);
-    
+
     final stream = StringBuffer('BT /F1 18 Tf 72 760 Td ');
     for (var index = 0; index < lines.length; index += 1) {
       if (index == 1) {
@@ -198,7 +201,11 @@ class OfficeDocumentCodec {
     var text = xml.replaceAll(RegExp(r'<w:p[ >]'), '\n');
     text = text.replaceAll('<w:br/>', '\n');
     text = text.replaceAll(RegExp(r'<[^>]+>'), '');
-    return text.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).join('\n');
+    return text
+        .split('\n')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .join('\n');
   }
 
   String _extractXlsxText(Uint8List bytes) {
@@ -207,7 +214,10 @@ class OfficeDocumentCodec {
     final ssFile = archive.findFile('xl/sharedStrings.xml');
     if (ssFile != null) {
       final ssXml = utf8.decode(ssFile.content, allowMalformed: true);
-      final matches = RegExp(r'<t[^>]*>(.*?)</t>', dotAll: true).allMatches(ssXml);
+      final matches = RegExp(
+        r'<t[^>]*>(.*?)</t>',
+        dotAll: true,
+      ).allMatches(ssXml);
       for (final m in matches) {
         sharedStrings.add(m.group(1) ?? '');
       }
@@ -216,29 +226,41 @@ class OfficeDocumentCodec {
     final sheetFile = archive.findFile('xl/worksheets/sheet1.xml');
     if (sheetFile == null) return '';
     final sheetXml = utf8.decode(sheetFile.content, allowMalformed: true);
-    
+
     final rows = <List<String>>[];
-    final rowMatches = RegExp(r'<row[^>]*>(.*?)</row>', dotAll: true).allMatches(sheetXml);
+    final rowMatches = RegExp(
+      r'<row[^>]*>(.*?)</row>',
+      dotAll: true,
+    ).allMatches(sheetXml);
     for (final rm in rowMatches) {
       final rowText = rm.group(1) ?? '';
       final cells = <String>[];
-      final cellMatches = RegExp(r'<c[^>]*>(.*?)</c>', dotAll: true).allMatches(rowText);
+      final cellMatches = RegExp(
+        r'<c[^>]*>(.*?)</c>',
+        dotAll: true,
+      ).allMatches(rowText);
       for (final cm in cellMatches) {
         final cellText = cm.group(1) ?? '';
         final fullCellTag = cm.group(0) ?? '';
         final tMatch = RegExp(r' t="([^"]*)"').firstMatch(fullCellTag);
         final type = tMatch?.group(1);
-        
-        final vMatch = RegExp(r'<v>(.*?)</v>', dotAll: true).firstMatch(cellText);
+
+        final vMatch = RegExp(
+          r'<v>(.*?)</v>',
+          dotAll: true,
+        ).firstMatch(cellText);
         var value = vMatch?.group(1)?.trim() ?? '';
-        
+
         if (type == 's') {
           final idx = int.tryParse(value);
           if (idx != null && idx >= 0 && idx < sharedStrings.length) {
             value = sharedStrings[idx];
           }
         } else if (type == 'inlineStr') {
-          final tMatch = RegExp(r'<t[^>]*>(.*?)</t>', dotAll: true).firstMatch(cellText);
+          final tMatch = RegExp(
+            r'<t[^>]*>(.*?)</t>',
+            dotAll: true,
+          ).firstMatch(cellText);
           value = tMatch?.group(1) ?? '';
         }
         cells.add(value);
@@ -311,7 +333,9 @@ class OfficeDocumentCodec {
     for (var i = 0; i < boldParts.length; i++) {
       final isBold = i % 2 != 0 || isTitle;
       if (boldParts[i].isNotEmpty) {
-        runs.add(_wordRun(boldParts[i], bold: isBold, fontSize: isTitle ? 32 : 24));
+        runs.add(
+          _wordRun(boldParts[i], bold: isBold, fontSize: isTitle ? 32 : 24),
+        );
       }
     }
     return '<w:p>${runs.join()}</w:p>';
@@ -386,8 +410,8 @@ class OfficeDocumentCodec {
           result.add(currentLine);
           break;
         }
-        var splitAt = maxWidth;
-        // Basic split - in a real app we'd look for whitespace but for Chinese/Mixed 
+        final splitAt = maxWidth;
+        // Basic split - in a real app we'd look for whitespace but for Chinese/Mixed
         // a hard split is often necessary.
         result.add(currentLine.substring(0, splitAt));
         currentLine = currentLine.substring(splitAt);

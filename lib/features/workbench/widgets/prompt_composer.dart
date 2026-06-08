@@ -98,7 +98,7 @@ class PromptComposer extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 16,
                             height: 1.4,
-                            letterSpacing: -0.2,
+                            letterSpacing: 0,
                           ),
                           decoration: const InputDecoration(
                             hintText: '问我任何问题...',
@@ -113,7 +113,8 @@ class PromptComposer extends StatelessWidget {
                             filled: false,
                           ),
                           onSubmitted: (_) {
-                            if (!isSending && controller.text.trim().isNotEmpty) {
+                            if (!isSending &&
+                                controller.text.trim().isNotEmpty) {
                               onSendPrompt();
                             }
                           },
@@ -124,7 +125,8 @@ class PromptComposer extends StatelessWidget {
                     ValueListenableBuilder<TextEditingValue>(
                       valueListenable: controller,
                       builder: (context, value, child) {
-                        final canSend = !isSending &&
+                        final canSend =
+                            !isSending &&
                             (value.text.trim().isNotEmpty ||
                                 pendingAttachments.isNotEmpty);
 
@@ -148,12 +150,18 @@ class PromptComposer extends StatelessWidget {
                           padding: const EdgeInsets.only(bottom: 2, right: 4),
                           child: IconButton.filled(
                             onPressed: canSend ? onSendPrompt : null,
-                            icon: const Icon(Icons.arrow_upward_rounded, size: 20),
+                            tooltip: '发送',
+                            icon: const Icon(
+                              Icons.arrow_upward_rounded,
+                              size: 20,
+                            ),
                             style: IconButton.styleFrom(
                               backgroundColor: colorScheme.primary,
                               foregroundColor: colorScheme.onPrimary,
-                              disabledBackgroundColor: colorScheme.onSurface.withValues(alpha: 0.12),
-                              disabledForegroundColor: colorScheme.onSurface.withValues(alpha: 0.38),
+                              disabledBackgroundColor: colorScheme.onSurface
+                                  .withValues(alpha: 0.12),
+                              disabledForegroundColor: colorScheme.onSurface
+                                  .withValues(alpha: 0.38),
                               minimumSize: const Size(40, 40),
                             ),
                           ),

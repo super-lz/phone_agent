@@ -14,7 +14,7 @@ void main() {
 
     expect(find.text('Phone Agent'), findsWidgets);
     expect(find.text('默认'), findsWidgets);
-    expect(find.text('Runtime'), findsOneWidget);
+    expect(find.text('资源与运行时'), findsOneWidget);
     expect(find.textContaining('移动端 Agent 工作台基座'), findsOneWidget);
   });
 
@@ -22,7 +22,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1200, 900));
     await tester.pumpWidget(const PhoneAgentApp());
 
-    await tester.tap(find.byTooltip('创建工作区'));
+    await tester.tap(find.byTooltip('新建工作区'));
     await tester.pumpAndSettle();
 
     expect(find.text('新工作区 4'), findsWidgets);
@@ -43,13 +43,7 @@ void main() {
 
     await tester.ensureVisible(find.text('测试记忆：喜欢短答案'));
     await tester.pumpAndSettle();
-    final memoryTile = find.ancestor(
-      of: find.text('测试记忆：喜欢短答案'),
-      matching: find.byType(ListTile),
-    );
-    await tester.tap(
-      find.descendant(of: memoryTile, matching: find.byTooltip('删除记忆')),
-    );
+    await tester.tap(find.byTooltip('删除记忆').last);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, '删除'));
     await tester.pumpAndSettle();
@@ -78,7 +72,8 @@ void main() {
     await tester.pumpWidget(_appWithWebAppModel());
 
     await tester.enterText(find.byType(TextField), '帮我创建一个备忘录应用');
-    await tester.tap(find.widgetWithText(FilledButton, '发送'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('发送'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('已生成 Web App'), findsOneWidget);
@@ -90,7 +85,8 @@ void main() {
     await tester.pumpWidget(_appWithWebAppModel());
 
     await tester.enterText(find.byType(TextField), '帮我创建一个备忘录应用');
-    await tester.tap(find.widgetWithText(FilledButton, '发送'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('发送'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('点击预览').first);
     await tester.pumpAndSettle();

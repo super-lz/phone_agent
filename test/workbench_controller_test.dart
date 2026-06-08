@@ -1089,7 +1089,7 @@ void main() {
     );
 
     expect(result['ok'], isFalse);
-    expect(result['error'], 'permission denied');
+    expect(result['error'], 'permission_denied');
   });
 
   test('web app bridge keeps note namespaces isolated', () async {

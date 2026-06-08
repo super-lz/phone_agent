@@ -56,7 +56,7 @@ class PhoneAgentApp extends StatelessWidget {
             color: Color(0xFF111827),
             fontSize: 17,
             fontWeight: FontWeight.w600,
-            letterSpacing: -0.4,
+            letterSpacing: 0,
           ),
           iconTheme: IconThemeData(color: Color(0xFF4B5563)),
         ),
@@ -76,8 +76,10 @@ class PhoneAgentApp extends StatelessWidget {
             borderRadius: BorderRadius.circular(24),
             borderSide: BorderSide.none,
           ),
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 8,
+          ),
           hintStyle: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 16),
         ),
         dividerTheme: const DividerThemeData(
