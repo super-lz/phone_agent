@@ -72,10 +72,19 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
 
   Future<void> _checkGemmaStatus() async {
     try {
-      final installed = await FlutterGemma.isModelInstalled(ModelProviders.gemmaLocal.model);
-      setState(() {
-        _gemmaInstalled = installed;
-      });
+      final installedModels = await FlutterGemma.listInstalledModels();
+      if (installedModels.isNotEmpty) {
+        final activeModel = installedModels.first;
+        setState(() {
+          _gemmaInstalled = true;
+          _modelController.text = activeModel;
+        });
+        await _modelSettingsStore.saveModelName(_provider.id, activeModel);
+      } else {
+        setState(() {
+          _gemmaInstalled = false;
+        });
+      }
     } catch (_) {}
   }
 
