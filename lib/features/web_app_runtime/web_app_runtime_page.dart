@@ -319,6 +319,30 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
         getCurrentLocation: function() {
           return window.PhoneAgent.callCapability('location.get_current', {});
         },
+        capturePhoto: function(options) {
+          return window.PhoneAgent.callCapability('camera.capture_photo', options || {});
+        },
+        captureVideo: function(options) {
+          return window.PhoneAgent.callCapability('camera.capture_video', options || {});
+        },
+        pickImage: function(options) {
+          return window.PhoneAgent.callCapability('media.pick_image', options || {});
+        },
+        pickVideo: function() {
+          return window.PhoneAgent.callCapability('media.pick_video', {});
+        },
+        pickSystemFile: function(options) {
+          return window.PhoneAgent.callCapability('file.pick_system_file', options || {});
+        },
+        startAudioRecording: function() {
+          return window.PhoneAgent.callCapability('audio.record_start', {});
+        },
+        stopAudioRecording: function() {
+          return window.PhoneAgent.callCapability('audio.record_stop', {});
+        },
+        cancelAudioRecording: function() {
+          return window.PhoneAgent.callCapability('audio.record_cancel', {});
+        },
         shareText: function(text, subject) {
           return window.PhoneAgent.callCapability('share.text', {
             text: text || '',
@@ -356,6 +380,29 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
         },
         getMagnetometer: function() {
           return window.PhoneAgent.callCapability('sensor.magnetometer.read', {});
+        },
+        scheduleNotification: function(input) {
+          return window.PhoneAgent.callCapability('notification.schedule', input || {});
+        },
+        getPendingNotifications: function() {
+          return window.PhoneAgent.callCapability('notification.pending', {});
+        },
+        cancelNotification: function(notificationId) {
+          return window.PhoneAgent.callCapability('notification.cancel', {
+            notification_id: notificationId
+          });
+        },
+        cancelAllNotifications: function() {
+          return window.PhoneAgent.callCapability('notification.cancel_all', {});
+        },
+        pickContact: function() {
+          return window.PhoneAgent.callCapability('contacts.pick', {});
+        },
+        scanBarcode: function(options) {
+          return window.PhoneAgent.callCapability('barcode.scan_camera', options || {});
+        },
+        scanBarcodeImage: function(options) {
+          return window.PhoneAgent.callCapability('barcode.scan_image', options || {});
         },
         subscribeEvent: function(_eventName, _handler) {
           return { unsubscribe: function() {} };
@@ -536,7 +583,8 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
                       if (_showConsole) _buildConsoleOverlay(),
                     ],
                   ),
-            floatingActionButton: _permissionDecision == WebAppPermissionDecision.granted
+            floatingActionButton:
+                _permissionDecision == WebAppPermissionDecision.granted
                 ? FloatingActionButton(
                     mini: true,
                     onPressed: () {
@@ -544,7 +592,11 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
                         _showConsole = !_showConsole;
                       });
                     },
-                    child: Icon(_showConsole ? Icons.bug_report : Icons.bug_report_outlined),
+                    child: Icon(
+                      _showConsole
+                          ? Icons.bug_report
+                          : Icons.bug_report_outlined,
+                    ),
                   )
                 : null,
           ),
@@ -585,11 +637,19 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
                   const SizedBox(width: 8),
                   const Text(
                     '开发者控制台',
-                    style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const Spacer(),
                   IconButton(
-                    icon: const Icon(Icons.delete_sweep, color: Colors.white70, size: 18),
+                    icon: const Icon(
+                      Icons.delete_sweep,
+                      color: Colors.white70,
+                      size: 18,
+                    ),
                     onPressed: () {
                       setState(() {
                         _localLogs.clear();
@@ -600,7 +660,11 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
                   ),
                   const SizedBox(width: 12),
                   IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white70, size: 18),
+                    icon: const Icon(
+                      Icons.close,
+                      color: Colors.white70,
+                      size: 18,
+                    ),
                     onPressed: () {
                       setState(() {
                         _showConsole = false;
@@ -724,13 +788,21 @@ class _ConsoleLogRow extends StatelessWidget {
         children: [
           Text(
             '${entry.timestamp.hour.toString().padLeft(2, '0')}:${entry.timestamp.minute.toString().padLeft(2, '0')}:${entry.timestamp.second.toString().padLeft(2, '0')}',
-            style: const TextStyle(color: Colors.white38, fontSize: 10, fontFamily: 'monospace'),
+            style: const TextStyle(
+              color: Colors.white38,
+              fontSize: 10,
+              fontFamily: 'monospace',
+            ),
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               entry.message,
-              style: TextStyle(color: color, fontSize: 11, fontFamily: 'monospace'),
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontFamily: 'monospace',
+              ),
             ),
           ),
         ],

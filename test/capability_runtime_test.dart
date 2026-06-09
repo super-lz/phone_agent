@@ -995,6 +995,192 @@ void main() {
     expect(readResult.output['text'], '复制这段文字');
   });
 
+  test(
+    'runtime can capture and pick local media through native adapter',
+    () async {
+      final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+      final photoResult = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-camera',
+          name: 'camera_capture_photo',
+          arguments: {'image_quality': 80},
+        ),
+        workspaceId: 'default',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+      );
+      final imageResult = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-image',
+          name: 'media_pick_image',
+          arguments: {},
+        ),
+        workspaceId: 'default',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+      );
+      final capturedVideoResult = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-captured-video',
+          name: 'camera_capture_video',
+          arguments: {'max_duration_seconds': 30},
+        ),
+        workspaceId: 'default',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+      );
+      final videoResult = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-video',
+          name: 'media_pick_video',
+          arguments: {},
+        ),
+        workspaceId: 'default',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+      );
+      final fileResult = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-system-file',
+          name: 'file_pick_system_file',
+          arguments: {
+            'allowed_extensions': ['pdf'],
+          },
+        ),
+        workspaceId: 'default',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+      );
+
+      expect(photoResult.capabilityId, 'camera.capture_photo');
+      expect(photoResult.output['source'], 'camera');
+      expect(imageResult.capabilityId, 'media.pick_image');
+      expect(imageResult.output['mediaType'], 'image');
+      expect(capturedVideoResult.capabilityId, 'camera.capture_video');
+      expect(capturedVideoResult.output['source'], 'camera');
+      expect(videoResult.capabilityId, 'media.pick_video');
+      expect(videoResult.output['mediaType'], 'video');
+      expect(fileResult.capabilityId, 'file.pick_system_file');
+      expect(fileResult.output['name'], '需求.pdf');
+    },
+  );
+
+  test('runtime can start stop and cancel audio recordings', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final startResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-audio-start',
+        name: 'audio_record_start',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final stopResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-audio-stop',
+        name: 'audio_record_stop',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-audio-start-again',
+        name: 'audio_record_start',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final cancelResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-audio-cancel',
+        name: 'audio_record_cancel',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(startResult.capabilityId, 'audio.record_start');
+    expect(startResult.output['recording'], isTrue);
+    expect(stopResult.capabilityId, 'audio.record_stop');
+    expect(stopResult.output['mediaType'], 'audio');
+    expect(cancelResult.capabilityId, 'audio.record_cancel');
+    expect(cancelResult.output['cancelled'], isTrue);
+  });
+
+  test('runtime can pick a contact through native adapter', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final result = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-contact-pick',
+        name: 'contacts_pick',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(result.capabilityId, 'contacts.pick');
+    expect(result.output['displayName'], '张三');
+    expect(result.output['primaryPhone'], '13800138000');
+  });
+
+  test('runtime can scan barcode values through native adapter', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final cameraResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-barcode-camera',
+        name: 'barcode_scan_camera',
+        arguments: {
+          'formats': ['qr_code'],
+        },
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final imageResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-barcode-image',
+        name: 'barcode_scan_image',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(cameraResult.capabilityId, 'barcode.scan_camera');
+    expect(cameraResult.output['rawValue'], 'https://example.com');
+    expect(imageResult.capabilityId, 'barcode.scan_image');
+    expect(imageResult.output['format'], 'ean13');
+  });
+
   test('runtime exposes battery and network status capabilities', () async {
     final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
 
@@ -1255,6 +1441,66 @@ void main() {
     expect(result.capabilityId, 'notification.schedule');
     expect(result.output['ok'], isTrue);
     expect(result.output['title'], '提醒');
+  });
+
+  test('runtime can list and cancel pending notifications', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final scheduleResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-notification',
+        name: 'notification_schedule',
+        arguments: {
+          'title': '提醒',
+          'body': '整理 Phone Agent 需求',
+          'delay_seconds': 60,
+        },
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final pendingResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-notification-pending',
+        name: 'notification_pending',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final cancelResult = await runtime.execute(
+      toolCall: ToolCallRequest(
+        id: 'call-notification-cancel',
+        name: 'notification_cancel',
+        arguments: {'notification_id': scheduleResult.output['notificationId']},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final clearResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-notification-cancel-all',
+        name: 'notification_cancel_all',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(pendingResult.capabilityId, 'notification.pending');
+    expect(pendingResult.output['count'], 1);
+    expect(cancelResult.capabilityId, 'notification.cancel');
+    expect(cancelResult.output['cancelled'], isTrue);
+    expect(clearResult.capabilityId, 'notification.cancel_all');
+    expect(clearResult.output['cancelledAll'], isTrue);
   });
 
   test('notification_schedule validates required body', () async {
@@ -1540,6 +1786,8 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   final Map<String, Object?> locationOutput;
   String _clipboardText = '';
   bool _keepAwake = false;
+  bool _recording = false;
+  final Map<int, Map<String, Object?>> _pendingNotifications = {};
 
   @override
   Future<Map<String, Object?>> getDeviceInfo() async {
@@ -1572,6 +1820,213 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   Future<Map<String, Object?>> writeClipboard(String text) async {
     _clipboardText = text;
     return {'ok': true, 'length': text.length};
+  }
+
+  @override
+  Future<Map<String, Object?>> capturePhoto({
+    double? maxWidth,
+    double? maxHeight,
+    int? imageQuality,
+  }) async {
+    return const {
+      'ok': true,
+      'source': 'camera',
+      'mediaType': 'image',
+      'name': 'camera.jpg',
+      'path': '/tmp/camera.jpg',
+      'uri': 'file:///tmp/camera.jpg',
+      'bytes': 2048,
+      'mimeType': 'image/jpeg',
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> captureVideo({Duration? maxDuration}) async {
+    return const {
+      'ok': true,
+      'source': 'camera',
+      'mediaType': 'video',
+      'name': 'camera-video.mp4',
+      'path': '/tmp/camera-video.mp4',
+      'uri': 'file:///tmp/camera-video.mp4',
+      'bytes': 12288,
+      'mimeType': 'video/mp4',
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> pickImage({
+    double? maxWidth,
+    double? maxHeight,
+    int? imageQuality,
+  }) async {
+    return const {
+      'ok': true,
+      'source': 'photo_library',
+      'mediaType': 'image',
+      'name': 'photo.png',
+      'path': '/tmp/photo.png',
+      'uri': 'file:///tmp/photo.png',
+      'bytes': 1024,
+      'mimeType': 'image/png',
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> pickVideo() async {
+    return const {
+      'ok': true,
+      'source': 'photo_library',
+      'mediaType': 'video',
+      'name': 'clip.mp4',
+      'path': '/tmp/clip.mp4',
+      'uri': 'file:///tmp/clip.mp4',
+      'bytes': 4096,
+      'mimeType': 'video/mp4',
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> pickSystemFile({
+    List<String> allowedExtensions = const [],
+  }) async {
+    return const {
+      'ok': true,
+      'source': 'system_file_picker',
+      'mediaType': 'file',
+      'name': '需求.pdf',
+      'path': '/tmp/requirements.pdf',
+      'uri': 'file:///tmp/requirements.pdf',
+      'bytes': 8192,
+      'mimeType': 'application/pdf',
+      'extension': 'pdf',
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> startAudioRecording() async {
+    if (_recording) {
+      return const {'ok': false, 'error': 'recording_in_progress'};
+    }
+    _recording = true;
+    return const {
+      'ok': true,
+      'recording': true,
+      'source': 'microphone',
+      'mediaType': 'audio',
+      'name': 'voice.m4a',
+      'path': '/tmp/voice.m4a',
+      'uri': 'file:///tmp/voice.m4a',
+      'mimeType': 'audio/mp4',
+      'extension': 'm4a',
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> stopAudioRecording() async {
+    if (!_recording) {
+      return const {'ok': false, 'error': 'no_active_recording'};
+    }
+    _recording = false;
+    return const {
+      'ok': true,
+      'source': 'microphone',
+      'mediaType': 'audio',
+      'name': 'voice.m4a',
+      'path': '/tmp/voice.m4a',
+      'uri': 'file:///tmp/voice.m4a',
+      'bytes': 4096,
+      'mimeType': 'audio/mp4',
+      'extension': 'm4a',
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> cancelAudioRecording() async {
+    if (!_recording) {
+      return const {'ok': false, 'error': 'no_active_recording'};
+    }
+    _recording = false;
+    return const {'ok': true, 'cancelled': true, 'recording': false};
+  }
+
+  @override
+  Future<Map<String, Object?>> pickContact() async {
+    return const {
+      'ok': true,
+      'source': 'native_contact_picker',
+      'contactId': 'contact-1',
+      'displayName': '张三',
+      'phones': [
+        {
+          'number': '13800138000',
+          'normalizedNumber': '+8613800138000',
+          'isPrimary': true,
+          'label': {'type': 'mobile'},
+        },
+      ],
+      'emails': [
+        {
+          'address': 'zhangsan@example.com',
+          'isPrimary': true,
+          'label': {'type': 'home'},
+        },
+      ],
+      'primaryPhone': '13800138000',
+      'primaryEmail': 'zhangsan@example.com',
+      'hasPhone': true,
+      'hasEmail': true,
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> scanBarcodeFromCamera({
+    List<String> formats = const [],
+  }) async {
+    return const {
+      'ok': true,
+      'source': 'camera',
+      'path': '/tmp/barcode-camera.jpg',
+      'uri': 'file:///tmp/barcode-camera.jpg',
+      'count': 1,
+      'rawValue': 'https://example.com',
+      'displayValue': 'https://example.com',
+      'format': 'qrCode',
+      'type': 'url',
+      'barcodes': [
+        {
+          'rawValue': 'https://example.com',
+          'displayValue': 'https://example.com',
+          'format': 'qrCode',
+          'type': 'url',
+        },
+      ],
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> scanBarcodeFromImage({
+    List<String> formats = const [],
+  }) async {
+    return const {
+      'ok': true,
+      'source': 'photo_library',
+      'path': '/tmp/barcode-image.jpg',
+      'uri': 'file:///tmp/barcode-image.jpg',
+      'count': 1,
+      'rawValue': '9787111111111',
+      'displayValue': '9787111111111',
+      'format': 'ean13',
+      'type': 'text',
+      'barcodes': [
+        {
+          'rawValue': '9787111111111',
+          'displayValue': '9787111111111',
+          'format': 'ean13',
+          'type': 'text',
+        },
+      ],
+    };
   }
 
   @override
@@ -1668,13 +2123,37 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
     required String body,
     required DateTime scheduledAt,
   }) async {
-    return {
+    final id = _pendingNotifications.length + 1;
+    final output = {
       'ok': true,
-      'notificationId': 1,
+      'notificationId': id,
       'title': title,
       'body': body,
       'scheduledAt': scheduledAt.toIso8601String(),
     };
+    _pendingNotifications[id] = output;
+    return output;
+  }
+
+  @override
+  Future<Map<String, Object?>> listPendingNotifications() async {
+    return {
+      'ok': true,
+      'count': _pendingNotifications.length,
+      'notifications': _pendingNotifications.values.toList(growable: false),
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> cancelNotification(int notificationId) async {
+    _pendingNotifications.remove(notificationId);
+    return {'ok': true, 'notificationId': notificationId, 'cancelled': true};
+  }
+
+  @override
+  Future<Map<String, Object?>> cancelAllNotifications() async {
+    _pendingNotifications.clear();
+    return const {'ok': true, 'cancelledAll': true};
   }
 
   @override

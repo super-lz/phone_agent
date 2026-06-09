@@ -1,14 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 
 import 'package:add_2_calendar/add_2_calendar.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:bz_location/bz_location.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_contacts/flutter_contacts.dart' as contacts;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:mobile_scanner/mobile_scanner.dart' as scanner;
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
@@ -24,16 +30,25 @@ import '../permissions/app_permission_service.dart';
 class NativeCapabilityAdapter {
   NativeCapabilityAdapter({
     DeviceInfoPlugin? deviceInfo,
+    ImagePicker? imagePicker,
+    AudioRecorder? audioRecorder,
     FlutterLocalNotificationsPlugin? notifications,
     AppPermissionService? permissionService,
   }) : _deviceInfo = deviceInfo ?? DeviceInfoPlugin(),
+       _imagePicker = imagePicker ?? ImagePicker(),
+       _audioRecorder = audioRecorder,
        _notifications = notifications ?? FlutterLocalNotificationsPlugin(),
        _permissionService = permissionService ?? const AppPermissionService();
 
   final DeviceInfoPlugin _deviceInfo;
+  final ImagePicker _imagePicker;
+  AudioRecorder? _audioRecorder;
   final FlutterLocalNotificationsPlugin _notifications;
   final AppPermissionService _permissionService;
   Future<bool>? _notificationInitialization;
+  String? _activeAudioRecordingPath;
+
+  AudioRecorder get _recorder => _audioRecorder ??= AudioRecorder();
 
   Future<Map<String, Object?>> getDeviceInfo() async {
     try {
@@ -147,6 +162,263 @@ class NativeCapabilityAdapter {
       return {'ok': true, 'length': text.length};
     } on Object catch (error, stackTrace) {
       AppLogger.error('native.clipboard_write.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> capturePhoto({
+    double? maxWidth,
+    double? maxHeight,
+    int? imageQuality,
+  }) async {
+    try {
+      final permission = await _permissionService.ensureGranted(
+        AppPermissionId.camera,
+      );
+      if (!permission.granted) {
+        return _permissionErrorOutput(permission);
+      }
+      final file = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: maxWidth,
+        maxHeight: maxHeight,
+        imageQuality: imageQuality,
+      );
+      if (file == null) {
+        return const {'ok': false, 'error': 'user_cancelled'};
+      }
+      return await _xFileOutput(file, mediaType: 'image', source: 'camera');
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.camera_capture_photo.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> captureVideo({Duration? maxDuration}) async {
+    try {
+      final permission = await _ensurePermissionsGranted(const [
+        AppPermissionId.camera,
+        AppPermissionId.microphone,
+      ]);
+      if (permission != null) {
+        return _permissionErrorOutput(permission);
+      }
+      final file = await _imagePicker.pickVideo(
+        source: ImageSource.camera,
+        maxDuration: maxDuration,
+      );
+      if (file == null) {
+        return const {'ok': false, 'error': 'user_cancelled'};
+      }
+      return await _xFileOutput(file, mediaType: 'video', source: 'camera');
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.camera_capture_video.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> pickImage({
+    double? maxWidth,
+    double? maxHeight,
+    int? imageQuality,
+  }) async {
+    try {
+      final file = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: maxWidth,
+        maxHeight: maxHeight,
+        imageQuality: imageQuality,
+      );
+      if (file == null) {
+        return const {'ok': false, 'error': 'user_cancelled'};
+      }
+      return await _xFileOutput(
+        file,
+        mediaType: 'image',
+        source: 'photo_library',
+      );
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.media_pick_image.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> pickVideo() async {
+    try {
+      final file = await _imagePicker.pickVideo(source: ImageSource.gallery);
+      if (file == null) {
+        return const {'ok': false, 'error': 'user_cancelled'};
+      }
+      return await _xFileOutput(
+        file,
+        mediaType: 'video',
+        source: 'photo_library',
+      );
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.media_pick_video.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> pickSystemFile({
+    List<String> allowedExtensions = const [],
+  }) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: false,
+        type: allowedExtensions.isEmpty ? FileType.any : FileType.custom,
+        allowedExtensions: allowedExtensions.isEmpty ? null : allowedExtensions,
+        withData: false,
+      );
+      if (result == null || result.files.isEmpty) {
+        return const {'ok': false, 'error': 'user_cancelled'};
+      }
+      final file = result.files.single;
+      return _platformFileOutput(file);
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.file_pick_system_file.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> startAudioRecording() async {
+    try {
+      final permission = await _permissionService.ensureGranted(
+        AppPermissionId.microphone,
+      );
+      if (!permission.granted) {
+        return _permissionErrorOutput(permission);
+      }
+      if (await _recorder.isRecording()) {
+        return const {'ok': false, 'error': 'recording_in_progress'};
+      }
+      final directory = await getTemporaryDirectory();
+      final now = DateTime.now();
+      final path =
+          '${directory.path}/phone_agent_audio_${now.microsecondsSinceEpoch}.m4a';
+      await _recorder.start(const RecordConfig(), path: path);
+      _activeAudioRecordingPath = path;
+      return {
+        'ok': true,
+        'recording': true,
+        'source': 'microphone',
+        'mediaType': 'audio',
+        'name': _fileNameForPath(path),
+        'path': path,
+        'uri': Uri.file(path).toString(),
+        'mimeType': 'audio/mp4',
+        'extension': 'm4a',
+        'startedAt': now.toIso8601String(),
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.audio_record_start.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> stopAudioRecording() async {
+    try {
+      if (!await _recorder.isRecording()) {
+        return const {'ok': false, 'error': 'no_active_recording'};
+      }
+      final path = await _recorder.stop();
+      _activeAudioRecordingPath = null;
+      if (path == null || path.trim().isEmpty) {
+        return const {'ok': false, 'error': 'recording_file_unavailable'};
+      }
+      return await _localFileOutput(
+        path,
+        mediaType: 'audio',
+        source: 'microphone',
+        mimeType: 'audio/mp4',
+      );
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.audio_record_stop.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> cancelAudioRecording() async {
+    try {
+      final wasRecording = await _recorder.isRecording();
+      final path = _activeAudioRecordingPath;
+      if (!wasRecording) {
+        return const {'ok': false, 'error': 'no_active_recording'};
+      }
+      await _recorder.cancel();
+      _activeAudioRecordingPath = null;
+      return {'ok': true, 'cancelled': true, 'recording': false, 'path': path};
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.audio_record_cancel.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> pickContact() async {
+    try {
+      final permission = await _permissionService.ensureGranted(
+        AppPermissionId.contacts,
+      );
+      if (!permission.granted) {
+        return _permissionErrorOutput(permission);
+      }
+      final contact = await contacts.FlutterContacts.native.showPicker(
+        properties: const {
+          contacts.ContactProperty.name,
+          contacts.ContactProperty.phone,
+          contacts.ContactProperty.email,
+        },
+      );
+      if (contact == null) {
+        return const {'ok': false, 'error': 'user_cancelled'};
+      }
+      return _contactOutput(contact);
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.contacts_pick.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> scanBarcodeFromCamera({
+    List<String> formats = const [],
+  }) async {
+    try {
+      final permission = await _permissionService.ensureGranted(
+        AppPermissionId.camera,
+      );
+      if (!permission.granted) {
+        return _permissionErrorOutput(permission);
+      }
+      final file = await _imagePicker.pickImage(source: ImageSource.camera);
+      if (file == null) {
+        return const {'ok': false, 'error': 'user_cancelled'};
+      }
+      return await _scanBarcodeImage(
+        file.path,
+        source: 'camera',
+        formats: formats,
+      );
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.barcode_scan_camera.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> scanBarcodeFromImage({
+    List<String> formats = const [],
+  }) async {
+    try {
+      final file = await _imagePicker.pickImage(source: ImageSource.gallery);
+      if (file == null) {
+        return const {'ok': false, 'error': 'user_cancelled'};
+      }
+      return await _scanBarcodeImage(
+        file.path,
+        source: 'photo_library',
+        formats: formats,
+      );
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.barcode_scan_image.failed', error, stackTrace);
       return {'ok': false, 'error': error.toString()};
     }
   }
@@ -541,6 +813,74 @@ class NativeCapabilityAdapter {
     }
   }
 
+  Future<Map<String, Object?>> listPendingNotifications() async {
+    try {
+      final initialized = await _ensureNotificationsInitialized();
+      if (!initialized) {
+        return const {
+          'ok': false,
+          'error': 'notification_initialization_failed',
+        };
+      }
+      final requests = await _notifications.pendingNotificationRequests();
+      final notifications = [
+        for (final request in requests)
+          {
+            'id': request.id,
+            'title': request.title,
+            'body': request.body,
+            'payload': request.payload,
+          },
+      ];
+      return {
+        'ok': true,
+        'count': notifications.length,
+        'notifications': notifications,
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.notification_pending.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> cancelNotification(int notificationId) async {
+    try {
+      final initialized = await _ensureNotificationsInitialized();
+      if (!initialized) {
+        return const {
+          'ok': false,
+          'error': 'notification_initialization_failed',
+        };
+      }
+      await _notifications.cancel(id: notificationId);
+      return {'ok': true, 'notificationId': notificationId, 'cancelled': true};
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.notification_cancel.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> cancelAllNotifications() async {
+    try {
+      final initialized = await _ensureNotificationsInitialized();
+      if (!initialized) {
+        return const {
+          'ok': false,
+          'error': 'notification_initialization_failed',
+        };
+      }
+      await _notifications.cancelAll();
+      return const {'ok': true, 'cancelledAll': true};
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'native.notification_cancel_all.failed',
+        error,
+        stackTrace,
+      );
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
   Future<Map<String, Object?>> createCalendarEvent({
     required String title,
     String? description,
@@ -786,5 +1126,288 @@ class NativeCapabilityAdapter {
       'sms',
       'geo',
     }.contains(uri.scheme.toLowerCase());
+  }
+
+  Future<AppPermissionSnapshot?> _ensurePermissionsGranted(
+    List<AppPermissionId> ids,
+  ) async {
+    for (final id in ids) {
+      final permission = await _permissionService.ensureGranted(id);
+      if (!permission.granted) {
+        return permission;
+      }
+    }
+    return null;
+  }
+
+  Future<Map<String, Object?>> _xFileOutput(
+    XFile file, {
+    required String mediaType,
+    required String source,
+  }) async {
+    final path = file.path;
+    final bytes = await file.length();
+    final mimeType = file.mimeType ?? _mimeTypeForPath(path);
+    final extension = _extensionForPath(path);
+    return {
+      'ok': true,
+      'source': source,
+      'mediaType': mediaType,
+      'name': file.name,
+      'path': path,
+      'uri': Uri.file(path).toString(),
+      'bytes': bytes,
+      'mimeType': ?mimeType,
+      'extension': ?extension,
+    };
+  }
+
+  Future<Map<String, Object?>> _localFileOutput(
+    String path, {
+    required String mediaType,
+    required String source,
+    String? mimeType,
+  }) async {
+    final file = File(path);
+    final bytes = await file.exists() ? await file.length() : null;
+    final inferredMimeType = mimeType ?? _mimeTypeForPath(path);
+    final extension = _extensionForPath(path);
+    return {
+      'ok': true,
+      'source': source,
+      'mediaType': mediaType,
+      'name': _fileNameForPath(path),
+      'path': path,
+      'uri': Uri.file(path).toString(),
+      'bytes': ?bytes,
+      'mimeType': ?inferredMimeType,
+      'extension': ?extension,
+    };
+  }
+
+  Map<String, Object?> _platformFileOutput(PlatformFile file) {
+    final path = file.path;
+    if (path == null || path.trim().isEmpty) {
+      return {
+        'ok': false,
+        'error': 'file_path_unavailable',
+        'name': file.name,
+        'bytes': file.size,
+      };
+    }
+    final mimeType = _mimeTypeForPath(path);
+    final rawExtension = file.extension?.trim();
+    final extension = rawExtension == null || rawExtension.isEmpty
+        ? null
+        : rawExtension;
+    return {
+      'ok': true,
+      'source': 'system_file_picker',
+      'mediaType': 'file',
+      'name': file.name,
+      'path': path,
+      'uri': Uri.file(path).toString(),
+      'bytes': file.size,
+      'extension': ?extension,
+      'mimeType': ?mimeType,
+    };
+  }
+
+  Map<String, Object?> _contactOutput(contacts.Contact contact) {
+    final phones = [
+      for (final phone in contact.phones)
+        {
+          'number': phone.number,
+          'normalizedNumber': phone.normalizedNumber,
+          'isPrimary': phone.isPrimary,
+          'label': phone.label.toJson(),
+        },
+    ];
+    final emails = [
+      for (final email in contact.emails)
+        {
+          'address': email.address,
+          'isPrimary': email.isPrimary,
+          'label': email.label.toJson(),
+        },
+    ];
+    return {
+      'ok': true,
+      'source': 'native_contact_picker',
+      'contactId': contact.id,
+      'displayName': contact.displayName,
+      'phones': phones,
+      'emails': emails,
+      'primaryPhone': phones.isEmpty ? null : phones.first['number'],
+      'primaryEmail': emails.isEmpty ? null : emails.first['address'],
+      'hasPhone': phones.isNotEmpty,
+      'hasEmail': emails.isNotEmpty,
+    };
+  }
+
+  Future<Map<String, Object?>> _scanBarcodeImage(
+    String path, {
+    required String source,
+    List<String> formats = const [],
+  }) async {
+    final controller = scanner.MobileScannerController(autoStart: false);
+    try {
+      final requestedFormats = _barcodeFormatsFor(formats);
+      final capture = await controller.analyzeImage(
+        path,
+        formats: requestedFormats,
+      );
+      final barcodes = capture?.barcodes ?? const <scanner.Barcode>[];
+      if (barcodes.isEmpty) {
+        return {
+          'ok': false,
+          'error': 'barcode_not_found',
+          'source': source,
+          'path': path,
+          'uri': Uri.file(path).toString(),
+        };
+      }
+      final normalized = [
+        for (final barcode in barcodes) _barcodeOutput(barcode),
+      ];
+      final first = normalized.first;
+      return {
+        'ok': true,
+        'source': source,
+        'path': path,
+        'uri': Uri.file(path).toString(),
+        'count': normalized.length,
+        'rawValue': first['rawValue'],
+        'displayValue': first['displayValue'],
+        'format': first['format'],
+        'type': first['type'],
+        'barcodes': normalized,
+      };
+    } finally {
+      await controller.dispose();
+    }
+  }
+
+  Map<String, Object?> _barcodeOutput(scanner.Barcode barcode) {
+    return {
+      'rawValue': barcode.rawValue,
+      'displayValue': barcode.displayValue,
+      'format': barcode.format.name,
+      'type': barcode.type.name,
+    };
+  }
+
+  List<scanner.BarcodeFormat> _barcodeFormatsFor(List<String> values) {
+    final formats = values
+        .map((value) => value.trim().toLowerCase())
+        .where((value) => value.isNotEmpty)
+        .map(_barcodeFormatFor)
+        .whereType<scanner.BarcodeFormat>()
+        .toSet()
+        .toList(growable: false);
+    return formats;
+  }
+
+  scanner.BarcodeFormat? _barcodeFormatFor(String value) {
+    switch (value) {
+      case 'qr':
+      case 'qr_code':
+      case 'qrcode':
+        return scanner.BarcodeFormat.qrCode;
+      case 'ean13':
+      case 'ean_13':
+        return scanner.BarcodeFormat.ean13;
+      case 'ean8':
+      case 'ean_8':
+        return scanner.BarcodeFormat.ean8;
+      case 'code128':
+      case 'code_128':
+        return scanner.BarcodeFormat.code128;
+      case 'code39':
+      case 'code_39':
+        return scanner.BarcodeFormat.code39;
+      case 'code93':
+      case 'code_93':
+        return scanner.BarcodeFormat.code93;
+      case 'data_matrix':
+      case 'datamatrix':
+        return scanner.BarcodeFormat.dataMatrix;
+      case 'pdf417':
+      case 'pdf_417':
+        return scanner.BarcodeFormat.pdf417;
+      case 'aztec':
+        return scanner.BarcodeFormat.aztec;
+      case 'upca':
+      case 'upc_a':
+        return scanner.BarcodeFormat.upcA;
+      case 'upce':
+      case 'upc_e':
+        return scanner.BarcodeFormat.upcE;
+      default:
+        return null;
+    }
+  }
+
+  String? _extensionForPath(String path) {
+    final normalized = path.split('?').first;
+    final slash = normalized.lastIndexOf('/');
+    final fileName = slash < 0 ? normalized : normalized.substring(slash + 1);
+    final dot = fileName.lastIndexOf('.');
+    if (dot < 0 || dot == fileName.length - 1) {
+      return null;
+    }
+    return fileName.substring(dot + 1).toLowerCase();
+  }
+
+  String _fileNameForPath(String path) {
+    final normalized = path.split('?').first;
+    final slash = normalized.lastIndexOf('/');
+    return slash < 0 ? normalized : normalized.substring(slash + 1);
+  }
+
+  String? _mimeTypeForPath(String path) {
+    switch (_extensionForPath(path)) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      case 'webp':
+        return 'image/webp';
+      case 'heic':
+        return 'image/heic';
+      case 'mp4':
+        return 'video/mp4';
+      case 'mov':
+        return 'video/quicktime';
+      case 'm4v':
+        return 'video/x-m4v';
+      case 'm4a':
+        return 'audio/mp4';
+      case 'wav':
+        return 'audio/wav';
+      case 'mp3':
+        return 'audio/mpeg';
+      case 'pdf':
+        return 'application/pdf';
+      case 'txt':
+        return 'text/plain';
+      case 'md':
+        return 'text/markdown';
+      case 'csv':
+        return 'text/csv';
+      case 'json':
+        return 'application/json';
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      case 'xlsx':
+        return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      case 'pptx':
+        return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      default:
+        return null;
+    }
   }
 }

@@ -94,6 +94,58 @@ Map<String, Object?> modelObservationForCapability({
         'text': _truncateString(output['text'], 2000),
       });
       return observation;
+    case 'notification.pending':
+      observation.addAll({
+        'count': output['count'],
+        'notifications': output['notifications'],
+      });
+      return observation;
+    case 'notification.cancel':
+      observation.addAll({
+        'notificationId': output['notificationId'],
+        'cancelled': output['cancelled'],
+      });
+      return observation;
+    case 'notification.cancel_all':
+      observation['cancelledAll'] = output['cancelledAll'];
+      return observation;
+    case 'contacts.pick':
+      observation.addAll({
+        'contactId': output['contactId'],
+        'displayName': output['displayName'],
+        'primaryPhone': output['primaryPhone'],
+        'primaryEmail': output['primaryEmail'],
+        'phones': output['phones'],
+        'emails': output['emails'],
+      });
+      return observation;
+    case 'barcode.scan_camera':
+    case 'barcode.scan_image':
+      observation.addAll({
+        'rawValue': output['rawValue'],
+        'displayValue': output['displayValue'],
+        'format': output['format'],
+        'type': output['type'],
+        'count': output['count'],
+        'barcodes': output['barcodes'],
+      });
+      return observation;
+    case 'camera.capture_photo':
+    case 'camera.capture_video':
+    case 'media.pick_image':
+    case 'media.pick_video':
+    case 'file.pick_system_file':
+    case 'audio.record_start':
+    case 'audio.record_stop':
+      observation.addAll({
+        'name': output['name'],
+        'uri': output['uri'],
+        'mimeType': output['mimeType'],
+        'bytes': output['bytes'],
+        'source': output['source'],
+        'mediaType': output['mediaType'],
+      });
+      return observation;
     case 'web.search':
     case 'web.fetch':
       observation.addAll({
@@ -158,6 +210,22 @@ String _titleFor(String capabilityId) {
       return '剪贴板读取';
     case 'clipboard.write':
       return '剪贴板写入';
+    case 'camera.capture_photo':
+      return '拍照';
+    case 'camera.capture_video':
+      return '拍视频';
+    case 'media.pick_image':
+      return '选择图片';
+    case 'media.pick_video':
+      return '选择视频';
+    case 'file.pick_system_file':
+      return '选择文件';
+    case 'audio.record_start':
+      return '开始录音';
+    case 'audio.record_stop':
+      return '停止录音';
+    case 'audio.record_cancel':
+      return '取消录音';
     case 'share.text':
       return '系统分享';
     case 'system.haptic_feedback':
@@ -182,6 +250,17 @@ String _titleFor(String capabilityId) {
       return '当前位置';
     case 'notification.schedule':
       return '本地通知';
+    case 'notification.pending':
+      return '待触发通知';
+    case 'notification.cancel':
+      return '取消通知';
+    case 'notification.cancel_all':
+      return '清空通知';
+    case 'contacts.pick':
+      return '选择联系人';
+    case 'barcode.scan_camera':
+    case 'barcode.scan_image':
+      return '扫码';
     case 'calendar.event.create':
       return '日历事件';
     case 'db.note.create':
@@ -264,10 +343,37 @@ String _summaryFor(
       return output['hasText'] == true ? '已读取剪贴板文本。' : '剪贴板里没有可读取的纯文本。';
     case 'clipboard.write':
       return '已写入剪贴板。';
+    case 'camera.capture_photo':
+      return _pickedFileSummary(output, fallback: '已拍摄照片。');
+    case 'camera.capture_video':
+      return _pickedFileSummary(output, fallback: '已拍摄视频。');
+    case 'media.pick_image':
+      return _pickedFileSummary(output, fallback: '已选择图片。');
+    case 'media.pick_video':
+      return _pickedFileSummary(output, fallback: '已选择视频。');
+    case 'file.pick_system_file':
+      return _pickedFileSummary(output, fallback: '已选择文件。');
+    case 'audio.record_start':
+      return '已开始录音。';
+    case 'audio.record_stop':
+      return _pickedFileSummary(output, fallback: '已停止录音并保存音频。');
+    case 'audio.record_cancel':
+      return '已取消当前录音。';
     case 'location.get_current':
       return _locationSummary(output);
     case 'notification.schedule':
       return _notificationSummary(output);
+    case 'notification.pending':
+      return _pendingNotificationSummary(output);
+    case 'notification.cancel':
+      return '已取消本地通知 ${output['notificationId']}。';
+    case 'notification.cancel_all':
+      return '已清空全部待触发本地通知。';
+    case 'contacts.pick':
+      return _contactSummary(output);
+    case 'barcode.scan_camera':
+    case 'barcode.scan_image':
+      return _barcodeSummary(output);
     case 'calendar.event.create':
       return '已打开系统日历添加流程，请在系统界面确认保存。';
     case 'share.text':
@@ -285,6 +391,18 @@ String _summaryFor(
 
 String _errorSummary(Map<String, Object?> output) {
   final error = _stringValue(output['error']) ?? 'unknown_error';
+  if (error == 'user_cancelled') {
+    return '用户已取消本次选择。';
+  }
+  if (error == 'no_active_recording') {
+    return '当前没有正在进行的录音。';
+  }
+  if (error == 'recording_in_progress') {
+    return '当前已有录音正在进行。';
+  }
+  if (error == 'barcode_not_found') {
+    return '没有从图片中识别到二维码或条码。';
+  }
   final detail = _stringValue(output['detail']);
   if (detail == null) {
     return '工具执行失败：$error。';
@@ -336,6 +454,19 @@ String _networkSummary(Map<String, Object?> output) {
   return text.isEmpty ? '当前设备已连接网络。' : '当前设备网络连接类型：$text。';
 }
 
+String _pickedFileSummary(
+  Map<String, Object?> output, {
+  required String fallback,
+}) {
+  final name = _stringValue(output['name']);
+  final bytes = output['bytes'];
+  if (name == null) {
+    return fallback;
+  }
+  final size = bytes is num ? '，${bytes.round()} bytes' : '';
+  return '$fallback $name$size。';
+}
+
 String _locationSummary(Map<String, Object?> output) {
   final latitude = output['latitude'];
   final longitude = output['longitude'];
@@ -361,6 +492,31 @@ String _notificationSummary(Map<String, Object?> output) {
   return scheduledAt == null
       ? '已创建本地通知：$title。'
       : '已创建本地通知：$title，时间 $scheduledAt。';
+}
+
+String _pendingNotificationSummary(Map<String, Object?> output) {
+  final count = output['count'];
+  if (count is! num || count == 0) {
+    return '当前没有待触发的本地通知。';
+  }
+  return '当前有 ${count.round()} 条待触发的本地通知。';
+}
+
+String _contactSummary(Map<String, Object?> output) {
+  final displayName = _stringValue(output['displayName']) ?? '联系人';
+  final primaryPhone = _stringValue(output['primaryPhone']);
+  final primaryEmail = _stringValue(output['primaryEmail']);
+  final parts = <String>[displayName, ?primaryPhone, ?primaryEmail];
+  return '已选择联系人：${parts.join(' · ')}。';
+}
+
+String _barcodeSummary(Map<String, Object?> output) {
+  final rawValue = _stringValue(output['rawValue']);
+  final format = _stringValue(output['format']);
+  if (rawValue == null) {
+    return '已识别二维码或条码。';
+  }
+  return '已识别${format ?? '码值'}：$rawValue。';
 }
 
 String? _stringValue(Object? value) {

@@ -197,6 +197,66 @@ class PhoneAgentSeed {
       CapabilityAdapter.native,
       CapabilityRisk.medium,
     ),
+    _capability(
+      'camera.capture_photo',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+      requiredPermissions: const ['camera'],
+    ),
+    _capability(
+      'camera.capture_video',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+      requiredPermissions: const ['camera', 'microphone'],
+    ),
+    _capability(
+      'media.pick_image',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'media.pick_video',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'file.pick_system_file',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'audio.record_start',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+      requiredPermissions: const ['microphone'],
+    ),
+    _capability(
+      'audio.record_stop',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'audio.record_cancel',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'contacts.pick',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+      requiredPermissions: const ['contacts'],
+    ),
+    _capability(
+      'barcode.scan_camera',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+      requiredPermissions: const ['camera'],
+    ),
+    _capability(
+      'barcode.scan_image',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
     _capability('battery.status', CapabilityAdapter.native, CapabilityRisk.low),
     _capability('network.status', CapabilityAdapter.native, CapabilityRisk.low),
     _capability('share.text', CapabilityAdapter.native, CapabilityRisk.medium),
@@ -250,6 +310,21 @@ class PhoneAgentSeed {
       CapabilityAdapter.native,
       CapabilityRisk.medium,
       requiredPermissions: const ['notifications'],
+    ),
+    _capability(
+      'notification.pending',
+      CapabilityAdapter.native,
+      CapabilityRisk.low,
+    ),
+    _capability(
+      'notification.cancel',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'notification.cancel_all',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
     ),
     _capability(
       'calendar.event.create',

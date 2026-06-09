@@ -57,10 +57,15 @@ class AgentToolRouter {
       );
     }
     final decoded = _decodeRouteDecision(result.content);
-    final decision = _withWebAppMaintenanceTools(
+    final maintenanceDecision = _withWebAppMaintenanceTools(
       decision: decoded,
       latestPrompt: latestPrompt,
       recentContext: routingContext,
+      allTools: allTools,
+    );
+    final decision = _withNativeInputTools(
+      decision: maintenanceDecision,
+      latestPrompt: latestPrompt,
       allTools: allTools,
     );
     return routeFromDecision(
@@ -69,6 +74,158 @@ class AgentToolRouter {
       latestPromptLength: latestPrompt.length,
       contextLength: routingContext.length,
     );
+  }
+
+  Map<String, Object?> _withNativeInputTools({
+    required Map<String, Object?> decision,
+    required String latestPrompt,
+    required List<Map<String, Object?>> allTools,
+  }) {
+    final prompt = latestPrompt.toLowerCase();
+    final selected = _stringList(decision['selected_tool_names']).toSet();
+    final availableNames = {
+      for (final tool in allTools)
+        if (_toolName(tool) case final String name) name,
+    };
+
+    void addIfAvailable(String name) {
+      if (availableNames.contains(name)) {
+        selected.add(name);
+      }
+    }
+
+    final wantsCaptureVideo = _containsAny(prompt, const [
+      '拍视频',
+      '录视频',
+      '录像',
+      '摄像',
+    ]);
+    final wantsPickVideo =
+        _containsAny(prompt, const ['选视频', '选择视频', '上传视频', '从相册选视频']) ||
+        (prompt.contains('相册') && prompt.contains('视频')) ||
+        (!wantsCaptureVideo && _containsAny(prompt, const ['视频', 'video']));
+    final wantsCancelAudio = _containsAny(prompt, const ['取消录音', '放弃录音']);
+    final wantsStopAudio = _containsAny(prompt, const ['停止录音', '结束录音', '完成录音']);
+    final wantsStartAudio =
+        !wantsCancelAudio &&
+        !wantsStopAudio &&
+        _containsAny(prompt, const ['开始录音', '录音', '录一段声音', '录语音', '麦克风']);
+    final wantsCancelAllNotifications =
+        _containsAny(prompt, const ['取消全部提醒', '清空提醒', '删除所有提醒']) ||
+        (_containsAny(prompt, const ['取消全部', '清空全部', '全部取消']) &&
+            _containsAny(prompt, const ['提醒', '通知']));
+    final wantsCancelNotification = _containsAny(prompt, const [
+      '取消提醒',
+      '取消通知',
+      '删除提醒',
+      '删掉提醒',
+    ]);
+    final wantsListNotifications = _containsAny(prompt, const [
+      '查看提醒',
+      '提醒列表',
+      '待提醒',
+      '有哪些提醒',
+      '通知列表',
+      '已安排通知',
+    ]);
+    final wantsScheduleNotification = _containsAny(prompt, const [
+      '提醒我',
+      '稍后提醒',
+      '定个提醒',
+      '安排提醒',
+      '发个通知',
+    ]);
+    final wantsBarcodeFromImage =
+        _containsAny(prompt, const ['截图', '相册', '图片', '照片']) &&
+        _containsAny(prompt, const ['二维码', '条码', '扫码', 'barcode', 'qr']);
+    final wantsBarcodeScan = _containsAny(prompt, const [
+      '扫描二维码',
+      '扫二维码',
+      '扫码',
+      '扫条码',
+      '扫描条码',
+      '识别二维码',
+      '识别条码',
+      'barcode',
+      'qr code',
+      'qrcode',
+    ]);
+
+    if (_containsAny(prompt, const ['拍照', '拍一张', '相机', 'camera'])) {
+      addIfAvailable('camera_capture_photo');
+    }
+    if (wantsCaptureVideo) {
+      addIfAvailable('camera_capture_video');
+    }
+    if (_containsAny(prompt, const ['选图', '选一张图', '相册', '图片', '照片', 'image'])) {
+      addIfAvailable('media_pick_image');
+    }
+    if (wantsPickVideo) {
+      addIfAvailable('media_pick_video');
+    }
+    if (_containsAny(prompt, const [
+      '选文件',
+      '选择文件',
+      '导入文件',
+      '上传文件',
+      '本地文件',
+      '系统文件',
+      'pdf 文件',
+      'pdf文件',
+      '上传一个',
+      'file',
+    ])) {
+      addIfAvailable('file_pick_system_file');
+    }
+    if (wantsStartAudio) {
+      addIfAvailable('audio_record_start');
+    }
+    if (wantsStopAudio) {
+      addIfAvailable('audio_record_stop');
+    }
+    if (wantsCancelAudio) {
+      addIfAvailable('audio_record_cancel');
+    }
+    if (_containsAny(prompt, const [
+      '选择联系人',
+      '选联系人',
+      '联系人',
+      '通讯录',
+      '电话联系人',
+      '联系人输入',
+    ])) {
+      addIfAvailable('contacts_pick');
+    }
+    if (wantsBarcodeFromImage) {
+      addIfAvailable('barcode_scan_image');
+    } else if (wantsBarcodeScan) {
+      addIfAvailable('barcode_scan_camera');
+    }
+    if (wantsScheduleNotification) {
+      addIfAvailable('notification_schedule');
+    }
+    if (wantsListNotifications || wantsCancelNotification) {
+      addIfAvailable('notification_pending');
+    }
+    if (wantsCancelNotification) {
+      addIfAvailable('notification_cancel');
+    }
+    if (wantsCancelAllNotifications) {
+      addIfAvailable('notification_cancel_all');
+    }
+
+    if (selected.length ==
+        _stringList(decision['selected_tool_names']).length) {
+      return decision;
+    }
+    return {
+      ...decision,
+      'selected_tool_names': selected.toList(growable: false)..sort(),
+      'reason': [
+        if (decision['reason'] is String) decision['reason'],
+        'native_input_request_requires_system_picker_tools',
+      ].whereType<String>().join('; '),
+    };
   }
 
   ToolRoute routeFromModelOutput(

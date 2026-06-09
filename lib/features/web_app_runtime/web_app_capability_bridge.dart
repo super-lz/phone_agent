@@ -32,6 +32,17 @@ class WebAppRuntimeDefaults {
     'network.status',
     'clipboard.read',
     'clipboard.write',
+    'camera.capture_photo',
+    'camera.capture_video',
+    'media.pick_image',
+    'media.pick_video',
+    'file.pick_system_file',
+    'audio.record_start',
+    'audio.record_stop',
+    'audio.record_cancel',
+    'contacts.pick',
+    'barcode.scan_camera',
+    'barcode.scan_image',
     'share.text',
     'system.haptic_feedback',
     'system.sound_alert',
@@ -44,6 +55,9 @@ class WebAppRuntimeDefaults {
     'sensor.magnetometer.read',
     'location.get_current',
     'notification.schedule',
+    'notification.pending',
+    'notification.cancel',
+    'notification.cancel_all',
     'calendar.event.create',
     'web.search',
     'web.fetch',
@@ -305,6 +319,22 @@ class WebAppCapabilityBridge {
         return 'clipboard_read';
       case 'clipboard.write':
         return 'clipboard_write';
+      case 'camera.capture_photo':
+        return 'camera_capture_photo';
+      case 'camera.capture_video':
+        return 'camera_capture_video';
+      case 'media.pick_image':
+        return 'media_pick_image';
+      case 'media.pick_video':
+        return 'media_pick_video';
+      case 'file.pick_system_file':
+        return 'file_pick_system_file';
+      case 'audio.record_start':
+        return 'audio_record_start';
+      case 'audio.record_stop':
+        return 'audio_record_stop';
+      case 'audio.record_cancel':
+        return 'audio_record_cancel';
       case 'share.text':
         return 'share_text';
       case 'system.haptic_feedback':
@@ -329,6 +359,18 @@ class WebAppCapabilityBridge {
         return 'location_get_current';
       case 'notification.schedule':
         return 'notification_schedule';
+      case 'notification.pending':
+        return 'notification_pending';
+      case 'notification.cancel':
+        return 'notification_cancel';
+      case 'notification.cancel_all':
+        return 'notification_cancel_all';
+      case 'contacts.pick':
+        return 'contacts_pick';
+      case 'barcode.scan_camera':
+        return 'barcode_scan_camera';
+      case 'barcode.scan_image':
+        return 'barcode_scan_image';
       case 'calendar.event.create':
         return 'calendar_event_create';
       case 'web.search':

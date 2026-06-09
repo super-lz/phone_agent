@@ -132,6 +132,138 @@ void main() {
     expect(route.requiredToolNames, isEmpty);
     expect(route.index, contains('project_update_web_app'));
   });
+
+  test('native input requests expose system picker tools', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': <String>[],
+        'required_tool_names': <String>[],
+        'uses_context': false,
+        'reason': 'model missed native input tools',
+      }),
+    );
+
+    final route = await router.route(
+      prompt: '帮我拍照、拍视频，再从相册选图片和视频，还要选一个 PDF 文件，然后开始录音',
+      context: '',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(
+      route.selectedToolNames,
+      containsAll([
+        'camera_capture_photo',
+        'camera_capture_video',
+        'audio_record_start',
+        'media_pick_image',
+        'media_pick_video',
+        'file_pick_system_file',
+      ]),
+    );
+    expect(route.requiredToolNames, isEmpty);
+  });
+
+  test('notification management requests expose notification tools', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': <String>[],
+        'required_tool_names': <String>[],
+        'uses_context': false,
+        'reason': 'model missed notification tools',
+      }),
+    );
+
+    final route = await router.route(
+      prompt: '帮我查看提醒列表，然后取消提醒，最后清空全部提醒',
+      context: '',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(
+      route.selectedToolNames,
+      containsAll([
+        'notification_pending',
+        'notification_cancel',
+        'notification_cancel_all',
+      ]),
+    );
+    expect(route.requiredToolNames, isEmpty);
+  });
+
+  test('contact requests expose contact picker tool', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': <String>[],
+        'required_tool_names': <String>[],
+        'uses_context': false,
+        'reason': 'model missed contact picker',
+      }),
+    );
+
+    final route = await router.route(
+      prompt: '从通讯录选择联系人给这个 Web App 使用',
+      context: '',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(route.selectedToolNames, contains('contacts_pick'));
+    expect(route.requiredToolNames, isEmpty);
+  });
+
+  test('barcode scan requests expose camera scan tool', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': <String>[],
+        'required_tool_names': <String>[],
+        'uses_context': false,
+        'reason': 'model missed barcode scan',
+      }),
+    );
+
+    final route = await router.route(
+      prompt: '帮我扫描二维码',
+      context: '',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(route.selectedToolNames, contains('barcode_scan_camera'));
+    expect(route.requiredToolNames, isEmpty);
+  });
+
+  test('barcode image requests expose image scan tool', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': <String>[],
+        'required_tool_names': <String>[],
+        'uses_context': false,
+        'reason': 'model missed barcode image scan',
+      }),
+    );
+
+    final route = await router.route(
+      prompt: '识别这张截图里的二维码',
+      context: '',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(route.selectedToolNames, contains('barcode_scan_image'));
+    expect(route.requiredToolNames, isEmpty);
+  });
 }
 
 class _RoutingChatClient extends OpenAiCompatibleChatClient {

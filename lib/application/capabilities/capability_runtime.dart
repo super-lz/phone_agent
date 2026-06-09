@@ -265,6 +265,34 @@ class CapabilityRuntime {
         return await _nativeHandler.writeClipboard(
           arguments: toolCall.arguments,
         );
+      case 'camera_capture_photo':
+        return await _nativeHandler.capturePhoto(arguments: toolCall.arguments);
+      case 'camera_capture_video':
+        return await _nativeHandler.captureVideo(arguments: toolCall.arguments);
+      case 'media_pick_image':
+        return await _nativeHandler.pickImage(arguments: toolCall.arguments);
+      case 'media_pick_video':
+        return await _nativeHandler.pickVideo();
+      case 'file_pick_system_file':
+        return await _nativeHandler.pickSystemFile(
+          arguments: toolCall.arguments,
+        );
+      case 'audio_record_start':
+        return await _nativeHandler.startAudioRecording();
+      case 'audio_record_stop':
+        return await _nativeHandler.stopAudioRecording();
+      case 'audio_record_cancel':
+        return await _nativeHandler.cancelAudioRecording();
+      case 'contacts_pick':
+        return await _nativeHandler.pickContact();
+      case 'barcode_scan_camera':
+        return await _nativeHandler.scanBarcodeFromCamera(
+          arguments: toolCall.arguments,
+        );
+      case 'barcode_scan_image':
+        return await _nativeHandler.scanBarcodeFromImage(
+          arguments: toolCall.arguments,
+        );
       case 'share_text':
         return await _nativeHandler.shareText(arguments: toolCall.arguments);
       case 'system_haptic_feedback':
@@ -299,6 +327,14 @@ class CapabilityRuntime {
         return await _nativeHandler.scheduleNotification(
           arguments: toolCall.arguments,
         );
+      case 'notification_pending':
+        return await _nativeHandler.listPendingNotifications();
+      case 'notification_cancel':
+        return await _nativeHandler.cancelNotification(
+          arguments: toolCall.arguments,
+        );
+      case 'notification_cancel_all':
+        return await _nativeHandler.cancelAllNotifications();
       case 'calendar_event_create':
         return await _nativeHandler.createCalendarEvent(
           arguments: toolCall.arguments,
@@ -862,6 +898,28 @@ class CapabilityRuntime {
         return 'network.status';
       case 'clipboard_write':
         return 'clipboard.write';
+      case 'camera_capture_photo':
+        return 'camera.capture_photo';
+      case 'camera_capture_video':
+        return 'camera.capture_video';
+      case 'media_pick_image':
+        return 'media.pick_image';
+      case 'media_pick_video':
+        return 'media.pick_video';
+      case 'file_pick_system_file':
+        return 'file.pick_system_file';
+      case 'audio_record_start':
+        return 'audio.record_start';
+      case 'audio_record_stop':
+        return 'audio.record_stop';
+      case 'audio_record_cancel':
+        return 'audio.record_cancel';
+      case 'contacts_pick':
+        return 'contacts.pick';
+      case 'barcode_scan_camera':
+        return 'barcode.scan_camera';
+      case 'barcode_scan_image':
+        return 'barcode.scan_image';
       case 'share_text':
         return 'share.text';
       case 'system_haptic_feedback':
@@ -886,6 +944,12 @@ class CapabilityRuntime {
         return 'location.get_current';
       case 'notification_schedule':
         return 'notification.schedule';
+      case 'notification_pending':
+        return 'notification.pending';
+      case 'notification_cancel':
+        return 'notification.cancel';
+      case 'notification_cancel_all':
+        return 'notification.cancel_all';
       case 'calendar_event_create':
         return 'calendar.event.create';
       case 'document_extract':

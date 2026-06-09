@@ -477,6 +477,158 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'camera_capture_photo',
+          'description':
+              '打开系统相机拍摄一张照片。只有用户明确要求拍照、采集当前画面或 Web App 需要相机输入时使用；会触发系统 UI，用户可取消。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'max_width': {'type': 'number', 'description': '可选，限制图片最大宽度。'},
+              'max_height': {'type': 'number', 'description': '可选，限制图片最大高度。'},
+              'image_quality': {
+                'type': 'integer',
+                'description': '可选，图片质量 1-100。',
+              },
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'camera_capture_video',
+          'description':
+              '打开系统相机拍摄一段视频。只有用户明确要求拍视频、录视频或 Web App 需要摄像头视频输入时使用；会触发系统 UI，用户可取消。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'max_duration_seconds': {
+                'type': 'integer',
+                'description': '可选，限制最长拍摄秒数，范围 1-3600。',
+              },
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'media_pick_image',
+          'description':
+              '打开系统相册选择一张图片。只有用户明确要求从相册选择图片、上传图片或 Web App 需要图片输入时使用；用户可取消。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'max_width': {'type': 'number', 'description': '可选，限制图片最大宽度。'},
+              'max_height': {'type': 'number', 'description': '可选，限制图片最大高度。'},
+              'image_quality': {
+                'type': 'integer',
+                'description': '可选，图片质量 1-100。',
+              },
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'audio_record_start',
+          'description':
+              '开始通过麦克风录音。只有用户明确要求开始录音、录一段声音、采集语音或 Web App 需要麦克风音频输入时使用；同一时间只允许一个录音会话。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'audio_record_stop',
+          'description': '停止当前麦克风录音并返回音频文件元数据。只有存在用户语义上的停止录音、结束录音或完成录音请求时使用。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'audio_record_cancel',
+          'description': '取消当前麦克风录音并丢弃录音文件。只有用户明确要求取消录音或放弃当前录音时使用。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'contacts_pick',
+          'description':
+              '打开系统联系人选择器，让用户选择一个联系人，并返回被选中联系人的姓名、电话和邮箱。只有用户明确要求选择联系人、从通讯录导入联系人或 Web App 需要联系人输入时使用；不会读取完整通讯录。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'barcode_scan_camera',
+          'description':
+              '打开系统相机拍摄一张包含二维码或条码的图片，并在本地解析码值。只有用户明确要求扫描二维码、扫码、扫条码或 Web App 需要扫码输入时使用；用户可取消。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'formats': {
+                'type': 'array',
+                'description': '可选，限制识别格式，例如 qr_code、ean13、code128、data_matrix。',
+                'items': {'type': 'string'},
+              },
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'barcode_scan_image',
+          'description':
+              '从相册选择一张包含二维码或条码的图片，并在本地解析码值。用于用户明确要求识别截图、相册图片里的二维码或条码时使用；用户可取消。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'formats': {
+                'type': 'array',
+                'description': '可选，限制识别格式，例如 qr_code、ean13、code128、data_matrix。',
+                'items': {'type': 'string'},
+              },
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'media_pick_video',
+          'description':
+              '打开系统相册选择一个视频。只有用户明确要求选择视频、上传视频或 Web App 需要视频输入时使用；用户可取消。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'file_pick_system_file',
+          'description':
+              '打开系统文件选择器选择一个本机文件。用于用户明确要求从手机文件系统导入、选择或上传文件时使用；只返回被用户选择的文件元数据和本地 URI。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'allowed_extensions': {
+                'type': 'array',
+                'description': '可选，限制扩展名，例如 pdf、docx、xlsx。',
+                'items': {'type': 'string'},
+              },
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'share_text',
           'description':
               '打开系统分享面板，把用户明确要求分享的文本交给其它 App。该能力会触发系统 UI，需要用户自己选择目标应用。',
@@ -625,6 +777,42 @@ class CapabilityToolDefinitions {
             },
             'required': ['title', 'body'],
           },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'notification_pending',
+          'description':
+              '查看 Phone Agent 已安排但尚未触发的本地通知列表。用于用户询问还有哪些提醒、待提醒或通知安排时使用。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'notification_cancel',
+          'description':
+              '取消指定 ID 的本地通知。用于用户明确要求取消某条提醒，并且上下文中有 notification_id 时使用。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'notification_id': {
+                'type': 'integer',
+                'description': '要取消的本地通知 ID。',
+              },
+            },
+            'required': ['notification_id'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'notification_cancel_all',
+          'description':
+              '取消 Phone Agent 安排的全部待触发本地通知。只有用户明确要求清空、取消全部提醒或删除所有通知安排时使用。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
         },
       },
       {

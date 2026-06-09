@@ -1,4 +1,4 @@
-enum AppPermissionId { location, notifications }
+enum AppPermissionId { location, notifications, camera, microphone, contacts }
 
 enum AppPermissionStatusKind {
   granted,
@@ -77,6 +77,28 @@ class AppPermissionRegistry {
       title: '通知',
       description: '用于用户明确要求稍后提醒时发送本地系统通知。',
       affectedCapabilities: ['notification.schedule'],
+    ),
+    AppPermissionDescriptor(
+      id: AppPermissionId.camera,
+      title: '相机',
+      description: '用于用户明确要求拍照、拍视频或本地 Web App 请求相机输入时采集画面。',
+      affectedCapabilities: ['camera.capture_photo', 'camera.capture_video'],
+    ),
+    AppPermissionDescriptor(
+      id: AppPermissionId.microphone,
+      title: '麦克风',
+      description: '用于用户明确要求录音、拍摄带声音的视频或本地 Web App 请求音频输入时采集声音。',
+      affectedCapabilities: [
+        'camera.capture_video',
+        'audio.record_start',
+        'audio.record_stop',
+      ],
+    ),
+    AppPermissionDescriptor(
+      id: AppPermissionId.contacts,
+      title: '联系人',
+      description: '用于用户明确要求从系统通讯录选择联系人时读取被选中的联系人姓名、电话和邮箱。',
+      affectedCapabilities: ['contacts.pick'],
     ),
   ];
 

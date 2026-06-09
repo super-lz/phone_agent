@@ -75,6 +75,12 @@ class AppPermissionService {
         return permission_api.Permission.locationWhenInUse;
       case AppPermissionId.notifications:
         return permission_api.Permission.notification;
+      case AppPermissionId.camera:
+        return permission_api.Permission.camera;
+      case AppPermissionId.microphone:
+        return permission_api.Permission.microphone;
+      case AppPermissionId.contacts:
+        return permission_api.Permission.contacts;
     }
   }
 

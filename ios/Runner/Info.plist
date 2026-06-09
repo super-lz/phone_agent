@@ -38,11 +38,13 @@
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
 	<string>Phone Agent 只会在你明确要求创建日历事件时写入日历事件。</string>
 	<key>NSContactsUsageDescription</key>
-	<string>Phone Agent 不读取通讯录；系统日历界面可能需要此权限用于地点或邀请人补全。</string>
+	<string>Phone Agent 只会在你明确要求选择联系人，或系统日历界面需要联系人补全时访问联系人。</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Phone Agent 的本地 Web App 只有在你打开并授权的页面请求相机时才会使用相机。</string>
+	<string>Phone Agent 只会在你明确要求拍照、拍视频，或你打开并授权的本地 Web App 请求相机时使用相机。</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Phone Agent 的本地 Web App 只有在你打开并授权的页面请求麦克风时才会使用麦克风。</string>
+	<string>Phone Agent 只会在你明确要求录音、拍摄带声音的视频，或你打开并授权的本地 Web App 请求麦克风时使用麦克风。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Phone Agent 只会在你明确要求从相册选择图片或视频时打开系统相册选择器。</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

@@ -172,14 +172,20 @@ class _PermissionTile extends StatelessWidget {
               children: [
                 for (final capability in descriptor.affectedCapabilities)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       capability,
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF6B7280),
+                      ),
                     ),
                   ),
               ],
@@ -214,6 +220,9 @@ class _PermissionTile extends StatelessWidget {
     return switch (id) {
       AppPermissionId.location => Icons.location_on_outlined,
       AppPermissionId.notifications => Icons.notifications_outlined,
+      AppPermissionId.camera => Icons.camera_alt_outlined,
+      AppPermissionId.microphone => Icons.mic_none_outlined,
+      AppPermissionId.contacts => Icons.contacts_outlined,
     };
   }
 }
@@ -228,15 +237,21 @@ class _StatusChip extends StatelessWidget {
     final (bg, fg) = switch (status) {
       AppPermissionStatusKind.granted ||
       AppPermissionStatusKind.limited ||
-      AppPermissionStatusKind.provisional =>
-        (const Color(0xFFDCFCE7), const Color(0xFF166534)),
-      AppPermissionStatusKind.denied =>
-        (const Color(0xFFFEF3C7), const Color(0xFF92400E)),
+      AppPermissionStatusKind.provisional => (
+        const Color(0xFFDCFCE7),
+        const Color(0xFF166534),
+      ),
+      AppPermissionStatusKind.denied => (
+        const Color(0xFFFEF3C7),
+        const Color(0xFF92400E),
+      ),
       AppPermissionStatusKind.permanentlyDenied ||
       AppPermissionStatusKind.restricted ||
       AppPermissionStatusKind.serviceDisabled ||
-      AppPermissionStatusKind.unavailable =>
-        (const Color(0xFFFEE2E2), const Color(0xFF991B1B)),
+      AppPermissionStatusKind.unavailable => (
+        const Color(0xFFFEE2E2),
+        const Color(0xFF991B1B),
+      ),
     };
 
     return Container(

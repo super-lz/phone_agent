@@ -58,6 +58,111 @@ class NativeCapabilityHandler {
     );
   }
 
+  Future<CapabilityExecutionResult> capturePhoto({
+    required Map<String, Object?> arguments,
+  }) async {
+    return CapabilityExecutionResult(
+      capabilityId: 'camera.capture_photo',
+      output: await _adapter.capturePhoto(
+        maxWidth: _optionalPositiveDouble(arguments['max_width']),
+        maxHeight: _optionalPositiveDouble(arguments['max_height']),
+        imageQuality: _optionalImageQuality(arguments['image_quality']),
+      ),
+    );
+  }
+
+  Future<CapabilityExecutionResult> captureVideo({
+    required Map<String, Object?> arguments,
+  }) async {
+    return CapabilityExecutionResult(
+      capabilityId: 'camera.capture_video',
+      output: await _adapter.captureVideo(
+        maxDuration: _optionalDuration(arguments['max_duration_seconds']),
+      ),
+    );
+  }
+
+  Future<CapabilityExecutionResult> pickImage({
+    required Map<String, Object?> arguments,
+  }) async {
+    return CapabilityExecutionResult(
+      capabilityId: 'media.pick_image',
+      output: await _adapter.pickImage(
+        maxWidth: _optionalPositiveDouble(arguments['max_width']),
+        maxHeight: _optionalPositiveDouble(arguments['max_height']),
+        imageQuality: _optionalImageQuality(arguments['image_quality']),
+      ),
+    );
+  }
+
+  Future<CapabilityExecutionResult> pickVideo() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'media.pick_video',
+      output: await _adapter.pickVideo(),
+    );
+  }
+
+  Future<CapabilityExecutionResult> pickSystemFile({
+    required Map<String, Object?> arguments,
+  }) async {
+    return CapabilityExecutionResult(
+      capabilityId: 'file.pick_system_file',
+      output: await _adapter.pickSystemFile(
+        allowedExtensions: _stringList(arguments['allowed_extensions']),
+      ),
+    );
+  }
+
+  Future<CapabilityExecutionResult> startAudioRecording() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'audio.record_start',
+      output: await _adapter.startAudioRecording(),
+    );
+  }
+
+  Future<CapabilityExecutionResult> stopAudioRecording() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'audio.record_stop',
+      output: await _adapter.stopAudioRecording(),
+    );
+  }
+
+  Future<CapabilityExecutionResult> cancelAudioRecording() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'audio.record_cancel',
+      output: await _adapter.cancelAudioRecording(),
+    );
+  }
+
+  Future<CapabilityExecutionResult> pickContact() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'contacts.pick',
+      output: await _adapter.pickContact(),
+    );
+  }
+
+  Future<CapabilityExecutionResult> scanBarcodeFromCamera({
+    required Map<String, Object?> arguments,
+  }) async {
+    return CapabilityExecutionResult(
+      capabilityId: 'barcode.scan_camera',
+      output: await _adapter.scanBarcodeFromCamera(
+        formats: _stringList(arguments['formats']),
+      ),
+    );
+  }
+
+  Future<CapabilityExecutionResult> scanBarcodeFromImage({
+    required Map<String, Object?> arguments,
+  }) async {
+    return CapabilityExecutionResult(
+      capabilityId: 'barcode.scan_image',
+      output: await _adapter.scanBarcodeFromImage(
+        formats: _stringList(arguments['formats']),
+      ),
+    );
+  }
+
   Future<CapabilityExecutionResult> shareText({
     required Map<String, Object?> arguments,
   }) async {
@@ -213,6 +318,36 @@ class NativeCapabilityHandler {
     );
   }
 
+  Future<CapabilityExecutionResult> listPendingNotifications() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'notification.pending',
+      output: await _adapter.listPendingNotifications(),
+    );
+  }
+
+  Future<CapabilityExecutionResult> cancelNotification({
+    required Map<String, Object?> arguments,
+  }) async {
+    final notificationId = _requiredPositiveInt(arguments['notification_id']);
+    if (notificationId == null) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'notification.cancel',
+        output: {'ok': false, 'error': 'notification_id is required'},
+      );
+    }
+    return CapabilityExecutionResult(
+      capabilityId: 'notification.cancel',
+      output: await _adapter.cancelNotification(notificationId),
+    );
+  }
+
+  Future<CapabilityExecutionResult> cancelAllNotifications() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'notification.cancel_all',
+      output: await _adapter.cancelAllNotifications(),
+    );
+  }
+
   Future<CapabilityExecutionResult> createCalendarEvent({
     required Map<String, Object?> arguments,
   }) async {
@@ -295,5 +430,51 @@ class NativeCapabilityHandler {
     }
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
+  }
+
+  double? _optionalPositiveDouble(Object? value) {
+    if (value is! num || value <= 0) {
+      return null;
+    }
+    return value.toDouble();
+  }
+
+  int? _optionalImageQuality(Object? value) {
+    if (value is! num) {
+      return null;
+    }
+    return value.clamp(1, 100).round();
+  }
+
+  int? _requiredPositiveInt(Object? value) {
+    if (value is num && value > 0) {
+      return value.round();
+    }
+    if (value is String) {
+      final parsed = int.tryParse(value.trim());
+      if (parsed != null && parsed > 0) {
+        return parsed;
+      }
+    }
+    return null;
+  }
+
+  Duration? _optionalDuration(Object? value) {
+    if (value is! num || value <= 0) {
+      return null;
+    }
+    return Duration(seconds: value.clamp(1, 3600).round());
+  }
+
+  List<String> _stringList(Object? value) {
+    if (value is! Iterable<Object?>) {
+      return const [];
+    }
+    return value
+        .whereType<String>()
+        .map((item) => item.trim().toLowerCase())
+        .where((item) => item.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
   }
 }
