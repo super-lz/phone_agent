@@ -162,6 +162,29 @@ void main() {
     },
   );
 
+  test('local model prompt does not require api key', () async {
+    final settingsStore = InMemoryModelSettingsStore();
+    await settingsStore.saveSelectedProviderId(ModelProviders.gemmaLocal.id);
+    await settingsStore.saveModelName(
+      ModelProviders.gemmaLocal.id,
+      'gemma-local-test.litertlm',
+    );
+    final chatClient = _FakeChatClient([
+      [const ChatStreamEvent(contentDelta: '本地模型回复')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore(null),
+      modelSettingsStore: settingsStore,
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt('你好');
+
+    expect(controller.messages.last.blocks.first.data['text'], '本地模型回复');
+    expect(chatClient.capturedModels.single, 'gemma-local-test.litertlm');
+    expect(chatClient.capturedApiKeys.single, isEmpty);
+  });
+
   test('prompt can include local attachment summaries', () async {
     final chatClient = _FakeChatClient([
       [const ChatStreamEvent(contentDelta: '已看到附件摘要。')],
@@ -1676,6 +1699,7 @@ class _FakeChatClient extends OpenAiCompatibleChatClient {
   final List<List<Map<String, Object?>>> capturedMessages = [];
   final List<List<Map<String, Object?>>> capturedTools = [];
   final List<String> capturedModels = [];
+  final List<String> capturedApiKeys = [];
   int callCount = 0;
 
   @override
@@ -1706,6 +1730,7 @@ class _FakeChatClient extends OpenAiCompatibleChatClient {
     capturedMessages.add(messages);
     capturedTools.add(tools);
     capturedModels.add(provider.model);
+    capturedApiKeys.add(apiKey);
     final events = rounds[callCount];
     callCount += 1;
     for (final event in events) {

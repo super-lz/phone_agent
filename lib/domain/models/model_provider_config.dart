@@ -6,6 +6,7 @@ class ModelProviderConfig {
     required this.baseUrl,
     required this.model,
     required this.defaultParameters,
+    this.maxContextTokens,
   });
 
   final String id;
@@ -14,6 +15,19 @@ class ModelProviderConfig {
   final Uri baseUrl;
   final String model;
   final Map<String, Object?> defaultParameters;
+  final int? maxContextTokens;
+
+  bool get isLocal => baseUrl.scheme == 'local';
+
+  bool get requiresApiKey => !isLocal;
+
+  int? get defaultMaxTokens {
+    final raw = defaultParameters['max_tokens'];
+    if (raw is int && raw > 0) {
+      return raw;
+    }
+    return null;
+  }
 
   Uri get chatCompletionsEndpoint => baseUrl.resolve('chat/completions');
 
@@ -25,12 +39,16 @@ class ModelProviderConfig {
       baseUrl: baseUrl,
       model: model ?? this.model,
       defaultParameters: defaultParameters,
+      maxContextTokens: maxContextTokens,
     );
   }
 }
 
 class ModelProviders {
   const ModelProviders._();
+
+  static const gemmaLocalDefaultContextTokens = 2048;
+  static const gemmaLocalMaxContextTokens = 32768;
 
   static final aliyunBailianQwenFlash = ModelProviderConfig(
     id: 'aliyun_bailian_glm5',
@@ -48,7 +66,7 @@ class ModelProviders {
   );
 
   static final aliyunBailianGlm5 = aliyunBailianQwenFlash;
-  
+
   static final gemmaLocal = ModelProviderConfig(
     id: 'gemma_local',
     vendorName: '本地模型',
@@ -58,8 +76,9 @@ class ModelProviders {
     defaultParameters: {
       'temperature': 0.7,
       'top_k': 40,
-      'max_tokens': 2048,
+      'max_tokens': gemmaLocalDefaultContextTokens,
     },
+    maxContextTokens: gemmaLocalMaxContextTokens,
   );
 
   static final aliyunBailianBaseUrl = Uri.parse(
@@ -67,4 +86,13 @@ class ModelProviders {
   );
 
   static final all = [aliyunBailianQwenFlash, gemmaLocal];
+
+  static ModelProviderConfig byIdOrDefault(String? providerId) {
+    for (final provider in all) {
+      if (provider.id == providerId) {
+        return provider;
+      }
+    }
+    return aliyunBailianQwenFlash;
+  }
 }

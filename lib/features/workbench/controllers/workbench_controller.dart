@@ -980,12 +980,15 @@ class WorkbenchController extends ChangeNotifier {
     required List<AgentMessage> priorMessages,
   }) async {
     final provider = await _configuredProvider();
-    final apiKey = await _apiKeyStore.readApiKey(provider.id);
-    if (apiKey == null || apiKey.trim().isEmpty) {
+    final storedApiKey = provider.requiresApiKey
+        ? await _apiKeyStore.readApiKey(provider.id)
+        : '';
+    final apiKey = storedApiKey?.trim() ?? '';
+    if (provider.requiresApiKey && apiKey.isEmpty) {
       AppLogger.warning('workbench.model_api_key.missing', {
         'provider': provider.id,
       });
-      _addMessage(_missingApiKeyResponse());
+      _addMessage(_missingApiKeyResponse(provider));
       notifyListeners();
       return;
     }
@@ -1005,7 +1008,7 @@ class WorkbenchController extends ChangeNotifier {
     try {
       await _agentLoop.run(
         provider: provider,
-        apiKey: apiKey.trim(),
+        apiKey: apiKey,
         prompt: prompt,
         workspace: currentWorkspace,
         workspaceId: _workspaceId,
@@ -1095,7 +1098,9 @@ class WorkbenchController extends ChangeNotifier {
   }
 
   Future<ModelProviderConfig> _configuredProvider() async {
-    final provider = ModelProviders.aliyunBailianQwenFlash;
+    final provider = ModelProviders.byIdOrDefault(
+      await _modelSettingsStore.readSelectedProviderId(),
+    );
     final modelName = await _modelSettingsStore.readModelName(provider.id);
     final normalized = modelName?.trim();
     if (normalized == null || normalized.isEmpty) {
@@ -1104,7 +1109,7 @@ class WorkbenchController extends ChangeNotifier {
     return provider.copyWith(model: normalized);
   }
 
-  AgentMessage _missingApiKeyResponse() {
+  AgentMessage _missingApiKeyResponse(ModelProviderConfig provider) {
     return AgentMessage(
       id: 'msg-missing-key-${DateTime.now().microsecondsSinceEpoch}',
       role: MessageRole.assistant,
@@ -1112,7 +1117,8 @@ class WorkbenchController extends ChangeNotifier {
       blocks: [
         MessageBlock.error(
           '缺少模型 API Key',
-          '请先点击右上角“模型设置”，填写并保存阿里云百炼 API Key，然后再发送普通对话。',
+          '当前选择的是${provider.vendorName}，普通对话需要 API Key。'
+              '如果你要使用本地模型，请进入“模型设置”切换到本地 Gemma，并确认模型文件已下载或导入。',
         ),
       ],
     );

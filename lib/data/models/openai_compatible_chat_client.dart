@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import '../../core/logging/app_logger.dart';
 import '../../domain/models/model_provider_config.dart';
+import 'gemma_local_runtime.dart';
 
 class ModelConnectionResult {
   const ModelConnectionResult({required this.ok, required this.message});
@@ -83,15 +84,18 @@ class ModelRequestException implements Exception {
 class OpenAiCompatibleChatClient {
   OpenAiCompatibleChatClient({
     http.Client? httpClient,
+    GemmaLocalRuntime? gemmaLocalRuntime,
     this.requestTimeout = const Duration(seconds: 30),
     this.streamIdleTimeout = const Duration(seconds: 45),
-  }) : _httpClient = httpClient ?? http.Client();
+  }) : _httpClient = httpClient ?? http.Client(),
+       _gemmaLocalRuntime = gemmaLocalRuntime ?? const GemmaLocalRuntime();
 
   static Object? diagnosticPayloadForLog(Object? value) {
     return _diagnosticValue(value);
   }
 
   final http.Client _httpClient;
+  final GemmaLocalRuntime _gemmaLocalRuntime;
   final Duration requestTimeout;
   final Duration streamIdleTimeout;
 
@@ -232,18 +236,8 @@ class OpenAiCompatibleChatClient {
       'messageCount': messages.length,
     });
 
-    final isInstalled = await FlutterGemma.isModelInstalled(provider.model);
-    if (!isInstalled) {
-      throw const ModelRequestException('本地模型未下载，请先到模型设置中下载。');
-    }
-
-    try {
-      await FlutterGemma.initialize();
-    } catch (_) {}
-
-    final inferenceModel = await FlutterGemma.getActiveModel(
-      maxTokens: 2048,
-      preferredBackend: PreferredBackend.gpu,
+    final inferenceModel = await _gemmaLocalRuntime.getInferenceModel(
+      provider: provider,
     );
 
     final chat = await inferenceModel.createChat();
@@ -292,21 +286,8 @@ class OpenAiCompatibleChatClient {
     required List<Map<String, Object?>> messages,
   }) async {
     try {
-      final isInstalled = await FlutterGemma.isModelInstalled(provider.model);
-      if (!isInstalled) {
-        return const ChatCompletionResult(
-          ok: false,
-          content: '本地模型未下载，请先到模型设置中下载。',
-        );
-      }
-
-      try {
-        await FlutterGemma.initialize();
-      } catch (_) {}
-
-      final inferenceModel = await FlutterGemma.getActiveModel(
-        maxTokens: 2048,
-        preferredBackend: PreferredBackend.gpu,
+      final inferenceModel = await _gemmaLocalRuntime.getInferenceModel(
+        provider: provider,
       );
 
       final chat = await inferenceModel.createChat();
@@ -374,14 +355,10 @@ class OpenAiCompatibleChatClient {
   }) async {
     if (provider.id == 'gemma_local') {
       try {
-        final isInstalled = await FlutterGemma.isModelInstalled(provider.model);
-        if (isInstalled) {
-          return const ModelConnectionResult(ok: true, message: '本地模型已下载就绪。');
-        } else {
-          return const ModelConnectionResult(ok: false, message: '本地模型尚未下载，请先下载。');
-        }
+        await _gemmaLocalRuntime.ensureActiveModel(provider);
+        return const ModelConnectionResult(ok: true, message: '本地模型已激活就绪。');
       } catch (e) {
-        return ModelConnectionResult(ok: false, message: '检查本地模型失败: $e');
+        return ModelConnectionResult(ok: false, message: '检查或激活本地模型失败: $e');
       }
     }
     AppLogger.info('model.test_connection.start', {
