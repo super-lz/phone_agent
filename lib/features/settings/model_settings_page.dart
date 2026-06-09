@@ -137,7 +137,14 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
     });
     try {
       await FlutterGemma.initialize();
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.error('settings.gemma_init_failed', {'error': e.toString()});
+      setState(() {
+        _downloading = false;
+        _status = '初始化失败: $e\n提示：如果您刚刚加入插件，请务必进行 Hot Restart (热重启) 或重新运行编译 App！';
+      });
+      return;
+    }
     try {
       final url = _gemmaUrlController.text.trim();
       final token = _hfTokenController.text.trim();
