@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
 
@@ -166,6 +167,46 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
       setState(() {
         _downloading = false;
         _status = '下载失败: $e';
+      });
+    }
+  }
+
+  Future<void> _pickAndInstallLocalFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+      );
+      if (result == null || result.files.isEmpty) {
+        return;
+      }
+      final filePath = result.files.first.path;
+      if (filePath == null) {
+        setState(() => _status = '无法获取选定文件的路径。');
+        return;
+      }
+
+      setState(() {
+        _downloading = true;
+        _status = '正在从本地文件导入模型...';
+      });
+
+      try {
+        await FlutterGemma.initialize();
+      } catch (_) {}
+
+      await FlutterGemma.installModel(modelType: ModelType.gemma4)
+          .fromFile(filePath)
+          .install();
+
+      setState(() {
+        _gemmaInstalled = true;
+        _downloading = false;
+        _status = '本地模型文件导入并激活成功！';
+      });
+    } catch (e) {
+      setState(() {
+        _downloading = false;
+        _status = '导入模型文件失败: $e';
       });
     }
   }
@@ -476,13 +517,26 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
             Text('下载进度: $_downloadProgress%',
                 style: const TextStyle(fontSize: 12, color: Colors.orange)),
           ] else
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _downloadGemma,
-                icon: const Icon(Icons.download_outlined),
-                label: const Text('下载并安装 Gemma 4 E4B 模型'),
-              ),
+            Column(
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _downloadGemma,
+                    icon: const Icon(Icons.download_outlined),
+                    label: const Text('下载并安装 Gemma 4 E4B 模型'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _pickAndInstallLocalFile,
+                    icon: const Icon(Icons.folder_open_outlined),
+                    label: const Text('导入本地模型文件 (.litertlm)'),
+                  ),
+                ),
+              ],
             ),
         ],
       ),
