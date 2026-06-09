@@ -48,10 +48,23 @@ class ModelProviders {
   );
 
   static final aliyunBailianGlm5 = aliyunBailianQwenFlash;
+  
+  static final gemmaLocal = ModelProviderConfig(
+    id: 'gemma_local',
+    vendorName: '本地模型',
+    displayName: 'Gemma 4 E4B (Local)',
+    baseUrl: Uri.parse('local://gemma'),
+    model: 'gemma-4-e4b-it-int4.litertlm',
+    defaultParameters: {
+      'temperature': 0.7,
+      'top_k': 40,
+      'max_tokens': 2048,
+    },
+  );
 
   static final aliyunBailianBaseUrl = Uri.parse(
     'https://dashscope.aliyuncs.com/compatible-mode/v1/',
   );
 
-  static final all = [aliyunBailianQwenFlash];
+  static final all = [aliyunBailianQwenFlash, gemmaLocal];
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_gemma/flutter_gemma.dart';
 
 import '../../core/logging/app_logger.dart';
 import '../../data/models/model_api_key_store.dart';
@@ -28,11 +29,18 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
   late final OpenAiCompatibleChatClient _chatClient;
   late final TextEditingController _apiKeyController;
   late final TextEditingController _modelController;
+  late final TextEditingController _gemmaUrlController;
+  late final TextEditingController _hfTokenController;
+  
   ModelProviderConfig _provider = ModelProviders.aliyunBailianQwenFlash;
   bool _obscureApiKey = true;
   bool _loading = true;
   bool _testing = false;
   String? _status;
+
+  bool _gemmaInstalled = false;
+  bool _downloading = false;
+  int _downloadProgress = 0;
 
   @override
   void initState() {
@@ -45,6 +53,10 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
         OpenAiCompatibleChatClient(requestTimeout: const Duration(seconds: 15));
     _apiKeyController = TextEditingController();
     _modelController = TextEditingController();
+    _gemmaUrlController = TextEditingController(
+      text: 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-int4.litertlm',
+    );
+    _hfTokenController = TextEditingController();
     _loadSettings();
   }
 
@@ -52,31 +64,61 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
   void dispose() {
     _apiKeyController.dispose();
     _modelController.dispose();
+    _gemmaUrlController.dispose();
+    _hfTokenController.dispose();
     super.dispose();
   }
 
+  Future<void> _checkGemmaStatus() async {
+    try {
+      final installed = await FlutterGemma.isModelInstalled(ModelProviders.gemmaLocal.model);
+      setState(() {
+        _gemmaInstalled = installed;
+      });
+    } catch (_) {}
+  }
+
   Future<void> _loadSettings() async {
-    final apiKey = await _apiKeyStore.readApiKey(_provider.id);
     final modelName = await _modelSettingsStore.readModelName(_provider.id);
     if (!mounted) {
       return;
     }
-    _apiKeyController.text = apiKey ?? '';
     _modelController.text = modelName?.trim().isNotEmpty == true
         ? modelName!.trim()
         : _provider.model;
+
+    if (_provider.id == 'gemma_local') {
+      _apiKeyController.text = '';
+      await _checkGemmaStatus();
+      setState(() => _loading = false);
+      return;
+    }
+
+    final apiKey = await _apiKeyStore.readApiKey(_provider.id);
+    if (!mounted) {
+      return;
+    }
+    _apiKeyController.text = apiKey ?? '';
     setState(() => _loading = false);
   }
 
   Future<void> _saveSettings() async {
-    final apiKey = _apiKeyController.text.trim();
     final modelName = _modelController.text.trim();
-    if (apiKey.isEmpty) {
-      setState(() => _status = 'API Key 不能为空。');
-      return;
-    }
     if (modelName.isEmpty) {
       setState(() => _status = '模型名称不能为空。');
+      return;
+    }
+
+    if (_provider.id == 'gemma_local') {
+      await _modelSettingsStore.saveModelName(_provider.id, modelName);
+      if (!mounted) return;
+      setState(() => _status = '已保存本地模型配置。');
+      return;
+    }
+
+    final apiKey = _apiKeyController.text.trim();
+    if (apiKey.isEmpty) {
+      setState(() => _status = 'API Key 不能为空。');
       return;
     }
     await _apiKeyStore.saveApiKey(_provider.id, apiKey);
@@ -85,6 +127,40 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
       return;
     }
     setState(() => _status = '已保存 ${_provider.vendorName} API Key 和模型名称。');
+  }
+
+  Future<void> _downloadGemma() async {
+    setState(() {
+      _downloading = true;
+      _downloadProgress = 0;
+      _status = '正在启动下载...';
+    });
+    try {
+      await FlutterGemma.initialize();
+    } catch (_) {}
+    try {
+      final url = _gemmaUrlController.text.trim();
+      final token = _hfTokenController.text.trim();
+      await FlutterGemma.installModel(modelType: ModelType.gemma4)
+          .fromNetwork(url, token: token.isEmpty ? null : token)
+          .withProgress((progress) {
+            setState(() {
+              _downloadProgress = progress;
+              _status = '正在下载模型: $progress%';
+            });
+          })
+          .install();
+      setState(() {
+        _gemmaInstalled = true;
+        _downloading = false;
+        _status = '模型下载并安装成功。';
+      });
+    } catch (e) {
+      setState(() {
+        _downloading = false;
+        _status = '下载失败: $e';
+      });
+    }
   }
 
   Future<void> _clearApiKey() async {
@@ -107,14 +183,16 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
 
   Future<void> _testConnection() async {
     final apiKey = _apiKeyController.text.trim();
-    if (apiKey.isEmpty) {
+    if (_provider.id != 'gemma_local' && apiKey.isEmpty) {
       setState(() => _status = '请先填写 API Key。');
       return;
     }
 
     setState(() {
       _testing = true;
-      _status = '正在测试 ${_provider.displayName}，最多等待 15 秒...';
+      _status = _provider.id == 'gemma_local'
+          ? '正在检查本地模型...'
+          : '正在测试 ${_provider.displayName}，最多等待 15 秒...';
     });
 
     final provider = _effectiveProvider();
@@ -127,7 +205,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
     }
     setState(() {
       _testing = false;
-      _status = result.ok ? '连接成功：${result.message}' : '连接失败：${result.message}';
+      _status = result.ok ? '测试成功：${result.message}' : '测试失败：${result.message}';
     });
   }
 
@@ -177,7 +255,12 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
                     ButtonSegment(
                       value: provider,
                       label: Text(provider.vendorName),
-                      icon: const Icon(Icons.cloud_outlined, size: 18),
+                      icon: Icon(
+                        provider.id == 'gemma_local'
+                            ? Icons.phone_android_outlined
+                            : Icons.cloud_outlined,
+                        size: 18,
+                      ),
                     ),
                 ],
                 selected: {_provider},
@@ -208,29 +291,34 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  TextField(
-                    controller: _apiKeyController,
-                    enabled: !_loading,
-                    obscureText: _obscureApiKey,
-                    decoration: InputDecoration(
-                      labelText: '${_provider.vendorName} API Key',
-                      hintText: '输入您的 API 密钥',
-                      prefixIcon: const Icon(Icons.key_outlined),
-                      suffixIcon: IconButton(
-                        tooltip: _obscureApiKey ? '显示' : '隐藏',
-                        icon: Icon(
-                          _obscureApiKey
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined,
-                          size: 20,
+                  if (_provider.id != 'gemma_local') ...[
+                    TextField(
+                      controller: _apiKeyController,
+                      enabled: !_loading,
+                      obscureText: _obscureApiKey,
+                      decoration: InputDecoration(
+                        labelText: '${_provider.vendorName} API Key',
+                        hintText: '输入您的 API 密钥',
+                        prefixIcon: const Icon(Icons.key_outlined),
+                        suffixIcon: IconButton(
+                          tooltip: _obscureApiKey ? '显示' : '隐藏',
+                          icon: Icon(
+                            _obscureApiKey
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                            size: 20,
+                          ),
+                          onPressed: () {
+                            setState(() => _obscureApiKey = !_obscureApiKey);
+                          },
                         ),
-                        onPressed: () {
-                          setState(() => _obscureApiKey = !_obscureApiKey);
-                        },
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
+                    const SizedBox(height: 16),
+                  ] else ...[
+                    _buildGemmaDownloadCard(),
+                    const SizedBox(height: 16),
+                  ],
                   _ProviderSummary(provider: _effectiveProvider()),
                   const SizedBox(height: 20),
                   Row(
@@ -298,6 +386,98 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
           fontWeight: FontWeight.bold,
           color: Color(0xFF6B7280),
         ),
+      ),
+    );
+  }
+
+  Widget _buildGemmaDownloadCard() {
+    if (_gemmaInstalled) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.green.shade100),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.check_circle_outline, color: Colors.green),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Gemma 本地模型已就绪',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.green)),
+                  const SizedBox(height: 2),
+                  Text('模型文件: ${_provider.model}',
+                      style: TextStyle(fontSize: 11, color: Colors.green.shade700)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orange.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.warning_amber_outlined, color: Colors.orange),
+              const SizedBox(width: 8),
+              const Text('本地模型文件未下载',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.orange)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _gemmaUrlController,
+            enabled: !_downloading,
+            decoration: const InputDecoration(
+              labelText: '模型下载 URL',
+              hintText: '输入模型的直接下载链接',
+              prefixIcon: Icon(Icons.link_outlined),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _hfTokenController,
+            enabled: !_downloading,
+            decoration: const InputDecoration(
+              labelText: 'Hugging Face Token (可选)',
+              hintText: '若下载 Gated 模型请填写 Token',
+              prefixIcon: Icon(Icons.token_outlined),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_downloading) ...[
+            LinearProgressIndicator(value: _downloadProgress / 100.0),
+            const SizedBox(height: 8),
+            Text('下载进度: $_downloadProgress%',
+                style: const TextStyle(fontSize: 12, color: Colors.orange)),
+          ] else
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _downloadGemma,
+                icon: const Icon(Icons.download_outlined),
+                label: const Text('下载并安装 Gemma 4 E4B 模型'),
+              ),
+            ),
+        ],
       ),
     );
   }
