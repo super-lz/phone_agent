@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/phone_agent_colors.dart';
 import '../../../domain/artifacts/artifact.dart';
 import '../../../domain/capabilities/capability.dart';
 import '../../../domain/files/app_file_store.dart';
@@ -32,10 +33,10 @@ class RuntimePanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final policy = PermissionPolicy(permissionMode);
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final colors = context.phoneAgentColors;
 
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
+      backgroundColor: colors.panelBackground,
       appBar: AppBar(
         title: const Text('资源与运行时'),
         automaticallyImplyLeading: false,
@@ -66,7 +67,7 @@ class RuntimePanel extends StatelessWidget {
               icon: Icon(
                 Icons.refresh_rounded,
                 size: 20,
-                color: colorScheme.primary,
+                color: colors.primaryAction,
               ),
               onPressed: onRefreshFiles,
             ),
@@ -90,7 +91,7 @@ class RuntimePanel extends StatelessWidget {
                 '能力注册表 (Capabilities)',
                 style: theme.textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: colorScheme.onSurfaceVariant,
+                  color: colors.textPrimary,
                 ),
               ),
               children: [
@@ -130,8 +131,8 @@ class RuntimePanel extends StatelessWidget {
             child: Text(
               title,
               style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+                color: context.phoneAgentColors.textPrimary,
               ),
             ),
           ),
@@ -142,33 +143,42 @@ class RuntimePanel extends StatelessWidget {
   }
 
   Widget _buildEmptyState(IconData icon, String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 32, color: Colors.grey.shade300),
-          const SizedBox(height: 8),
-          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-        ],
-      ),
+    return Builder(
+      builder: (context) {
+        final colors = context.phoneAgentColors;
+        return Container(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          decoration: BoxDecoration(
+            color: colors.cardBackground,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: colors.border),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, size: 32, color: colors.textTertiary),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                style: TextStyle(fontSize: 12, color: colors.textSecondary),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
   Widget _buildArtifactTile(BuildContext context, AgentArtifact artifact) {
+    final colors = context.phoneAgentColors;
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
         visualDensity: const VisualDensity(vertical: -1),
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(10),
+            color: colors.cardSelectedBackground,
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(
             artifact.type == ArtifactType.webApp
@@ -176,19 +186,23 @@ class RuntimePanel extends StatelessWidget {
                 : artifact.type == ArtifactType.location
                 ? Icons.location_on_rounded
                 : Icons.insert_drive_file_rounded,
-            color: Theme.of(context).colorScheme.primary,
+            color: colors.primaryAction,
             size: 20,
           ),
         ),
         title: Text(
           artifact.title,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: colors.textPrimary,
+          ),
         ),
         subtitle: Text(
           '${artifact.type.label} · ${artifact.summary}',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 12),
+          style: TextStyle(fontSize: 12, color: colors.textSecondary),
         ),
         onTap: artifact.type == ArtifactType.webApp
             ? () => onOpenWebApp(artifact)
@@ -198,22 +212,27 @@ class RuntimePanel extends StatelessWidget {
   }
 
   Widget _buildFileTile(BuildContext context, AppFileEntry file) {
+    final colors = context.phoneAgentColors;
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
         visualDensity: const VisualDensity(vertical: -1),
-        leading: const Icon(
+        leading: Icon(
           Icons.description_outlined,
-          color: Colors.blueGrey,
+          color: colors.textSecondary,
           size: 22,
         ),
         title: Text(
           file.path,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: colors.textPrimary,
+          ),
         ),
         subtitle: Text(
           '${_formatBytes(file.bytes)} · ${_formatModified(file.modifiedAt)}',
-          style: const TextStyle(fontSize: 12),
+          style: TextStyle(fontSize: 12, color: colors.textSecondary),
         ),
         onTap: () => onOpenFile(file),
       ),
@@ -221,24 +240,29 @@ class RuntimePanel extends StatelessWidget {
   }
 
   Widget _buildNoteTile(BuildContext context, AgentNote note) {
+    final colors = context.phoneAgentColors;
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
         visualDensity: const VisualDensity(vertical: -1),
-        leading: const Icon(
+        leading: Icon(
           Icons.sticky_note_2_outlined,
-          color: Colors.amber,
+          color: colors.primaryAction,
           size: 22,
         ),
         title: Text(
           note.title.isEmpty ? '未命名笔记' : note.title,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: colors.textPrimary,
+          ),
         ),
         subtitle: Text(
           note.content,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 12),
+          style: TextStyle(fontSize: 12, color: colors.textSecondary),
         ),
       ),
     );
@@ -301,14 +325,20 @@ class _RuntimeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.phoneAgentColors;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xFFE6ECE3),
-        borderRadius: BorderRadius.circular(6),
+        color: colors.cardSelectedBackground,
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        child: Text(label, style: Theme.of(context).textTheme.labelSmall),
+        child: Text(
+          label,
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(color: colors.statusText),
+        ),
       ),
     );
   }

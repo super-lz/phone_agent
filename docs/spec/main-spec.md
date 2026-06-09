@@ -74,6 +74,8 @@
 9. AI 生成 Web App 时，凡网页脚本需要调用手机能力，都必须在 manifest/metadata permissions 中声明精确 Capability，并通过 `window.PhoneAgent.callCapability(id, input)` 调用，不能假装直接访问手机原生能力。
 10. AI 生成 Web App 时默认按手机竖屏和触摸交互设计；页面必须适配常见手机宽度、安全区域和移动端性能，不应默认生成桌面优先、多列侧栏、依赖 hover 或密集小字号的布局。
 11. Web App 运行时应把页面运行过程中的 warning、error、未捕获异常和未处理 Promise 拒绝写入该 Web App 项目目录下的运行日志，供后续 AI 维护时读取并结合用户反馈修复。
+12. Web App Artifact 创建后必须支持同一项目的持续维护；用户反馈、修复或迭代已有 Web App 时，系统应更新原项目文件和原 Artifact 元数据，而不是默认复制一份新项目或创建新的预览卡片。
+13. Web App 项目必须具备轻量版本记录；每次项目更新都应记录版本号、变更摘要、变更文件、项目文件快照和更新时间，使用户与 Agent 可以查看历史并回滚到已有版本。
 
 ### Skill 与 MCP
 
@@ -160,7 +162,7 @@
 - 正式对话的最小 Agent Loop：模型流式输出、自动发起工具调用、Capability Runtime 执行工具、工具结果回传模型、模型继续回答。
 - Agent Loop 必须具备可调任务预算，并在日志中暴露当前工具调用消耗，方便定位过早停止或循环调用。
 - Agent Loop 必须携带同一会话的近期原文上下文，并在上下文过长时携带较早内容的压缩摘要。
-- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`file.search_app_files`、`file.apply_text_patch`、`project.create_web_app`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`document.extract`、`document.generate`、`document.apply_text_patch`、`spreadsheet.extract`、`spreadsheet.generate`、`presentation.extract`、`presentation.generate`、`pdf.extract`、`pdf.generate`、`device.info`、`time.get_current`、`battery.status`、`network.status`、`clipboard.read`、`clipboard.write`、`share.text`、`system.haptic_feedback`、`system.sound_alert`、`permission.open_settings`、`url.open_external`、`screen.keep_awake`、`screen.keep_awake_status`、`sensor.accelerometer.read`、`sensor.gyroscope.read`、`sensor.magnetometer.read`、`location.get_current`、`notification.schedule` 和 `calendar.event.create`。
+- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`file.search_app_files`、`file.apply_text_patch`、`project.create_web_app`、`project.update_web_app`、`project.version_history`、`project.revert_web_app`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`document.extract`、`document.generate`、`document.apply_text_patch`、`spreadsheet.extract`、`spreadsheet.generate`、`presentation.extract`、`presentation.generate`、`pdf.extract`、`pdf.generate`、`device.info`、`time.get_current`、`battery.status`、`network.status`、`clipboard.read`、`clipboard.write`、`share.text`、`system.haptic_feedback`、`system.sound_alert`、`permission.open_settings`、`url.open_external`、`screen.keep_awake`、`screen.keep_awake_status`、`sensor.accelerometer.read`、`sensor.gyroscope.read`、`sensor.magnetometer.read`、`location.get_current`、`notification.schedule` 和 `calendar.event.create`。
 - 当用户要求新建或切换工作区时，Agent 可以调用 `workspace.create` 或 `workspace.switch`；创建成功后当前 Workspace 必须切换到新工作区，切换目标不存在时必须返回结构化错误。
 - 当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，Agent 可以调用 `db.note.create` 或 `db.note.query` 读写当前 Workspace 的 Note。
 - `db.note.create` 写入的 Note 必须落到设备本地数据库，而不是只停留在当前进程内存。
@@ -271,6 +273,8 @@
 - Web App 生成结果默认符合手机竖屏可用性：触摸目标足够大，内容在窄屏不横向溢出，关键操作不依赖 hover、键盘快捷键或桌面窗口尺寸。
 - Web App 中的 HTML5 音视频、Web Audio、文件选择、摄像头、麦克风和定位请求在平台 WebView 支持时可按权限门运行；平台 WebView 本身不支持的浏览器 API 必须表现为明确不可用或页面侧可诊断失败，而不是伪造成功。
 - Web App 运行时产生的 warning、error 和未捕获异常能被记录到项目文件夹中的运行日志；用户回到会话反馈问题后，AI 能读取该日志辅助修复。
+- Web App 后续维护不会默认生成新项目；AI 能基于已有 Artifact、运行日志和项目文件更新原项目，并写入新的轻量版本记录。
+- 用户或 Agent 能查询 Web App 项目的版本历史，并能把项目文件回滚到已有版本；回滚同样更新原 Artifact 元数据，不创建新的预览卡片。
 - 两个 Web App 不能互相读取文件目录和数据库 namespace。
 - Skill 可从目录、zip 或 Git URL 安装、扫描、索引、触发。
 - 含 `scripts/` 的 Skill 不会绕过权限层执行。

@@ -78,6 +78,7 @@ void main() {
 
     expect(find.textContaining('已生成 Web App'), findsOneWidget);
     expect(find.textContaining('测试备忘录 Web App'), findsWidgets);
+    expect(find.textContaining('点击预览'), findsOneWidget);
   });
 
   testWidgets('chat web app card opens preview page', (tester) async {

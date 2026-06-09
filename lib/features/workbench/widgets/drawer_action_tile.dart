@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/phone_agent_colors.dart';
+
 class DrawerActionTile extends StatelessWidget {
   const DrawerActionTile({
     required this.icon,
@@ -16,18 +18,14 @@ class DrawerActionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = context.phoneAgentColors;
     return ListTile(
       visualDensity: const VisualDensity(vertical: -2),
-      leading: Icon(
-        icon,
-        color: color ?? theme.colorScheme.onSurface,
-        size: 22,
-      ),
+      leading: Icon(icon, color: color ?? colors.textSecondary, size: 22),
       title: Text(
         label,
         style: TextStyle(
-          color: color ?? theme.colorScheme.onSurface,
+          color: color ?? colors.textPrimary,
           fontSize: 14,
           fontWeight: FontWeight.w500,
         ),

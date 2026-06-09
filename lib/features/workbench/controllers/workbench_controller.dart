@@ -489,7 +489,7 @@ class WorkbenchController extends ChangeNotifier {
         unawaited(_workbenchStore.upsertMcpConnection(conn));
       }
     }
-    
+
     if (result.capabilityId == 'skill.install' && result.output['ok'] == true) {
       final skillData = result.output['skill'] as Map<String, Object?>;
       final skillId = skillData['id'] as String;
@@ -653,7 +653,10 @@ class WorkbenchController extends ChangeNotifier {
   Future<void> _initializeMcpConnections() async {
     for (final conn in _mcpConnections) {
       try {
-        await _agentLoop.capabilityRuntime.mcpManager.connect(conn.url, conn.transport);
+        await _agentLoop.capabilityRuntime.mcpManager.connect(
+          conn.url,
+          conn.transport,
+        );
       } catch (e) {
         AppLogger.warning('workbench.mcp.auto_connect_failed', {
           'url': conn.url,
@@ -912,10 +915,15 @@ class WorkbenchController extends ChangeNotifier {
       return null;
     }
     final extension = (block.data['extension'] as String? ?? '').toLowerCase();
-    
+
     // Support Office and PDF extraction
-    final isOfficeOrPdf = const {'pdf', 'docx', 'xlsx', 'pptx'}.contains(extension);
-    
+    final isOfficeOrPdf = const {
+      'pdf',
+      'docx',
+      'xlsx',
+      'pptx',
+    }.contains(extension);
+
     const textExtensions = {
       'txt',
       'md',
@@ -931,11 +939,11 @@ class WorkbenchController extends ChangeNotifier {
       'ts',
       'dart',
     };
-    
+
     if (!textExtensions.contains(extension) && !isOfficeOrPdf) {
       return null;
     }
-    
+
     try {
       final fileUri = Uri.parse(uri);
       if (!fileUri.isScheme('file')) {
@@ -1172,7 +1180,9 @@ class WorkbenchController extends ChangeNotifier {
   List<MessageBlock> _artifactBlocksFor(CapabilityExecutionResult result) {
     if (result.output['ok'] != true ||
         result.capabilityId != 'artifact.create' &&
-            result.capabilityId != 'project.create_web_app') {
+            result.capabilityId != 'project.create_web_app' &&
+            result.capabilityId != 'project.update_web_app' &&
+            result.capabilityId != 'project.revert_web_app') {
       return const [];
     }
     final artifactId = result.output['artifactId'];

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/phone_agent_colors.dart';
 import '../../../data/models/model_api_key_store.dart';
 import '../../../data/models/model_settings_store.dart';
 import '../../../data/permissions/app_permission_service.dart';
@@ -15,17 +16,19 @@ class MobileDrawerHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = context.phoneAgentColors;
     return SafeArea(
       bottom: false,
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 16, 16, 12),
+        decoration: BoxDecoration(color: colors.panelBackground),
         alignment: Alignment.centerLeft,
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: theme.colorScheme.primary,
+                color: colors.primaryAction,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Icon(Icons.bolt, color: Colors.white, size: 24),
@@ -34,6 +37,7 @@ class MobileDrawerHeader extends StatelessWidget {
             Text(
               'Phone Agent',
               style: theme.textTheme.titleLarge?.copyWith(
+                color: colors.textPrimary,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 0,
               ),

@@ -399,6 +399,7 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
           appBar: AppBar(
             title: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(_controller.currentWorkspace.name),
                 Text(

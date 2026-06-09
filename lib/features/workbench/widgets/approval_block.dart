@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/phone_agent_colors.dart';
+
 class ApprovalBlock extends StatelessWidget {
   const ApprovalBlock({
     required this.data,
@@ -16,32 +18,42 @@ class ApprovalBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = data['status'] as String? ?? 'pending';
     final pending = status == 'pending';
+    final colors = context.phoneAgentColors;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF8E1),
-        border: Border.all(color: const Color(0xFFE6C76B)),
-        borderRadius: BorderRadius.circular(8),
+        color: colors.warningBackground,
+        border: Border.all(color: colors.border),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.verified_user_outlined, size: 18),
+              Icon(
+                Icons.verified_user_outlined,
+                size: 18,
+                color: colors.primaryAction,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   '需要确认 · ${data['capabilityId']}',
-                  style: Theme.of(context).textTheme.titleSmall,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(color: colors.textPrimary),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          Text(data['detail'] as String? ?? '该能力需要用户确认后才能执行。'),
+          Text(
+            data['detail'] as String? ?? '该能力需要用户确认后才能执行。',
+            style: TextStyle(color: colors.textSecondary),
+          ),
           const SizedBox(height: 8),
           SelectableText(
             data['input']?.toString() ?? '{}',

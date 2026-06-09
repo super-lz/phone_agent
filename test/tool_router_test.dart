@@ -97,6 +97,41 @@ void main() {
       expect(payload['recent_context'], contains('天气信息'));
     },
   );
+
+  test('web app maintenance exposes log and project file tools', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': ['artifact_query'],
+        'required_tool_names': <String>[],
+        'uses_context': true,
+        'reason': 'model only selected artifact lookup',
+      }),
+    );
+
+    final route = await router.route(
+      prompt: '刚才那个预览页面打开是空白的，帮我修一下',
+      context: 'assistant: 已创建 Web App Artifact，入口文件在 memo-app/index.html。',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(
+      route.selectedToolNames,
+      containsAll([
+        'artifact_query',
+        'artifact_inspect_logs',
+        'file_search_app_files',
+        'file_read_app_file',
+        'project_update_web_app',
+        'project_version_history',
+        'project_revert_web_app',
+      ]),
+    );
+    expect(route.requiredToolNames, isEmpty);
+    expect(route.index, contains('project_update_web_app'));
+  });
 }
 
 class _RoutingChatClient extends OpenAiCompatibleChatClient {

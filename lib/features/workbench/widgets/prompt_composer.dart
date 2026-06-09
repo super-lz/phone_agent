@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/phone_agent_colors.dart';
 import '../../../application/agent/agent_run_state.dart';
 import '../../../domain/conversation/message_block.dart';
 
@@ -32,23 +33,17 @@ class PromptComposer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final keyboardBottom = MediaQuery.viewInsetsOf(context).bottom;
-    final colorScheme = Theme.of(context).colorScheme;
+    final colors = context.phoneAgentColors;
 
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.only(bottom: keyboardBottom),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
         decoration: BoxDecoration(
-          color: colorScheme.surface,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
-            ),
-          ],
+          color: colors.composerSurface,
+          border: Border(top: BorderSide(color: colors.border)),
         ),
         child: SafeArea(
           top: false,
@@ -67,29 +62,34 @@ class PromptComposer extends StatelessWidget {
                 const SizedBox(height: 10),
               ],
               Container(
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                padding: const EdgeInsets.fromLTRB(0, 2, 0, 2),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     IconButton(
                       visualDensity: VisualDensity.compact,
                       tooltip: '添加附件',
                       icon: Icon(
                         Icons.add_rounded,
-                        color: colorScheme.primary,
-                        size: 26,
+                        color: colors.primaryAction,
+                        size: 24,
+                      ),
+                      style: IconButton.styleFrom(
+                        fixedSize: const Size(40, 40),
+                        minimumSize: const Size(40, 40),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                       onPressed: isSending
                           ? null
                           : () => _showAttachmentMenu(context),
                     ),
                     Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: colors.inputBackground,
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(color: colors.border),
+                        ),
                         child: TextField(
                           controller: controller,
                           minLines: 1,
@@ -100,12 +100,13 @@ class PromptComposer extends StatelessWidget {
                             height: 1.4,
                             letterSpacing: 0,
                           ),
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             hintText: '问我任何问题...',
+                            hintStyle: TextStyle(color: colors.inputHint),
                             isDense: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 10,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
                             ),
                             border: InputBorder.none,
                             enabledBorder: InputBorder.none,
@@ -132,22 +133,24 @@ class PromptComposer extends StatelessWidget {
 
                         if (isSending) {
                           return Padding(
-                            padding: const EdgeInsets.only(bottom: 2, right: 4),
+                            padding: const EdgeInsets.only(left: 8),
                             child: IconButton.filled(
                               onPressed: onCancelRun,
                               tooltip: '停止',
                               icon: const Icon(Icons.stop_rounded, size: 20),
                               style: IconButton.styleFrom(
-                                backgroundColor: colorScheme.primary,
-                                foregroundColor: colorScheme.onPrimary,
-                                minimumSize: const Size(40, 40),
+                                backgroundColor: colors.primaryAction,
+                                foregroundColor: Colors.white,
+                                fixedSize: const Size(48, 48),
+                                minimumSize: const Size(48, 48),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               ),
                             ),
                           );
                         }
 
                         return Padding(
-                          padding: const EdgeInsets.only(bottom: 2, right: 4),
+                          padding: const EdgeInsets.only(left: 8),
                           child: IconButton.filled(
                             onPressed: canSend ? onSendPrompt : null,
                             tooltip: '发送',
@@ -156,13 +159,16 @@ class PromptComposer extends StatelessWidget {
                               size: 20,
                             ),
                             style: IconButton.styleFrom(
-                              backgroundColor: colorScheme.primary,
-                              foregroundColor: colorScheme.onPrimary,
-                              disabledBackgroundColor: colorScheme.onSurface
-                                  .withValues(alpha: 0.12),
-                              disabledForegroundColor: colorScheme.onSurface
-                                  .withValues(alpha: 0.38),
-                              minimumSize: const Size(40, 40),
+                              backgroundColor: colors.primaryAction,
+                              foregroundColor: Colors.white,
+                              disabledBackgroundColor:
+                                  colors.primaryActionDisabled,
+                              disabledForegroundColor: Colors.white.withValues(
+                                alpha: 0.72,
+                              ),
+                              fixedSize: const Size(48, 48),
+                              minimumSize: const Size(48, 48),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
                           ),
                         );
@@ -179,9 +185,10 @@ class PromptComposer extends StatelessWidget {
   }
 
   void _showAttachmentMenu(BuildContext context) {
+    final colors = context.phoneAgentColors;
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: colors.cardBackground,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -230,12 +237,12 @@ class _AgentRunStatusBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final colors = context.phoneAgentColors;
     final phase = run?.phaseLabel ?? '启动中';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: colorScheme.primaryContainer.withValues(alpha: 0.3),
+        color: colors.cardSelectedBackground,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -246,7 +253,7 @@ class _AgentRunStatusBar extends StatelessWidget {
             height: 12,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation(colorScheme.primary),
+              valueColor: AlwaysStoppedAnimation(colors.primaryAction),
             ),
           ),
           const SizedBox(width: 8),
@@ -254,7 +261,7 @@ class _AgentRunStatusBar extends StatelessWidget {
             phase,
             style: TextStyle(
               fontSize: 12,
-              color: colorScheme.primary,
+              color: colors.primaryAction,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -275,6 +282,7 @@ class _PendingAttachmentStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.phoneAgentColors;
     return Align(
       alignment: Alignment.centerLeft,
       child: Wrap(
@@ -283,6 +291,9 @@ class _PendingAttachmentStrip extends StatelessWidget {
         children: [
           for (var index = 0; index < attachments.length; index += 1)
             InputChip(
+              backgroundColor: colors.cardBackground,
+              side: BorderSide(color: colors.border),
+              deleteIconColor: colors.textSecondary,
               avatar: Icon(_iconFor(attachments[index]), size: 18),
               label: Text(_labelFor(attachments[index])),
               tooltip: _tooltipFor(attachments[index]),

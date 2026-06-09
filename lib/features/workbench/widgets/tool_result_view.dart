@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
+import '../../../app/phone_agent_colors.dart';
 import '../../../application/capabilities/capability_result_presentation.dart';
 import '../../maps/amap_location_page.dart';
 
@@ -52,23 +53,20 @@ class _GenericToolResultCardState extends State<_GenericToolResultCard> {
   @override
   Widget build(BuildContext context) {
     final presentation = widget.presentation;
+    final colors = context.phoneAgentColors;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: presentation.ok
-            ? const Color(0xFFF1F6F2)
-            : const Color(0xFFFFF4F2),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: presentation.ok
-              ? const Color(0xFFD2E2D7)
-              : const Color(0xFFF0C8C0),
-        ),
+            ? colors.cardSelectedBackground
+            : colors.warningBackground,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.border),
       ),
       child: InkWell(
         onTap: () => setState(() => _expanded = !_expanded),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.all(10),
           child: Column(
@@ -81,23 +79,33 @@ class _GenericToolResultCardState extends State<_GenericToolResultCard> {
                         ? Icons.check_circle_outline
                         : Icons.error_outline,
                     size: 18,
+                    color: presentation.ok
+                        ? colors.primaryAction
+                        : const Color(0xFFE0523D),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       presentation.title,
-                      style: Theme.of(context).textTheme.labelLarge,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: colors.textPrimary,
+                      ),
                     ),
                   ),
                   _StatusPill(ok: presentation.ok),
                   const SizedBox(width: 4),
-                  Icon(_expanded ? Icons.expand_less : Icons.expand_more),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    color: colors.textTertiary,
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
               Text(
                 presentation.summary,
-                style: Theme.of(context).textTheme.bodyMedium,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: colors.textSecondary),
               ),
               if (widget.capabilityId == 'location.get_current' &&
                   presentation.ok)
@@ -198,6 +206,7 @@ class _WebToolResultCardState extends State<_WebToolResultCard> {
   @override
   Widget build(BuildContext context) {
     final ok = widget.output['ok'] == true;
+    final colors = context.phoneAgentColors;
     final content = widget.output['content'];
     final error = widget.output['error'];
     final provider = widget.output['provider'];
@@ -209,15 +218,13 @@ class _WebToolResultCardState extends State<_WebToolResultCard> {
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: ok ? const Color(0xFFF1F6F2) : const Color(0xFFFFF4F2),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: ok ? const Color(0xFFD2E2D7) : const Color(0xFFF0C8C0),
-        ),
+        color: ok ? colors.cardSelectedBackground : colors.warningBackground,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.border),
       ),
       child: InkWell(
         onTap: () => setState(() => _expanded = !_expanded),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.all(10),
           child: Column(
@@ -225,17 +232,26 @@ class _WebToolResultCardState extends State<_WebToolResultCard> {
             children: [
               Row(
                 children: [
-                  Icon(ok ? Icons.public : Icons.error_outline, size: 18),
+                  Icon(
+                    ok ? Icons.public : Icons.error_outline,
+                    size: 18,
+                    color: ok ? colors.primaryAction : const Color(0xFFE0523D),
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       title,
-                      style: Theme.of(context).textTheme.labelLarge,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: colors.textPrimary,
+                      ),
                     ),
                   ),
                   _StatusPill(ok: ok),
                   const SizedBox(width: 4),
-                  Icon(_expanded ? Icons.expand_less : Icons.expand_more),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    color: colors.textTertiary,
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -284,6 +300,7 @@ class _SearchContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.phoneAgentColors;
     final links = _extractLinks(content);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -298,7 +315,7 @@ class _SearchContent extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 4),
               child: SelectableText(
                 link,
-                style: TextStyle(color: Theme.of(context).colorScheme.primary),
+                style: TextStyle(color: colors.primaryAction),
               ),
             ),
         ],
@@ -324,11 +341,14 @@ class _MetaLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.phoneAgentColors;
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Text(
         '$label: $value',
-        style: Theme.of(context).textTheme.bodySmall,
+        style: Theme.of(
+          context,
+        ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
       ),
     );
   }
@@ -341,7 +361,7 @@ class _ErrorText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(error, style: const TextStyle(color: Color(0xFF9A3412)));
+    return Text(error, style: const TextStyle(color: Color(0xFFE0523D)));
   }
 }
 
@@ -352,16 +372,20 @@ class _StatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.phoneAgentColors;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: ok ? const Color(0xFFDFF3E6) : const Color(0xFFFFDED8),
+        color: ok ? colors.cardBackground : colors.warningBackground,
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: colors.border),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         child: Text(
           ok ? 'OK' : 'ERR',
-          style: Theme.of(context).textTheme.labelSmall,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: ok ? colors.statusText : const Color(0xFFE0523D),
+          ),
         ),
       ),
     );

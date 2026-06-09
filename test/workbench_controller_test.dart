@@ -736,6 +736,7 @@ void main() {
 
     expect(controller.workspaceFiles.map((file) => file.path), [
       'games/gold-miner/.phone-agent/manifest.json',
+      'games/gold-miner/.phone-agent/versions/v0001.json',
       'games/gold-miner/index.html',
     ]);
     expect(controller.workspaceArtifacts.last.title, '黄金矿工小游戏');
@@ -744,6 +745,42 @@ void main() {
         .where((block) => block.type == MessageBlockType.webAppCard);
     expect(webAppCards, isNotEmpty);
   });
+
+  test(
+    'web app update adds a chat preview card for the same artifact',
+    () async {
+      final chatClient = _CreateThenUpdateWebAppChatClient();
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+      );
+
+      await controller.sendPrompt('创建一个本地 Web App');
+      final artifactId = controller.workspaceArtifacts.last.id;
+      final artifactCountAfterCreate = controller.workspaceArtifacts.length;
+
+      await controller.sendPrompt('修复应用按钮文案');
+
+      expect(
+        controller.workspaceArtifacts,
+        hasLength(artifactCountAfterCreate),
+      );
+      final updatedArtifact = controller.workspaceArtifacts.singleWhere(
+        (artifact) => artifact.id == artifactId,
+      );
+      expect(updatedArtifact.metadata['currentVersion'], 2);
+      final matchingCards = controller.messages
+          .expand((message) => message.blocks)
+          .where(
+            (block) =>
+                block.type == MessageBlockType.webAppCard &&
+                block.data['artifactId'] == artifactId,
+          )
+          .toList(growable: false);
+      expect(matchingCards, hasLength(2));
+      expect(matchingCards.last.data['title'], '联动测试 Web App');
+    },
+  );
 
   test(
     'web page request cannot be completed without real project tool',
@@ -785,6 +822,7 @@ void main() {
       expect(chatClient.callCount, 3);
       expect(controller.workspaceFiles.map((file) => file.path), [
         'personal-site/.phone-agent/manifest.json',
+        'personal-site/.phone-agent/versions/v0001.json',
         'personal-site/index.html',
       ]);
       expect(controller.workspaceArtifacts.last.title, '个人网页');
@@ -1514,6 +1552,120 @@ class _FakeWebAdapter extends WebCapabilityAdapter {
     String? apiKey,
   }) async {
     return fetchOutput;
+  }
+}
+
+class _CreateThenUpdateWebAppChatClient extends OpenAiCompatibleChatClient {
+  int callCount = 0;
+
+  @override
+  Future<ChatCompletionResult> completeText({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    final content = messages.last['content'];
+    final payload = content is String
+        ? jsonDecode(content) as Map<String, Object?>
+        : <String, Object?>{};
+    final latest = payload['latest_user_message'] as String? ?? '';
+    final isUpdate = latest.contains('修复');
+    return ChatCompletionResult(
+      ok: true,
+      content: jsonEncode({
+        'selected_tool_names': isUpdate
+            ? [
+                'artifact_query',
+                'file_read_app_file',
+                'file_search_app_files',
+                'project_update_web_app',
+              ]
+            : [
+                'artifact_query',
+                'file_write_app_file',
+                'project_create_web_app',
+              ],
+        'required_tool_names': isUpdate
+            ? const <String>[]
+            : ['project_create_web_app'],
+        'uses_context': isUpdate,
+        'reason': isUpdate
+            ? 'test update existing web app route'
+            : 'test create web app route',
+      }),
+    );
+  }
+
+  @override
+  Stream<ChatStreamEvent> streamChat({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+    List<Map<String, Object?>> tools = const [],
+  }) async* {
+    final index = callCount;
+    callCount += 1;
+    if (index == 0) {
+      yield ChatStreamEvent(
+        toolCallDeltas: [
+          ToolCallDelta(
+            index: 0,
+            id: 'call-create-linked-webapp',
+            name: 'project_create_web_app',
+            argumentsDelta: jsonEncode({
+              'title': '联动测试 Web App',
+              'summary': '用于验证创建和更新后都能在对话中打开。',
+              'entry_path': 'apps/linked/index.html',
+              'files': [
+                {
+                  'path': 'apps/linked/index.html',
+                  'content':
+                      '<!doctype html><html><body><button>旧按钮</button></body></html>',
+                },
+              ],
+            }),
+          ),
+        ],
+      );
+      return;
+    }
+    if (index == 1) {
+      yield const ChatStreamEvent(contentDelta: '已创建。');
+      return;
+    }
+    if (index == 2) {
+      final artifactId = _artifactIdFromModelMessages(messages);
+      yield ChatStreamEvent(
+        toolCallDeltas: [
+          ToolCallDelta(
+            index: 0,
+            id: 'call-update-linked-webapp',
+            name: 'project_update_web_app',
+            argumentsDelta: jsonEncode({
+              'artifact_id': artifactId,
+              'summary': '修复按钮文案',
+              'patches': [
+                {
+                  'path': 'apps/linked/index.html',
+                  'old_text': '旧按钮',
+                  'new_text': '新按钮',
+                },
+              ],
+            }),
+          ),
+        ],
+      );
+      return;
+    }
+    yield const ChatStreamEvent(contentDelta: '已更新。');
+  }
+
+  String _artifactIdFromModelMessages(List<Map<String, Object?>> messages) {
+    final joined = messages.map((message) => message['content']).join('\n');
+    final match = RegExp(
+      r'Artifact [^:\n]+: (artifact-[^\s\n]+)',
+    ).firstMatch(joined);
+    return match?.group(1) ?? '';
   }
 }
 

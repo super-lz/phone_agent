@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import '../../../app/phone_agent_colors.dart';
 import '../../../application/agent/agent_run_state.dart';
 import '../../../domain/conversation/message_block.dart';
 import '../../../domain/workspace/workspace.dart';
@@ -321,74 +322,77 @@ class _ChatPanelState extends State<ChatPanel> {
     final displayMessages = hasOlderMessages
         ? allDisplayMessages.sublist(hiddenMessageCount)
         : allDisplayMessages;
-    final theme = Theme.of(context);
-    
-    return Column(
-      children: [
-        Expanded(
-          child: Stack(
-            children: [
-              NotificationListener<ScrollNotification>(
-                onNotification: _handleScrollNotification,
-                child: ListView.builder(
-                  controller: _scrollController,
-                  reverse: true,
-                  padding: EdgeInsets.fromLTRB(
-                    16,
-                    16,
-                    16,
-                    MediaQuery.of(context).padding.bottom + 16,
-                  ),
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  itemCount:
-                      displayMessages.length + (hasOlderMessages ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (hasOlderMessages && index == displayMessages.length) {
-                      return LoadEarlierMessagesButton(
-                        hiddenCount: hiddenMessageCount,
-                        onPressed: _loadOlderMessages,
+    final colors = context.phoneAgentColors;
+
+    return ColoredBox(
+      color: colors.pageBackground,
+      child: Column(
+        children: [
+          Expanded(
+            child: Stack(
+              children: [
+                NotificationListener<ScrollNotification>(
+                  onNotification: _handleScrollNotification,
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    reverse: true,
+                    padding: EdgeInsets.fromLTRB(
+                      14,
+                      20,
+                      14,
+                      MediaQuery.of(context).padding.bottom + 18,
+                    ),
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    itemCount:
+                        displayMessages.length + (hasOlderMessages ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (hasOlderMessages && index == displayMessages.length) {
+                        return LoadEarlierMessagesButton(
+                          hiddenCount: hiddenMessageCount,
+                          onPressed: _loadOlderMessages,
+                        );
+                      }
+                      final messageIndex = displayMessages.length - index - 1;
+                      return MessageView(
+                        message: displayMessages[messageIndex],
+                        onOpenWebAppArtifact: widget.onOpenWebAppArtifact,
+                        onApproveCapability: widget.onApproveCapability,
+                        onDenyCapability: widget.onDenyCapability,
                       );
-                    }
-                    final messageIndex = displayMessages.length - index - 1;
-                    return MessageView(
-                      message: displayMessages[messageIndex],
-                      onOpenWebAppArtifact: widget.onOpenWebAppArtifact,
-                      onApproveCapability: widget.onApproveCapability,
-                      onDenyCapability: widget.onDenyCapability,
-                    );
-                  },
-                ),
-              ),
-              if (_showScrollToBottom)
-                Positioned(
-                  right: 16,
-                  bottom: 16,
-                  child: FloatingActionButton.small(
-                    elevation: 2,
-                    backgroundColor: theme.colorScheme.surface,
-                    foregroundColor: theme.colorScheme.primary,
-                    tooltip: '滚动到底部',
-                    onPressed: _jumpToBottom,
-                    child: const Icon(Icons.keyboard_arrow_down),
+                    },
                   ),
                 ),
-            ],
+                if (_showScrollToBottom)
+                  Positioned(
+                    right: 18,
+                    bottom: 18,
+                    child: FloatingActionButton.small(
+                      elevation: 0,
+                      backgroundColor: colors.iconButtonBackground,
+                      foregroundColor: colors.primaryAction,
+                      tooltip: '滚动到底部',
+                      onPressed: _jumpToBottom,
+                      child: const Icon(Icons.keyboard_arrow_down),
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
-        PromptComposer(
-          controller: widget.composerController,
-          isSending: widget.isSending,
-          currentRun: widget.currentRun,
-          onSendPrompt: widget.onSendPrompt,
-          onCancelRun: widget.onCancelRun,
-          pendingAttachments: widget.pendingAttachments,
-          onAddFile: widget.onAddFile,
-          onAddImage: widget.onAddImage,
-          onTakePhoto: widget.onTakePhoto,
-          onRemovePendingAttachment: widget.onRemovePendingAttachment,
-        ),
-      ],
+          PromptComposer(
+            controller: widget.composerController,
+            isSending: widget.isSending,
+            currentRun: widget.currentRun,
+            onSendPrompt: widget.onSendPrompt,
+            onCancelRun: widget.onCancelRun,
+            pendingAttachments: widget.pendingAttachments,
+            onAddFile: widget.onAddFile,
+            onAddImage: widget.onAddImage,
+            onTakePhoto: widget.onTakePhoto,
+            onRemovePendingAttachment: widget.onRemovePendingAttachment,
+          ),
+        ],
+      ),
     );
   }
 }

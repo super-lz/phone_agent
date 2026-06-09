@@ -233,6 +233,95 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'project_update_web_app',
+          'description':
+              '维护已有本地 Web App 项目，只更新原项目文件和原 Artifact，不创建新项目或新卡片。用于用户反馈已有网页、小游戏、Web App 的 bug、样式或功能迭代；调用前应先 artifact_query 定位，再读运行日志和项目文件。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'artifact_id': {
+                'type': 'string',
+                'description': '要更新的 Web App Artifact ID。',
+              },
+              'summary': {'type': 'string', 'description': '本次更新摘要。'},
+              'patches': {
+                'type': 'array',
+                'description': '对已有项目文件做精确文本替换。',
+                'items': {
+                  'type': 'object',
+                  'properties': {
+                    'path': {'type': 'string', 'description': '项目内文件路径。'},
+                    'old_text': {'type': 'string', 'description': '要替换的原文。'},
+                    'new_text': {'type': 'string', 'description': '替换后的文本。'},
+                    'replace_all': {
+                      'type': 'boolean',
+                      'description': '是否替换全部匹配，默认 false。',
+                    },
+                  },
+                  'required': ['path', 'old_text', 'new_text'],
+                },
+              },
+              'files': {
+                'type': 'array',
+                'description': '完整写入或新增的项目文件。',
+                'items': {
+                  'type': 'object',
+                  'properties': {
+                    'path': {'type': 'string', 'description': '项目内文件路径。'},
+                    'content': {'type': 'string', 'description': '完整文件内容。'},
+                  },
+                  'required': ['path', 'content'],
+                },
+              },
+              'permissions': {
+                'type': 'array',
+                'description': '可选，更新 Web App manifest 中声明的 capability 权限。',
+                'items': {'type': 'string'},
+              },
+            },
+            'required': ['artifact_id'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'project_version_history',
+          'description': '查询已有 Web App 项目的轻量版本历史。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'artifact_id': {
+                'type': 'string',
+                'description': 'Web App Artifact ID。',
+              },
+            },
+            'required': ['artifact_id'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'project_revert_web_app',
+          'description': '把已有 Web App 项目回滚到某个历史版本；回滚后仍更新原 Artifact，不创建新项目或新卡片。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'artifact_id': {
+                'type': 'string',
+                'description': 'Web App Artifact ID。',
+              },
+              'version': {'type': 'integer', 'description': '要回滚到的历史版本号。'},
+              'summary': {'type': 'string', 'description': '本次回滚摘要。'},
+            },
+            'required': ['artifact_id', 'version'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'artifact_create',
           'description':
               '当产出需要后续复用、作为卡片展示或创建本地 Web App 时，把结果保存为当前 Workspace 的 Artifact。只要用户要求卡片、预览入口、打开体验或本地 Web App，就必须调用本工具，不能只在 Markdown 中输出假链接。创建 web_app 时必须同时提供 content_html，且应包含完整 HTML、内联 CSS 和内联 JS；Web App 默认按手机竖屏设计。如果网页脚本调用 window.PhoneAgent.callCapability 或 JSBridge helper，metadata.permissions 必须声明每个精确 capability id。',
@@ -279,11 +368,15 @@ class CapabilityToolDefinitions {
         'type': 'function',
         'function': {
           'name': 'artifact_inspect_logs',
-          'description': '读取 Web App Artifact 的运行时日志。当 Web App 运行出错、JSBridge 调用失败或用户反馈应用行为异常时，用于查看 console.log 和 window.error 输出。',
+          'description':
+              '读取 Web App Artifact 的运行时日志。当 Web App 运行出错、JSBridge 调用失败或用户反馈应用行为异常时，用于查看 console.log 和 window.error 输出。',
           'parameters': {
             'type': 'object',
             'properties': {
-              'artifactId': {'type': 'string', 'description': '目标 Artifact ID。'},
+              'artifactId': {
+                'type': 'string',
+                'description': '目标 Artifact ID。',
+              },
               'max_lines': {
                 'type': 'integer',
                 'description': '最多返回多少行日志，默认 50。',

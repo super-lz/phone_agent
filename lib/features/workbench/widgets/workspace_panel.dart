@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/phone_agent_colors.dart';
 import '../../../domain/memory/memory.dart';
 import '../../../domain/workspace/workspace.dart';
 import 'workbench_panel.dart';
@@ -29,6 +30,7 @@ class WorkspacePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = context.phoneAgentColors;
     return WorkbenchPanel(
       title: '工作区与上下文',
       trailing: IconButton(
@@ -37,7 +39,7 @@ class WorkspacePanel extends StatelessWidget {
         onPressed: onCreateWorkspace,
       ),
       child: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
         children: [
           for (final workspace in workspaces)
             _WorkspaceTile(
@@ -54,8 +56,8 @@ class WorkspacePanel extends StatelessWidget {
                   child: Text(
                     '长期记忆',
                     style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700,
+                      color: colors.textPrimary,
                     ),
                   ),
                 ),
@@ -105,15 +107,16 @@ class _MemoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = context.phoneAgentColors;
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      color: theme.colorScheme.surface,
+      color: colors.cardBackground,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.5)),
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: colors.border),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+        padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -122,7 +125,7 @@ class _MemoryTile extends StatelessWidget {
               child: Icon(
                 Icons.auto_awesome,
                 size: 16,
-                color: theme.colorScheme.primary,
+                color: colors.primaryAction,
               ),
             ),
             const SizedBox(width: 10),
@@ -135,6 +138,7 @@ class _MemoryTile extends StatelessWidget {
                     style: theme.textTheme.bodyMedium?.copyWith(
                       fontSize: 14,
                       height: 1.4,
+                      color: colors.textPrimary,
                     ),
                   ),
                 ],
@@ -176,28 +180,25 @@ class _WorkspaceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final colors = context.phoneAgentColors;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 4),
+      margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
-        color: selected
-            ? colorScheme.primary.withValues(alpha: 0.08)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
+        color: selected ? colors.cardSelectedBackground : Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
       ),
       child: ListTile(
         selected: selected,
         leading: Icon(
           selected ? Icons.folder_rounded : Icons.folder_outlined,
-          color: selected ? colorScheme.primary : colorScheme.onSurfaceVariant,
+          color: selected ? colors.primaryAction : colors.textSecondary,
         ),
         title: Text(
           workspace.name,
           style: TextStyle(
-            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-            color: selected ? colorScheme.primary : colorScheme.onSurface,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: selected ? colors.primaryAction : colors.textPrimary,
           ),
         ),
         subtitle: Text(
@@ -207,11 +208,11 @@ class _WorkspaceTile extends StatelessWidget {
           style: TextStyle(
             fontSize: 12,
             color: selected
-                ? colorScheme.primary.withValues(alpha: 0.7)
-                : colorScheme.onSurfaceVariant,
+                ? colors.primaryAction.withValues(alpha: 0.74)
+                : colors.textSecondary,
           ),
         ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         onTap: onTap,
         visualDensity: const VisualDensity(vertical: -1),
       ),

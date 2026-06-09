@@ -399,7 +399,7 @@ class AgentLoop {
         });
       }
 
-      final processMessageId = 'msg-process-$round';
+      final processMessageId = '$assistantMessageId-process';
       replaceMessage(
         processMessageId,
         AgentMessage(
@@ -558,7 +558,8 @@ class AgentLoop {
       '- notes: db_note_create / db_note_query。记录备忘、保存信息、整理事项或查询已保存笔记时使用。',
       '- workspace: workspace_create / workspace_switch。创建或切换工作区时使用；创建成功后当前 Workspace 必须切换到新工作区。',
       '- files: file_write_app_file / file_read_app_file / file_search_app_files / file_apply_text_patch。只访问当前工作区沙箱内的相对路径。',
-      '- artifacts: artifact_create / artifact_query。报告、文档、任务清单、文件摘要、Web App 卡片或其它可复用产物必须保存为 Artifact。',
+      '- artifacts: artifact_create / artifact_query / artifact_inspect_logs。报告、文档、任务清单、文件摘要、Web App 卡片或其它可复用产物必须保存为 Artifact。',
+      '- projects: project_create_web_app / project_update_web_app / project_version_history / project_revert_web_app。创建 Web App 用 create；反馈、修复或迭代已有 Web App 时更新原项目，不创建新卡片。',
       '- office: document_* / spreadsheet_* / presentation_* / pdf_*。用于 Office/PDF 的提取、生成和受控局部文本替换。',
       '- native: device_info / time_get_current / battery_status / network_status / clipboard_* / share_text / system_* / permission_open_settings / url_open_external / screen_* / sensor_* / location_get_current / notification_schedule / calendar_event_create。',
       '- web: web_search / web_fetch。需要最新信息、网页资料、来源引用或读取具体网页正文时使用。',
@@ -569,9 +570,10 @@ class AgentLoop {
       '1. 普通对话：没有暴露工具时直接回答；不要为了使用已注入记忆而调用 memory_query。',
       '2. 相对时间：处理今天、明天、今晚、几分钟后等表达时，以 <current_context> 的本地时间为准；需要校准时调用 time_get_current。',
       '3. 文件维护：先 file_search_app_files 定位，再 file_read_app_file 读局部内容，最后 file_apply_text_patch 精确修改；补丁不唯一或目标不存在时返回错误。',
-      '4. 可复用产物：生成报告、文档、任务清单、文件摘要或 Web App 时，必须调用 artifact_create 或更专用的创建工具。',
-      '5. Office/PDF：上传或处理 Word、Excel、PPT、PDF 时先提取；生成新文件时写入当前 Workspace 文件区；局部替换不承诺保留复杂原格式。',
-      '6. 本地能力：手机设备、位置、电量、网络、权限等能力执行后，最终回答优先展示可读摘要，不展示底层结构化元数据。',
+      '4. Web App 维护：用户反馈已有 Web App/网页/小游戏问题时，先 artifact_query 定位原 Artifact，必要时 artifact_inspect_logs 读运行日志，再读取相关项目文件，最后用 project_update_web_app 更新原项目；不要调用 project_create_web_app 复制新项目。',
+      '5. 可复用产物：生成报告、文档、任务清单、文件摘要或 Web App 时，必须调用 artifact_create 或更专用的创建工具。',
+      '6. Office/PDF：上传或处理 Word、Excel、PPT、PDF 时先提取；生成新文件时写入当前 Workspace 文件区；局部替换不承诺保留复杂原格式。',
+      '7. 本地能力：手机设备、位置、电量、网络、权限等能力执行后，最终回答优先展示可读摘要，不展示底层结构化元数据。',
       '</workflow_contracts>',
       '',
       '<web_app_contract>',
@@ -677,7 +679,9 @@ class AgentLoop {
   List<MessageBlock> _artifactBlocksFor(CapabilityExecutionResult result) {
     if (result.output['ok'] != true ||
         result.capabilityId != 'artifact.create' &&
-            result.capabilityId != 'project.create_web_app') {
+            result.capabilityId != 'project.create_web_app' &&
+            result.capabilityId != 'project.update_web_app' &&
+            result.capabilityId != 'project.revert_web_app') {
       return const [];
     }
     final artifactId = result.output['artifactId'];

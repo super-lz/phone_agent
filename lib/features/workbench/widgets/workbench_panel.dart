@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/phone_agent_colors.dart';
+
 class WorkbenchPanel extends StatelessWidget {
   const WorkbenchPanel({
     required this.title,
@@ -14,27 +16,34 @@ class WorkbenchPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.phoneAgentColors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ColoredBox(
+          color: colors.panelBackground,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: colors.textPrimary,
+                    ),
                   ),
                 ),
-              ),
-              ?trailing,
-            ],
+                ?trailing,
+              ],
+            ),
           ),
         ),
-        const Divider(height: 1),
+        Padding(
+          padding: EdgeInsets.zero,
+          child: Divider(height: 1, color: colors.border),
+        ),
         Expanded(child: child),
       ],
     );
@@ -57,17 +66,29 @@ class InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.phoneAgentColors;
     final row = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 18),
+        Icon(icon, size: 18, color: colors.primaryAction),
         const SizedBox(width: 8),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: Theme.of(context).textTheme.labelLarge),
-              Text(body, style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                body,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
+              ),
             ],
           ),
         ),

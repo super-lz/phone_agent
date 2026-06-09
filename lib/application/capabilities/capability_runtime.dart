@@ -207,6 +207,27 @@ class CapabilityRuntime {
           fileStore: fileStore,
           artifacts: artifacts,
         );
+      case 'project_update_web_app':
+        return await _projectHandler.updateWebApp(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+          artifacts: artifacts,
+        );
+      case 'project_version_history':
+        return await _projectHandler.versionHistory(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+          artifacts: artifacts,
+        );
+      case 'project_revert_web_app':
+        return await _projectHandler.revertWebApp(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+          artifacts: artifacts,
+        );
       case 'artifact_query':
         return _artifactHandler.query(
           workspaceId: workspaceId,
@@ -371,8 +392,10 @@ class CapabilityRuntime {
         return await _connectMcp(toolCall.arguments);
       default:
         // Try MCP tools
-        final mcpResult =
-            await _mcpManager.callTool(toolCall.name, toolCall.arguments);
+        final mcpResult = await _mcpManager.callTool(
+          toolCall.name,
+          toolCall.arguments,
+        );
         if (mcpResult['ok'] == true) {
           return CapabilityExecutionResult(
             capabilityId: toolCall.name,
@@ -439,7 +462,7 @@ class CapabilityRuntime {
     final name = directory.uri.pathSegments
         .where((segment) => segment.isNotEmpty)
         .last;
-        
+
     String script = '';
     final scriptFile = File('${directory.path}/index.js');
     if (scriptFile.existsSync()) {
@@ -525,13 +548,17 @@ class CapabilityRuntime {
         workbenchStore: workbenchStore,
         apiKey: apiKey,
         permissionMode: permissionMode,
-        skipPermissionCheck: true, // Callback is pre-approved by the skill execution
+        skipPermissionCheck:
+            true, // Callback is pre-approved by the skill execution
       );
       return res.output;
     };
 
     try {
-      final result = await SkillSandbox.instance.execute(script, context: input);
+      final result = await SkillSandbox.instance.execute(
+        script,
+        context: input,
+      );
 
       return CapabilityExecutionResult(
         capabilityId: 'skill.invoke',
@@ -554,10 +581,9 @@ class CapabilityRuntime {
   ) async {
     final rawUrl = arguments['url'];
     final rawTransport = arguments['transport'];
-    final transport =
-        rawTransport is String && rawTransport.trim().isNotEmpty
-            ? rawTransport.trim().toLowerCase()
-            : 'http';
+    final transport = rawTransport is String && rawTransport.trim().isNotEmpty
+        ? rawTransport.trim().toLowerCase()
+        : 'http';
     if (rawUrl is! String || rawUrl.trim().isEmpty) {
       return const CapabilityExecutionResult(
         capabilityId: 'mcp.connect',
@@ -642,6 +668,8 @@ class CapabilityRuntime {
         return;
       case 'artifact.create':
       case 'project.create_web_app':
+      case 'project.update_web_app':
+      case 'project.revert_web_app':
         final artifactId = result.output['artifactId'];
         if (artifactId is String) {
           final index = artifacts.indexWhere(
@@ -694,12 +722,11 @@ class CapabilityRuntime {
         capabilityId: result.capabilityId,
         input: toolCall.arguments,
         status: status,
-        permissionDecision:
-            skippedPermissionCheck
-                ? 'approved'
-                : permissionDecision is String
-                ? permissionDecision
-                : permissionMode.name,
+        permissionDecision: skippedPermissionCheck
+            ? 'approved'
+            : permissionDecision is String
+            ? permissionDecision
+            : permissionMode.name,
         output: result.output,
         error: error is String ? error : null,
         createdAt: DateTime.now(),
@@ -809,8 +836,16 @@ class CapabilityRuntime {
         return 'artifact.create';
       case 'project_create_web_app':
         return 'project.create_web_app';
+      case 'project_update_web_app':
+        return 'project.update_web_app';
+      case 'project_version_history':
+        return 'project.version_history';
+      case 'project_revert_web_app':
+        return 'project.revert_web_app';
       case 'artifact_query':
         return 'artifact.query';
+      case 'artifact_inspect_logs':
+        return 'artifact.inspect_logs';
       case 'workspace_create':
         return 'workspace.create';
       case 'workspace_switch':

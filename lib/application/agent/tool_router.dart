@@ -56,8 +56,15 @@ class AgentToolRouter {
         reason: '工具路由模型失败：${result.content}',
       );
     }
-    return routeFromModelOutput(
-      result.content,
+    final decoded = _decodeRouteDecision(result.content);
+    final decision = _withWebAppMaintenanceTools(
+      decision: decoded,
+      latestPrompt: latestPrompt,
+      recentContext: routingContext,
+      allTools: allTools,
+    );
+    return routeFromDecision(
+      decision: decision,
       allTools: allTools,
       latestPromptLength: latestPrompt.length,
       contextLength: routingContext.length,
@@ -136,9 +143,104 @@ class AgentToolRouter {
       '普通聊天、问候、身份追问、闲聊应返回空工具列表。',
       '如果用户最新消息要求创建、保存、写入、修改、查询、搜索、读取、调用手机能力或生成可复用产物，选择能完成真实动作的最小工具集合。',
       '如果用户最新消息要求创建真实本地 Web 工程、网页、网站、小游戏、Web App 或原型，project_create_web_app 必须同时出现在 selected_tool_names 和 required_tool_names。',
+      '如果用户最新消息是在反馈、修复或迭代已有 Web App/网页/小游戏的问题，必须暴露 artifact_query、artifact_inspect_logs、file_search_app_files、file_read_app_file、project_update_web_app、project_version_history、project_revert_web_app；让 Agent 先读运行日志和项目文件，再用项目级更新能力修改原项目。',
       'required_tool_names 只用于“未成功调用就不能声称完成”的真实产物创建工具；没有这种硬性完成条件时返回空数组。',
       '只输出一个 JSON 对象，不要 Markdown，不要代码围栏，不要解释。',
     ].join('\n');
+  }
+
+  Map<String, Object?> _withWebAppMaintenanceTools({
+    required Map<String, Object?> decision,
+    required String latestPrompt,
+    required String recentContext,
+    required List<Map<String, Object?>> allTools,
+  }) {
+    if (!_looksLikeWebAppMaintenance(latestPrompt, recentContext)) {
+      return decision;
+    }
+    final availableNames = {
+      for (final tool in allTools)
+        if (_toolName(tool) case final String name) name,
+    };
+    final selected = _stringList(decision['selected_tool_names']).toSet();
+    for (final name in const [
+      'artifact_query',
+      'artifact_inspect_logs',
+      'file_search_app_files',
+      'file_read_app_file',
+      'file_apply_text_patch',
+      'project_update_web_app',
+      'project_version_history',
+      'project_revert_web_app',
+    ]) {
+      if (availableNames.contains(name)) {
+        selected.add(name);
+      }
+    }
+    return {
+      ...decision,
+      'selected_tool_names': selected.toList(growable: false)..sort(),
+      'reason': [
+        if (decision['reason'] is String) decision['reason'],
+        'web_app_maintenance_requires_log_and_file_tools',
+      ].whereType<String>().join('; '),
+    };
+  }
+
+  bool _looksLikeWebAppMaintenance(String latestPrompt, String recentContext) {
+    final prompt = latestPrompt.toLowerCase();
+    final context = recentContext.toLowerCase();
+    final mentionsWebApp = _containsAny(prompt, const [
+      'web app',
+      'webapp',
+      '网页',
+      '页面',
+      '小游戏',
+      '原型',
+      '预览',
+      '卡片',
+      '本地应用',
+    ]);
+    final followsWebAppContext =
+        _containsAny(prompt, const ['这个', '刚才', '上面', '它', '那个']) &&
+        _containsAny(context, const [
+          'web app',
+          'webapp',
+          'web_app_card',
+          'project_create_web_app',
+          '网页',
+          '小游戏',
+          'artifact',
+        ]);
+    if (!mentionsWebApp && !followsWebAppContext) {
+      return false;
+    }
+    return _containsAny(prompt, const [
+      '修',
+      '改',
+      '问题',
+      '报错',
+      '错误',
+      '异常',
+      '打不开',
+      '打开不了',
+      '空白',
+      '崩',
+      '失败',
+      '不能',
+      '没反应',
+      'bug',
+      'error',
+      'fix',
+      'broken',
+      'blank',
+      'crash',
+      'failed',
+    ]);
+  }
+
+  bool _containsAny(String text, List<String> needles) {
+    return needles.any(text.contains);
   }
 
   List<Map<String, Object?>> _toolCatalogForModel(

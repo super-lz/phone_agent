@@ -119,9 +119,29 @@ class PhoneAgentSeed {
       CapabilityRisk.low,
     ),
     _capability(
+      'artifact.inspect_logs',
+      CapabilityAdapter.artifact,
+      CapabilityRisk.low,
+    ),
+    _capability(
       'project.create_web_app',
       CapabilityAdapter.file,
       CapabilityRisk.low,
+    ),
+    _capability(
+      'project.update_web_app',
+      CapabilityAdapter.file,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'project.version_history',
+      CapabilityAdapter.file,
+      CapabilityRisk.low,
+    ),
+    _capability(
+      'project.revert_web_app',
+      CapabilityAdapter.file,
+      CapabilityRisk.medium,
     ),
     _capability(
       'file.apply_text_patch',

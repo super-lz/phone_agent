@@ -8,6 +8,7 @@ import '../domain/files/app_file_store.dart';
 import '../domain/notes/note_store.dart';
 import '../domain/workbench/workbench_store.dart';
 import '../features/workbench/phone_agent_home.dart';
+import 'phone_agent_colors.dart';
 
 class PhoneAgentApp extends StatelessWidget {
   const PhoneAgentApp({
@@ -31,11 +32,13 @@ class PhoneAgentApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = PhoneAgentColors.light;
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF007AFF),
+      seedColor: colors.primaryAction,
       brightness: Brightness.light,
-      surface: Colors.white,
-      surfaceContainerHighest: const Color(0xFFF3F4F6),
+      surface: colors.cardBackground,
+      primary: colors.primaryAction,
+      surfaceContainerHighest: colors.panelBackground,
     );
 
     return MaterialApp(
@@ -43,49 +46,71 @@ class PhoneAgentApp extends StatelessWidget {
       title: 'Phone Agent',
       theme: ThemeData(
         colorScheme: colorScheme,
-        scaffoldBackgroundColor: const Color(0xFFF9FAFB),
+        scaffoldBackgroundColor: colors.pageBackground,
         useMaterial3: true,
-        fontFamily: '.SF Pro Text', // Native iOS feel on Darwin
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          elevation: 0,
-          scrolledUnderElevation: 0,
-          centerTitle: true,
-          surfaceTintColor: Colors.transparent,
-          titleTextStyle: TextStyle(
-            color: Color(0xFF111827),
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
+        fontFamily: '.SF Pro Text',
+        extensions: <ThemeExtension<dynamic>>[colors],
+        textTheme: TextTheme(
+          titleLarge: TextStyle(
+            color: colors.textPrimary,
+            fontWeight: FontWeight.w700,
             letterSpacing: 0,
           ),
-          iconTheme: IconThemeData(color: Color(0xFF4B5563)),
+          titleMedium: TextStyle(
+            color: colors.textPrimary,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0,
+          ),
+          bodyLarge: TextStyle(color: colors.textPrimary, height: 1.5),
+          bodyMedium: TextStyle(color: colors.textSecondary, height: 1.5),
+          labelSmall: TextStyle(color: colors.textTertiary, letterSpacing: 0),
+        ),
+        appBarTheme: AppBarTheme(
+          backgroundColor: colors.panelBackground,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          toolbarHeight: 64,
+          centerTitle: false,
+          surfaceTintColor: Colors.transparent,
+          titleTextStyle: TextStyle(
+            color: colors.textPrimary,
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0,
+          ),
+          iconTheme: IconThemeData(color: colors.textSecondary),
         ),
         cardTheme: CardThemeData(
           elevation: 0,
           margin: EdgeInsets.zero,
-          color: Colors.white,
+          color: colors.cardBackground,
           shape: RoundedRectangleBorder(
-            side: BorderSide(color: Colors.grey.shade200),
-            borderRadius: const BorderRadius.all(Radius.circular(16)),
+            side: BorderSide(color: colors.border),
+            borderRadius: const BorderRadius.all(Radius.circular(20)),
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: const Color(0xFFF3F4F6),
+          fillColor: colors.inputBackground,
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(22),
             borderSide: BorderSide.none,
           ),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 8,
           ),
-          hintStyle: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 16),
+          hintStyle: TextStyle(color: colors.inputHint, fontSize: 16),
         ),
-        dividerTheme: const DividerThemeData(
-          color: Color(0xFFE5E7EB),
+        dividerTheme: DividerThemeData(
+          color: colors.border,
           thickness: 1,
           space: 1,
+        ),
+        bottomSheetTheme: BottomSheetThemeData(
+          backgroundColor: colors.panelBackground,
+          modalBackgroundColor: colors.panelBackground,
+          surfaceTintColor: Colors.transparent,
         ),
       ),
       home: PhoneAgentHome(

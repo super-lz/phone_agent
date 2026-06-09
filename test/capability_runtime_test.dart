@@ -501,6 +501,8 @@ void main() {
         'games/gold-miner/.phone-agent/manifest.json',
       );
       expect(storedFile.content, contains('黄金矿工'));
+      expect(result.output['version'], 1);
+      expect(artifacts.single.metadata['currentVersion'], 1);
       final manifest = await fileStore.readText(
         workspaceId: 'work',
         path: 'games/gold-miner/.phone-agent/manifest.json',
@@ -510,6 +512,143 @@ void main() {
       expect(
         manifest.content,
         contains('"entry": "games/gold-miner/index.html"'),
+      );
+      final version = await fileStore.readText(
+        workspaceId: 'work',
+        path: 'games/gold-miner/.phone-agent/versions/v0001.json',
+        maxChars: 12000,
+      );
+      expect(version.content, contains('"version": 1'));
+    },
+  );
+
+  test(
+    'project_update_web_app versions and reverts existing artifact',
+    () async {
+      final runtime = CapabilityRuntime();
+      final fileStore = InMemoryAppFileStore();
+      final artifacts = <AgentArtifact>[];
+
+      final createResult = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-project-create-versioned',
+          name: 'project_create_web_app',
+          arguments: {
+            'title': '备忘录应用',
+            'summary': '一个可维护的备忘录 Web App。',
+            'entry_path': 'apps/memo/index.html',
+            'files': [
+              {
+                'path': 'apps/memo/index.html',
+                'content': '<!doctype html><html><body>旧按钮</body></html>',
+              },
+            ],
+          },
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: artifacts,
+        fileStore: fileStore,
+      );
+      final artifactId = createResult.output['artifactId']! as String;
+
+      final updateResult = await runtime.execute(
+        toolCall: ToolCallRequest(
+          id: 'call-project-update',
+          name: 'project_update_web_app',
+          arguments: {
+            'artifact_id': artifactId,
+            'summary': '修复按钮文案',
+            'patches': const [
+              {
+                'path': 'apps/memo/index.html',
+                'old_text': '旧按钮',
+                'new_text': '新按钮',
+              },
+            ],
+            'files': const [
+              {
+                'path': 'apps/memo/styles.css',
+                'content': 'body { color: #169af3; }',
+              },
+            ],
+          },
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: artifacts,
+        fileStore: fileStore,
+      );
+
+      expect(updateResult.capabilityId, 'project.update_web_app');
+      expect(updateResult.output['ok'], isTrue);
+      expect(updateResult.output['artifactId'], artifactId);
+      expect(updateResult.output['type'], 'webApp');
+      expect(updateResult.output['title'], '备忘录应用');
+      expect(updateResult.output['version'], 2);
+      expect(artifacts, hasLength(1));
+      expect(artifacts.single.id, artifactId);
+      expect(artifacts.single.metadata['currentVersion'], 2);
+      expect(artifacts.single.metadata['html'], contains('新按钮'));
+
+      final updatedHtml = await fileStore.readText(
+        workspaceId: 'work',
+        path: 'apps/memo/index.html',
+        maxChars: 12000,
+      );
+      expect(updatedHtml.content, contains('新按钮'));
+
+      final historyResult = await runtime.execute(
+        toolCall: ToolCallRequest(
+          id: 'call-project-history',
+          name: 'project_version_history',
+          arguments: {'artifact_id': artifactId},
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: artifacts,
+        fileStore: fileStore,
+      );
+      final items = historyResult.output['items']! as List<Object?>;
+      expect(historyResult.output['ok'], isTrue);
+      expect(items, hasLength(2));
+
+      final revertResult = await runtime.execute(
+        toolCall: ToolCallRequest(
+          id: 'call-project-revert',
+          name: 'project_revert_web_app',
+          arguments: {'artifact_id': artifactId, 'version': 1},
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: artifacts,
+        fileStore: fileStore,
+      );
+
+      expect(revertResult.capabilityId, 'project.revert_web_app');
+      expect(revertResult.output['ok'], isTrue);
+      expect(revertResult.output['artifactId'], artifactId);
+      expect(revertResult.output['type'], 'webApp');
+      expect(revertResult.output['title'], '备忘录应用');
+      expect(revertResult.output['version'], 3);
+      expect(artifacts, hasLength(1));
+      expect(artifacts.single.metadata['currentVersion'], 3);
+      expect(artifacts.single.metadata['html'], contains('旧按钮'));
+
+      final revertedHtml = await fileStore.readText(
+        workspaceId: 'work',
+        path: 'apps/memo/index.html',
+        maxChars: 12000,
+      );
+      expect(revertedHtml.content, contains('旧按钮'));
+      final files = await fileStore.listFiles(workspaceId: 'work');
+      expect(
+        files.map((file) => file.path),
+        isNot(contains('apps/memo/styles.css')),
       );
     },
   );
