@@ -561,17 +561,11 @@ void main() {
             'artifact_id': artifactId,
             'summary': '修复按钮文案',
             'patches': const [
-              {
-                'path': 'apps/memo/index.html',
-                'old_text': '旧按钮',
-                'new_text': '新按钮',
-              },
+              {'path': 'index.html', 'old_text': '旧按钮', 'new_text': '新按钮'},
             ],
             'files': const [
-              {
-                'path': 'apps/memo/styles.css',
-                'content': 'body { color: #169af3; }',
-              },
+              {'path': 'styles.css', 'content': 'body { color: #169af3; }'},
+              {'path': 'assets/logo.svg', 'content': '<svg></svg>'},
             ],
           },
         ),
@@ -599,6 +593,28 @@ void main() {
         maxChars: 12000,
       );
       expect(updatedHtml.content, contains('新按钮'));
+      final addedAsset = await fileStore.readText(
+        workspaceId: 'work',
+        path: 'apps/memo/assets/logo.svg',
+        maxChars: 12000,
+      );
+      expect(addedAsset.content, '<svg></svg>');
+
+      final testResult = await runtime.execute(
+        toolCall: ToolCallRequest(
+          id: 'call-project-test',
+          name: 'project_test_web_app',
+          arguments: {'artifact_id': artifactId},
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: artifacts,
+        fileStore: fileStore,
+      );
+      expect(testResult.capabilityId, 'project.test_web_app');
+      expect(testResult.output['ok'], isTrue);
+      expect(testResult.output['passed'], isTrue);
 
       final historyResult = await runtime.execute(
         toolCall: ToolCallRequest(
@@ -650,8 +666,111 @@ void main() {
         files.map((file) => file.path),
         isNot(contains('apps/memo/styles.css')),
       );
+      expect(
+        files.map((file) => file.path),
+        isNot(contains('apps/memo/assets/logo.svg')),
+      );
     },
   );
+
+  test('project_update_web_app rejects sibling project paths', () async {
+    final runtime = CapabilityRuntime();
+    final fileStore = InMemoryAppFileStore();
+    final artifacts = <AgentArtifact>[];
+
+    final createResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-project-create-sibling-guard',
+        name: 'project_create_web_app',
+        arguments: {
+          'title': 'Demo',
+          'summary': 'A demo app.',
+          'entry_path': 'apps/demo/index.html',
+          'files': [
+            {'path': 'apps/demo/index.html', 'content': '<html></html>'},
+          ],
+        },
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: artifacts,
+      fileStore: fileStore,
+    );
+    final artifactId = createResult.output['artifactId']! as String;
+
+    final result = await runtime.execute(
+      toolCall: ToolCallRequest(
+        id: 'call-project-update-sibling-guard',
+        name: 'project_update_web_app',
+        arguments: {
+          'artifact_id': artifactId,
+          'files': const [
+            {'path': 'apps/other/leak.css', 'content': 'body {}'},
+          ],
+        },
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: artifacts,
+      fileStore: fileStore,
+    );
+
+    expect(result.output['ok'], isFalse);
+    expect(result.output['error'], 'path_outside_project');
+  });
+
+  test('project_test_web_app reports obvious JavaScript syntax issues', () async {
+    final runtime = CapabilityRuntime();
+    final fileStore = InMemoryAppFileStore();
+    final artifacts = <AgentArtifact>[];
+
+    final createResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-project-create-broken-js',
+        name: 'project_create_web_app',
+        arguments: {
+          'title': 'Broken',
+          'summary': 'A broken app.',
+          'entry_path': 'apps/broken/index.html',
+          'files': [
+            {
+              'path': 'apps/broken/index.html',
+              'content':
+                  '<!doctype html><html><head><script src="app.js"></script></head><body></body></html>',
+            },
+            {'path': 'apps/broken/app.js', 'content': 'function boot() {'},
+          ],
+        },
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: artifacts,
+      fileStore: fileStore,
+    );
+    final artifactId = createResult.output['artifactId']! as String;
+
+    final result = await runtime.execute(
+      toolCall: ToolCallRequest(
+        id: 'call-project-test-broken-js',
+        name: 'project_test_web_app',
+        arguments: {'artifact_id': artifactId},
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: artifacts,
+      fileStore: fileStore,
+    );
+
+    expect(result.output['ok'], isTrue);
+    expect(result.output['passed'], isFalse);
+    final issues = result.output['issues']! as List<Object?>;
+    expect(issues, isNotEmpty);
+    expect(issues.toString(), contains('JavaScript'));
+  });
 
   test('file_read_app_file does not leak files across workspaces', () async {
     final runtime = CapabilityRuntime();
@@ -1080,6 +1199,17 @@ void main() {
         notes: const [],
         artifacts: const [],
       );
+      final imagesResult = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-images',
+          name: 'media_pick_images',
+          arguments: {},
+        ),
+        workspaceId: 'default',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+      );
       final capturedVideoResult = await runtime.execute(
         toolCall: const ToolCallRequest(
           id: 'call-captured-video',
@@ -1120,6 +1250,9 @@ void main() {
       expect(photoResult.output['source'], 'camera');
       expect(imageResult.capabilityId, 'media.pick_image');
       expect(imageResult.output['mediaType'], 'image');
+      expect(imagesResult.capabilityId, 'media.pick_images');
+      expect(imagesResult.output['count'], 2);
+      expect(imagesResult.output['items'], isA<List<Object?>>());
       expect(capturedVideoResult.capabilityId, 'camera.capture_video');
       expect(capturedVideoResult.output['source'], 'camera');
       expect(videoResult.capabilityId, 'media.pick_video');
@@ -1128,6 +1261,39 @@ void main() {
       expect(fileResult.output['name'], '需求.pdf');
     },
   );
+
+  test('runtime can control flashlight through native adapter', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final setResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-flashlight-set',
+        name: 'flashlight_set',
+        arguments: {'enabled': true},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final statusResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-flashlight-status',
+        name: 'flashlight_status',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(setResult.capabilityId, 'flashlight.set');
+    expect(setResult.output['ok'], isTrue);
+    expect(setResult.output['enabled'], isTrue);
+    expect(statusResult.capabilityId, 'flashlight.status');
+    expect(statusResult.output['enabled'], isTrue);
+  });
 
   test('runtime can start stop and cancel audio recordings', () async {
     final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
@@ -1940,6 +2106,7 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   bool _keepAwake = false;
   String _orientationMode = 'unlocked';
   String _systemUiMode = 'normal';
+  bool _flashlightEnabled = false;
   bool _recording = false;
   final Map<int, Map<String, Object?>> _pendingNotifications = {};
 
@@ -2027,6 +2194,40 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   }
 
   @override
+  Future<Map<String, Object?>> pickImages({
+    double? maxWidth,
+    double? maxHeight,
+    int? imageQuality,
+  }) async {
+    return const {
+      'ok': true,
+      'source': 'photo_library',
+      'mediaType': 'image',
+      'count': 2,
+      'items': [
+        {
+          'source': 'photo_library',
+          'mediaType': 'image',
+          'name': 'photo-a.png',
+          'path': '/tmp/photo-a.png',
+          'uri': 'file:///tmp/photo-a.png',
+          'bytes': 1024,
+          'mimeType': 'image/png',
+        },
+        {
+          'source': 'photo_library',
+          'mediaType': 'image',
+          'name': 'photo-b.jpg',
+          'path': '/tmp/photo-b.jpg',
+          'uri': 'file:///tmp/photo-b.jpg',
+          'bytes': 2048,
+          'mimeType': 'image/jpeg',
+        },
+      ],
+    };
+  }
+
+  @override
   Future<Map<String, Object?>> pickVideo() async {
     return const {
       'ok': true,
@@ -2037,6 +2238,27 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
       'uri': 'file:///tmp/clip.mp4',
       'bytes': 4096,
       'mimeType': 'video/mp4',
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> setFlashlight(bool enabled) async {
+    _flashlightEnabled = enabled;
+    return {
+      'ok': true,
+      'available': true,
+      'enabled': _flashlightEnabled,
+      'summary': _flashlightEnabled ? '手电筒已打开。' : '手电筒已关闭。',
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> getFlashlightStatus() async {
+    return {
+      'ok': true,
+      'available': true,
+      'enabled': _flashlightEnabled,
+      'summary': _flashlightEnabled ? '手电筒当前已打开。' : '手电筒当前已关闭。',
     };
   }
 

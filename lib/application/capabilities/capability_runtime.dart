@@ -43,6 +43,7 @@ class CapabilityRuntime {
     'artifact_inspect_logs': 'artifact.inspect_logs',
     'project_create_web_app': 'project.create_web_app',
     'project_update_web_app': 'project.update_web_app',
+    'project_test_web_app': 'project.test_web_app',
     'project_version_history': 'project.version_history',
     'project_revert_web_app': 'project.revert_web_app',
     'workspace_create': 'workspace.create',
@@ -55,7 +56,10 @@ class CapabilityRuntime {
     'clipboard_write': 'clipboard.write',
     'camera_capture_photo': 'camera.capture_photo',
     'camera_capture_video': 'camera.capture_video',
+    'flashlight_set': 'flashlight.set',
+    'flashlight_status': 'flashlight.status',
     'media_pick_image': 'media.pick_image',
+    'media_pick_images': 'media.pick_images',
     'media_pick_video': 'media.pick_video',
     'file_pick_system_file': 'file.pick_system_file',
     'audio_record_start': 'audio.record_start',
@@ -292,6 +296,13 @@ class CapabilityRuntime {
           fileStore: fileStore,
           artifacts: artifacts,
         );
+      case 'project_test_web_app':
+        return await _projectHandler.testWebApp(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+          artifacts: artifacts,
+        );
       case 'project_version_history':
         return await _projectHandler.versionHistory(
           workspaceId: workspaceId,
@@ -347,8 +358,16 @@ class CapabilityRuntime {
         return await _nativeHandler.capturePhoto(arguments: toolCall.arguments);
       case 'camera_capture_video':
         return await _nativeHandler.captureVideo(arguments: toolCall.arguments);
+      case 'flashlight_set':
+        return await _nativeHandler.setFlashlight(
+          arguments: toolCall.arguments,
+        );
+      case 'flashlight_status':
+        return await _nativeHandler.getFlashlightStatus();
       case 'media_pick_image':
         return await _nativeHandler.pickImage(arguments: toolCall.arguments);
+      case 'media_pick_images':
+        return await _nativeHandler.pickImages(arguments: toolCall.arguments);
       case 'media_pick_video':
         return await _nativeHandler.pickVideo();
       case 'file_pick_system_file':

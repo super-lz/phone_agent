@@ -125,12 +125,40 @@ void main() {
         'file_search_app_files',
         'file_read_app_file',
         'project_update_web_app',
+        'project_test_web_app',
         'project_version_history',
         'project_revert_web_app',
       ]),
     );
     expect(route.requiredToolNames, isEmpty);
     expect(route.index, contains('project_update_web_app'));
+    expect(route.index, contains('project_test_web_app'));
+  });
+
+  test('web app creation exposes project test tool', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': ['project_create_web_app'],
+        'required_tool_names': ['project_create_web_app'],
+        'uses_context': false,
+        'reason': 'create local web app',
+      }),
+    );
+
+    final route = await router.route(
+      prompt: '创建一个本地 Web App 记账页面',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(
+      route.selectedToolNames,
+      containsAll(['project_create_web_app', 'project_test_web_app']),
+    );
+    expect(route.requiredToolNames, contains('project_create_web_app'));
+    expect(route.index, contains('project_test_web_app'));
   });
 
   test('native input requests expose system picker tools', () async {
@@ -338,6 +366,53 @@ void main() {
     );
 
     expect(route.selectedToolNames, contains('barcode_scan_camera'));
+    expect(route.requiredToolNames, isEmpty);
+  });
+
+  test('flashlight requests expose flashlight set tool', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': <String>[],
+        'required_tool_names': <String>[],
+        'uses_context': false,
+        'reason': 'model missed flashlight control',
+      }),
+    );
+
+    final route = await router.route(
+      prompt: '帮我打开手电筒',
+      context: '',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(route.selectedToolNames, contains('flashlight_set'));
+    expect(route.requiredToolNames, isEmpty);
+  });
+
+  test('multiple image requests expose multi image picker', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': <String>[],
+        'required_tool_names': <String>[],
+        'uses_context': false,
+        'reason': 'model missed multi image picker',
+      }),
+    );
+
+    final route = await router.route(
+      prompt: '从相册选择多张照片给我分析',
+      context: '',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(route.selectedToolNames, contains('media_pick_images'));
+    expect(route.selectedToolNames, isNot(contains('media_pick_image')));
     expect(route.requiredToolNames, isEmpty);
   });
 

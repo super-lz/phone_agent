@@ -57,8 +57,13 @@ class AgentToolRouter {
       );
     }
     final decoded = _decodeRouteDecision(result.content);
-    final maintenanceDecision = _withWebAppMaintenanceTools(
+    final creationDecision = _withWebAppCreationTools(
       decision: decoded,
+      latestPrompt: latestPrompt,
+      allTools: allTools,
+    );
+    final maintenanceDecision = _withWebAppMaintenanceTools(
+      decision: creationDecision,
       latestPrompt: latestPrompt,
       recentContext: routingContext,
       allTools: allTools,
@@ -104,6 +109,21 @@ class AgentToolRouter {
         _containsAny(prompt, const ['选视频', '选择视频', '上传视频', '从相册选视频']) ||
         (prompt.contains('相册') && prompt.contains('视频')) ||
         (!wantsCaptureVideo && _containsAny(prompt, const ['视频', 'video']));
+    final wantsPickMultipleImages = _containsAny(prompt, const [
+      '多张图片',
+      '多张照片',
+      '几张图片',
+      '几张照片',
+      '一组图片',
+      '一组照片',
+      '批量图片',
+      '批量照片',
+      '选择多图',
+      '多选图片',
+      '多选照片',
+      'multiple images',
+      'multiple photos',
+    ]);
     final wantsCancelAudio = _containsAny(prompt, const ['取消录音', '放弃录音']);
     final wantsStopAudio = _containsAny(prompt, const ['停止录音', '结束录音', '完成录音']);
     final wantsStartAudio =
@@ -177,6 +197,31 @@ class AgentToolRouter {
       '断网',
       'network status',
     ]);
+    final wantsFlashlightStatus = _containsAny(prompt, const [
+      '手电筒状态',
+      '闪光灯状态',
+      '手电筒开着吗',
+      '手电筒是否开启',
+      'flashlight status',
+      'torch status',
+    ]);
+    final wantsFlashlightSet =
+        !wantsFlashlightStatus &&
+        _containsAny(prompt, const [
+          '打开手电筒',
+          '开启手电筒',
+          '关掉手电筒',
+          '关闭手电筒',
+          '开手电筒',
+          '关手电筒',
+          '打开闪光灯',
+          '关闭闪光灯',
+          '开闪光灯',
+          '关闪光灯',
+          'toggle torch',
+          'flashlight',
+          'torch',
+        ]);
     final wantsClipboardRead = _containsAny(prompt, const [
       '读取剪贴板',
       '看看剪贴板',
@@ -321,6 +366,12 @@ class AgentToolRouter {
     if (wantsNetwork) {
       addIfAvailable('network_status');
     }
+    if (wantsFlashlightStatus) {
+      addIfAvailable('flashlight_status');
+    }
+    if (wantsFlashlightSet) {
+      addIfAvailable('flashlight_set');
+    }
     if (wantsClipboardRead) {
       addIfAvailable('clipboard_read');
     }
@@ -330,7 +381,16 @@ class AgentToolRouter {
     if (wantsCaptureVideo) {
       addIfAvailable('camera_capture_video');
     }
-    if (_containsAny(prompt, const ['选图', '选一张图', '相册', '图片', '照片', 'image'])) {
+    if (wantsPickMultipleImages) {
+      addIfAvailable('media_pick_images');
+    } else if (_containsAny(prompt, const [
+      '选图',
+      '选一张图',
+      '相册',
+      '图片',
+      '照片',
+      'image',
+    ])) {
       addIfAvailable('media_pick_image');
     }
     if (wantsPickVideo) {
@@ -518,7 +578,7 @@ class AgentToolRouter {
       '普通聊天、问候、身份追问、闲聊应返回空工具列表。',
       '如果用户最新消息要求创建、保存、写入、修改、查询、搜索、读取、调用手机能力或生成可复用产物，选择能完成真实动作的最小工具集合。',
       '如果用户最新消息要求创建真实本地 Web 工程、网页、网站、小游戏、Web App 或原型，project_create_web_app 必须同时出现在 selected_tool_names 和 required_tool_names。',
-      '如果用户最新消息是在反馈、修复或迭代已有 Web App/网页/小游戏的问题，必须暴露 artifact_query、artifact_inspect_logs、file_search_app_files、file_read_app_file、project_update_web_app、project_version_history、project_revert_web_app；让 Agent 先读运行日志和项目文件，再用项目级更新能力修改原项目。',
+      '如果用户最新消息是在反馈、修复或迭代已有 Web App/网页/小游戏的问题，必须暴露 artifact_query、artifact_inspect_logs、file_search_app_files、file_read_app_file、project_update_web_app、project_test_web_app、project_version_history、project_revert_web_app；让 Agent 先读运行日志和项目文件，再用项目级更新能力修改原项目，更新后调用项目测试能力。',
       'required_tool_names 只用于“未成功调用就不能声称完成”的真实产物创建工具；没有这种硬性完成条件时返回空数组。',
       '只输出一个 JSON 对象，不要 Markdown，不要代码围栏，不要解释。',
     ].join('\n');
@@ -545,6 +605,7 @@ class AgentToolRouter {
       'file_read_app_file',
       'file_apply_text_patch',
       'project_update_web_app',
+      'project_test_web_app',
       'project_version_history',
       'project_revert_web_app',
     ]) {
@@ -558,6 +619,38 @@ class AgentToolRouter {
       'reason': [
         if (decision['reason'] is String) decision['reason'],
         'web_app_maintenance_requires_log_and_file_tools',
+      ].whereType<String>().join('; '),
+    };
+  }
+
+  Map<String, Object?> _withWebAppCreationTools({
+    required Map<String, Object?> decision,
+    required String latestPrompt,
+    required List<Map<String, Object?>> allTools,
+  }) {
+    if (!_looksLikeWebAppCreation(latestPrompt)) {
+      return decision;
+    }
+    final availableNames = {
+      for (final tool in allTools)
+        if (_toolName(tool) case final String name) name,
+    };
+    final selected = _stringList(decision['selected_tool_names']).toSet();
+    final required = _stringList(decision['required_tool_names']).toSet();
+    if (availableNames.contains('project_create_web_app')) {
+      selected.add('project_create_web_app');
+      required.add('project_create_web_app');
+    }
+    if (availableNames.contains('project_test_web_app')) {
+      selected.add('project_test_web_app');
+    }
+    return {
+      ...decision,
+      'selected_tool_names': selected.toList(growable: false)..sort(),
+      'required_tool_names': required.toList(growable: false)..sort(),
+      'reason': [
+        if (decision['reason'] is String) decision['reason'],
+        'web_app_creation_requires_project_tools',
       ].whereType<String>().join('; '),
     };
   }
@@ -611,6 +704,35 @@ class AgentToolRouter {
       'blank',
       'crash',
       'failed',
+    ]);
+  }
+
+  bool _looksLikeWebAppCreation(String latestPrompt) {
+    final prompt = latestPrompt.toLowerCase();
+    final mentionsWebArtifact = _containsAny(prompt, const [
+      'web app',
+      'webapp',
+      '网页',
+      '网站',
+      '小游戏',
+      '原型',
+      '页面',
+      '本地应用',
+    ]);
+    if (!mentionsWebArtifact) {
+      return false;
+    }
+    return _containsAny(prompt, const [
+      '创建',
+      '新建',
+      '生成',
+      '做一个',
+      '写一个',
+      '搞一个',
+      '给我一个',
+      'build',
+      'create',
+      'make',
     ]);
   }
 

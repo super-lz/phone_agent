@@ -82,6 +82,8 @@
 11. Web App 运行时应把页面运行过程中的 warning、error、未捕获异常和未处理 Promise 拒绝写入该 Web App 项目目录下的运行日志，供后续 AI 维护时读取并结合用户反馈修复。
 12. Web App Artifact 创建后必须支持同一项目的持续维护；用户反馈、修复或迭代已有 Web App 时，系统应更新原项目文件和原 Artifact 元数据，而不是默认复制一份新项目或创建新的预览卡片。
 13. Web App 项目必须具备轻量版本记录；每次项目更新都应记录版本号、变更摘要、变更文件、项目文件快照和更新时间，使用户与 Agent 可以查看历史并回滚到已有版本。
+14. Web App 项目维护必须允许在原项目目录内新增、覆盖或补丁修改资源文件，例如图片、SVG、CSS、JS 和 HTML；同时必须继续禁止路径穿越、绝对路径、跨 Workspace 或跨 Web App 项目写入。
+15. Web App 创建或更新后应具备项目级受控测试能力；第一阶段测试边界是读取该项目 manifest 和项目文件做本地静态检查，发现入口缺失、文件引用缺失、明显 HTML/CSS/JS 结构问题等可诊断错误，不执行任意 shell、npm、网络测试或项目目录外访问。
 
 ### Skill 与 MCP
 
@@ -168,7 +170,7 @@
 - 正式对话的最小 Agent Loop：模型流式输出、自动发起工具调用、Capability Runtime 执行工具、工具结果回传模型、模型继续回答。
 - Agent Loop 必须具备可调任务预算，并在日志中暴露当前工具调用消耗，方便定位过早停止或循环调用。
 - Agent Loop 必须携带同一会话的近期原文上下文，并在上下文过长时携带较早内容的压缩摘要。
-- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`file.search_app_files`、`file.apply_text_patch`、`project.create_web_app`、`project.update_web_app`、`project.version_history`、`project.revert_web_app`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`document.extract`、`document.generate`、`document.apply_text_patch`、`spreadsheet.extract`、`spreadsheet.generate`、`presentation.extract`、`presentation.generate`、`pdf.extract`、`pdf.generate`、`device.info`、`time.get_current`、`battery.status`、`network.status`、`clipboard.read`、`clipboard.write`、`camera.capture_photo`、`camera.capture_video`、`media.pick_image`、`media.pick_video`、`file.pick_system_file`、`audio.record_start`、`audio.record_stop`、`audio.record_cancel`、`contacts.pick`、`barcode.scan_camera`、`barcode.scan_image`、`share.text`、`system.haptic_feedback`、`system.sound_alert`、`system.ui.set`、`system.ui.status`、`permission.open_settings`、`url.open_external`、`screen.keep_awake`、`screen.keep_awake_status`、`screen.orientation.set`、`screen.orientation.status`、`sensor.accelerometer.read`、`sensor.gyroscope.read`、`sensor.magnetometer.read`、`location.get_current`、`notification.schedule`、`notification.pending`、`notification.cancel`、`notification.cancel_all` 和 `calendar.event.create`。
+- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`file.search_app_files`、`file.apply_text_patch`、`project.create_web_app`、`project.update_web_app`、`project.test_web_app`、`project.version_history`、`project.revert_web_app`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`document.extract`、`document.generate`、`document.apply_text_patch`、`spreadsheet.extract`、`spreadsheet.generate`、`presentation.extract`、`presentation.generate`、`pdf.extract`、`pdf.generate`、`device.info`、`time.get_current`、`battery.status`、`network.status`、`clipboard.read`、`clipboard.write`、`camera.capture_photo`、`camera.capture_video`、`flashlight.set`、`flashlight.status`、`media.pick_image`、`media.pick_images`、`media.pick_video`、`file.pick_system_file`、`audio.record_start`、`audio.record_stop`、`audio.record_cancel`、`contacts.pick`、`barcode.scan_camera`、`barcode.scan_image`、`share.text`、`system.haptic_feedback`、`system.sound_alert`、`system.ui.set`、`system.ui.status`、`permission.open_settings`、`url.open_external`、`screen.keep_awake`、`screen.keep_awake_status`、`screen.orientation.set`、`screen.orientation.status`、`sensor.accelerometer.read`、`sensor.gyroscope.read`、`sensor.magnetometer.read`、`location.get_current`、`notification.schedule`、`notification.pending`、`notification.cancel`、`notification.cancel_all` 和 `calendar.event.create`。
 - 当用户要求新建或切换工作区时，Agent 可以调用 `workspace.create` 或 `workspace.switch`；创建成功后当前 Workspace 必须切换到新工作区，切换目标不存在时必须返回结构化错误。
 - 当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，Agent 可以调用 `db.note.create` 或 `db.note.query` 读写当前 Workspace 的 Note。
 - `db.note.create` 写入的 Note 必须落到设备本地数据库，而不是只停留在当前进程内存。
@@ -177,13 +179,15 @@
 - `file.read_app_file` 必须支持只读取文件局部行范围；`file.search_app_files` 必须返回带文件路径、行号和上下文片段的搜索结果，使 Agent 能先定位问题再读取和修改。
 - 当用户要求创建小游戏、交互网页、Web App、原型或本地可维护项目时，Agent 必须把真实项目文件写入当前 Workspace 文件区，并创建可预览的 Web App Artifact 作为本地索引；不能只输出代码块或自然语言承诺。Web App 默认按本地工程组织，包含入口文件和工程 manifest；除极小页面外，应拆分入口 HTML、样式和脚本文件，便于后续定位和修复。
 - 对创建网页、网站、小游戏、Web App、原型或本地可维护项目这类真实产物请求，系统必须把真实创建 Capability 视为必需工具；在必需工具成功执行前，Agent 不得声称产物已经创建、已保存或可预览。若模型只用自然语言声称完成，系统必须拦截并重新要求调用必需工具；重试后仍未完成时，必须返回未创建的结构化错误。
-- 当用户要求维护或迭代已生成的本地项目时，Agent 应先搜索或读取相关文件片段，再用精确文本补丁修改文件；补丁原文无法唯一匹配时必须返回结构化错误，避免盲目覆盖。
+- 当用户要求维护或迭代已生成的本地项目时，Agent 应先搜索或读取相关文件片段，再用精确文本补丁修改文件；需要新增图片、样式、脚本或其它资源时，应写入原 Web App 项目目录内并更新原项目文件清单；补丁原文无法唯一匹配、目标路径越界或试图跨项目写入时必须返回结构化错误，避免盲目覆盖。
+- Web App 创建或更新后，Agent 应调用项目级测试能力检查原项目；测试失败时应基于错误继续修复，或在无法继续时向用户说明剩余问题和未通过项，不得在测试失败后声称项目完全完成。
 - 当前 Workspace 的 App File 必须有可发现入口；用户可以在运行时区域查看当前 Workspace 文件列表，点击预览文本内容，并通过系统分享或保存入口导出文件。
 - 第一版 Office/PDF 能力必须支持上传或导入后的 Word、Excel、PPT、PDF 文件内容提取，并让 Agent 基于提取文本完成总结、问答和审阅；扫描版 PDF 的 OCR 不作为第一版承诺。
 - 第一版 Office/PDF 能力必须支持生成新的 `docx`、`xlsx`、`pptx` 和 `pdf` 文件，并写入当前 Workspace 文件区供用户预览、分享或导出。
 - 第一版 Office/PDF 能力可以做受控局部文本替换并生成新文件，但不承诺保留复杂 Office 原格式；完整所见即所得编辑仍应交给外部 App 或后续 OnlyOffice/Collabora 类适配。
 - 当用户要求查看当前设备环境、读取剪贴板或复制内容时，Agent 可以调用 `device.info`、`clipboard.read` 或 `clipboard.write`；设备信息结果必须包含面向用户的摘要和规范化平台、型号、系统版本等基础字段；剪贴板读取不应在用户未明确要求时主动触发。
-- 当用户明确要求拍照、拍视频、从相册选择图片或视频、从系统文件选择器选择文件时，Agent 可以调用 `camera.capture_photo`、`camera.capture_video`、`media.pick_image`、`media.pick_video` 或 `file.pick_system_file`；这些能力必须触发系统 UI 并允许用户取消，成功时返回文件名、本地 URI、媒体类型、MIME 类型和大小等结构化元数据。
+- 当用户明确要求拍照、拍视频、从相册选择单张图片、多张图片或视频、从系统文件选择器选择文件时，Agent 可以调用 `camera.capture_photo`、`camera.capture_video`、`media.pick_image`、`media.pick_images`、`media.pick_video` 或 `file.pick_system_file`；这些能力必须触发系统 UI 并允许用户取消，成功时返回文件名、本地 URI、媒体类型、MIME 类型和大小等结构化元数据，多图选择还必须返回数量和每张图片的结构化元数据列表。
+- 当用户明确要求打开、关闭或查询手机手电筒/闪光灯硬件时，Agent 可以调用 `flashlight.set` 或 `flashlight.status`；打开或关闭必须检查相机权限并返回是否可用、是否开启和可读摘要，设备无闪光灯、权限拒绝或平台异常时必须返回结构化错误。该能力控制手机硬件，不用于网页视觉闪光效果。
 - 当用户明确要求开始、停止或取消录音时，Agent 可以调用 `audio.record_start`、`audio.record_stop` 或 `audio.record_cancel`；同一时间只能有一个麦克风录音会话，停止成功时必须返回音频文件元数据，没有活跃录音时必须返回结构化错误。
 - 当用户明确要求选择联系人、从通讯录导入联系人或本地 Web App 需要联系人输入时，Agent 可以调用 `contacts.pick`；该能力必须触发用户选择流程，只返回用户选中的单个联系人姓名、电话和邮箱等结构化信息，不能读取或返回完整通讯录。
 - 当用户明确要求扫描二维码/条码，或识别图片、截图、照片中的二维码/条码时，Agent 可以调用 `barcode.scan_camera` 或 `barcode.scan_image`；这些能力必须由用户触发系统相机或图片选择流程，成功时返回码值、显示值、格式、类型和数量等结构化结果，用户取消或未识别到码时返回结构化失败。
@@ -208,7 +212,7 @@
 - WebView 小应用运行时、manifest 语义和 JSBridge 语义。
 - Web App Artifact 可以从应用库打开；本地 Web App 通过 `window.PhoneAgent.getManifest()` 获取 manifest，通过 `window.PhoneAgent.callCapability(id, input)` 调用 manifest 已声明权限内的 Capability。
 - Web App 运行时必须向页面暴露可发现的 JSBridge 契约，至少包括 manifest 读取、可用 Capability 列表和 Capability 调用入口，便于 AI 生成的网页自检权限和能力。
-- Web App JSBridge 必须提供设备信息等常用能力的可发现调用方式；页面需要设备信息时应通过已声明权限的 JSBridge 调用，而不是依赖浏览器伪造的设备环境。
+- Web App JSBridge 必须提供设备信息、手电筒等常用能力的可发现调用方式；页面需要设备信息或受控硬件能力时应通过已声明权限的 JSBridge 调用，而不是依赖浏览器伪造的设备环境。
 - 对话中的 Web App 卡片必须能直接打开同一个 Web App 预览页面，并以清晰的本地应用入口样式展示标题、类型和打开操作。
 - Web App Artifact 必须保存可运行入口内容和可发现的工程 manifest。缺少可运行入口内容时不得展示成“已加载”的假预览，必须返回结构化错误或可诊断提示。
 - Web App 打开前必须向用户展示 manifest 声明的能力权限；用户拒绝后 Web App 仍可打开，但 JSBridge 能力调用必须返回结构化权限错误。
@@ -219,7 +223,7 @@
 - Agent Skills / Claude Code 风格 Skill 的安装、扫描、索引和受控调用语义。
 - HTTP/SSE 类 MCP 连接语义和失败处理。
 - 权限三档、权限请求、权限拒绝和审计日志。
-- 统一系统权限管理页和统一系统权限申请服务；当前覆盖已接入手机原生能力需要的定位、通知、相机、麦克风和联系人权限，并能展示这些权限影响的 Capability。
+- 统一系统权限管理页和统一系统权限申请服务；当前覆盖已接入手机原生能力需要的定位、通知、相机、麦克风和联系人权限，并能展示这些权限影响的 Capability；相机权限同时影响拍照、拍视频、扫码和手电筒控制。
 
 当前阶段不包含：
 
@@ -285,10 +289,13 @@
 - Web App 预览打开时可启动仅绑定本机回环地址的临时本地服务来加载入口 HTML 和同项目相对资源；该服务只在预览页生命周期内存在，关闭预览页后必须停止，并且不得允许跨 Workspace 或路径穿越读取文件。
 - Web App 首次运行时按 manifest 请求权限，拒绝后 JSBridge 调用返回结构化错误。
 - Web App 能通过 JSBridge 调用已授权的内建 Capability；未授权 Capability 调用必须被拒绝，不能绕过 Capability Runtime。
+- 用户或已授权 Web App 可以明确打开、关闭或查询手机手电筒；无闪光灯设备、权限拒绝或平台不可用时返回结构化错误和可读处理建议。
+- 已授权 Web App 可以触发系统相册选择单张或多张图片；多图选择必须返回图片数量和每张图片的结构化元数据，用户取消时返回结构化取消结果。
 - Web App 生成结果默认符合手机竖屏可用性：触摸目标足够大，内容在窄屏不横向溢出，关键操作不依赖 hover、键盘快捷键或桌面窗口尺寸。
 - Web App 中的 HTML5 音视频、Web Audio、文件选择、摄像头、麦克风和定位请求在平台 WebView 支持时可按权限门运行；平台 WebView 本身不支持的浏览器 API 必须表现为明确不可用或页面侧可诊断失败，而不是伪造成功。
 - Web App 运行时产生的 warning、error 和未捕获异常能被记录到项目文件夹中的运行日志；用户回到会话反馈问题后，AI 能读取该日志辅助修复。
-- Web App 后续维护不会默认生成新项目；AI 能基于已有 Artifact、运行日志和项目文件更新原项目，并写入新的轻量版本记录。
+- Web App 后续维护不会默认生成新项目；AI 能基于已有 Artifact、运行日志和项目文件更新原项目，允许在原项目目录内新增资源文件，并写入新的轻量版本记录。
+- Web App 创建或更新后，AI 能对原项目执行受控静态测试；测试结果应返回是否通过、检查文件和问题列表，明显的入口缺失、引用缺失或 HTML/CSS/JS 结构问题不得被当作成功忽略。
 - 用户或 Agent 能查询 Web App 项目的版本历史，并能把项目文件回滚到已有版本；回滚同样更新原 Artifact 元数据，不创建新的预览卡片。
 - 两个 Web App 不能互相读取文件目录和数据库 namespace。
 - Skill 可从目录、zip 或 Git URL 安装、扫描、索引、触发。

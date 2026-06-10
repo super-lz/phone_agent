@@ -474,6 +474,109 @@ class ProjectCapabilityHandler {
     );
   }
 
+  Future<CapabilityExecutionResult> testWebApp({
+    required String workspaceId,
+    required Map<String, Object?> arguments,
+    required AppFileStore? fileStore,
+    required List<AgentArtifact> artifacts,
+  }) async {
+    final store = fileStore;
+    if (store == null) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'project.test_web_app',
+        output: {'ok': false, 'error': 'file store unavailable'},
+      );
+    }
+    final artifactLookup = _webAppArtifact(
+      workspaceId: workspaceId,
+      artifacts: artifacts,
+      artifactId: arguments['artifact_id'] ?? arguments['artifactId'],
+    );
+    if (artifactLookup.error != null) {
+      return artifactLookup.error!;
+    }
+    final artifact = artifactLookup.artifact!;
+    final manifestLookup = await _readManifest(
+      store: store,
+      workspaceId: workspaceId,
+      artifact: artifact,
+      capabilityId: 'project.test_web_app',
+    );
+    if (manifestLookup.error != null) {
+      return manifestLookup.error!;
+    }
+    final manifest = manifestLookup.manifest!;
+    final issues = <Map<String, Object?>>[];
+    final checkedFiles = <String>{};
+    final projectFiles = manifest.files.toSet();
+
+    if (!projectFiles.contains(manifest.entryPath)) {
+      issues.add({
+        'severity': 'error',
+        'path': manifest.entryPath,
+        'message': '入口文件未包含在 manifest files 中。',
+      });
+    }
+
+    for (final path in manifest.files) {
+      late final AppFileReadResult result;
+      try {
+        result = await store.readText(
+          workspaceId: workspaceId,
+          path: path,
+          maxChars: 2 * 1024 * 1024,
+        );
+      } on AppFileStoreException catch (error) {
+        issues.add({
+          'severity': 'error',
+          'path': path,
+          'message': error.code == 'not_found'
+              ? 'manifest 声明的文件不存在。'
+              : error.message,
+        });
+        continue;
+      }
+      checkedFiles.add(path);
+      if (result.truncated) {
+        issues.add({
+          'severity': 'error',
+          'path': path,
+          'message': '文件过大，当前测试能力无法完整检查。',
+        });
+        continue;
+      }
+      final content = result.content;
+      if (path.endsWith('.html') || path.endsWith('.htm')) {
+        _analyzeHtml(
+          path: path,
+          content: content,
+          projectFiles: projectFiles,
+          issues: issues,
+        );
+      } else if (path.endsWith('.js') || path.endsWith('.mjs')) {
+        _analyzeJavaScript(path: path, content: content, issues: issues);
+      } else if (path.endsWith('.css')) {
+        _analyzeCss(path: path, content: content, issues: issues);
+      }
+    }
+
+    final passed = !issues.any((issue) => issue['severity'] == 'error');
+    return CapabilityExecutionResult(
+      capabilityId: 'project.test_web_app',
+      output: {
+        'ok': true,
+        'passed': passed,
+        'artifactId': artifact.id,
+        'projectId': manifest.projectId,
+        'version': manifest.version,
+        'entryPath': manifest.entryPath,
+        'checkedFiles': checkedFiles.toList(growable: false)..sort(),
+        'issues': issues,
+        'summary': passed ? 'Web App 项目静态检查通过。' : 'Web App 项目静态检查发现问题。',
+      },
+    );
+  }
+
   Future<CapabilityExecutionResult> revertWebApp({
     required String workspaceId,
     required Map<String, Object?> arguments,
@@ -910,10 +1013,259 @@ class ProjectCapabilityHandler {
     if (projectRoot.isEmpty || normalized.startsWith('$projectRoot/')) {
       return normalized;
     }
-    throw const AppFileStoreException(
-      'path_outside_project',
-      '项目更新只能修改该 Web App 项目目录内的文件。',
+    if (normalized == projectRoot) {
+      throw const AppFileStoreException(
+        'invalid_path',
+        '项目更新路径必须指向文件，不能指向项目根目录。',
+      );
+    }
+    final projectRootTop = projectRoot.split('/').first;
+    final normalizedTop = normalized.split('/').first;
+    if (normalizedTop == projectRootTop) {
+      throw const AppFileStoreException(
+        'path_outside_project',
+        '项目更新只能修改该 Web App 项目目录内的文件。',
+      );
+    }
+    return '$projectRoot/$normalized';
+  }
+
+  void _analyzeHtml({
+    required String path,
+    required String content,
+    required Set<String> projectFiles,
+    required List<Map<String, Object?>> issues,
+  }) {
+    final lower = content.toLowerCase();
+    if (!lower.contains('<!doctype html') && !lower.contains('<html')) {
+      issues.add({
+        'severity': 'warning',
+        'path': path,
+        'message': 'HTML 入口缺少 doctype 或 html 标签。',
+      });
+    }
+    final scriptTag = RegExp(
+      r'<script\b([^>]*)>([\s\S]*?)<\/script>',
+      caseSensitive: false,
     );
+    for (final match in scriptTag.allMatches(content)) {
+      final attrs = match.group(1) ?? '';
+      final src = _htmlAttribute(attrs, 'src');
+      if (src != null && src.trim().isNotEmpty) {
+        final resolved = _resolveProjectReference(path, src);
+        if (resolved == null || !projectFiles.contains(resolved)) {
+          issues.add({
+            'severity': 'error',
+            'path': path,
+            'message': 'script 引用的项目文件不存在：$src',
+          });
+        }
+      } else {
+        _analyzeJavaScript(
+          path: '$path <inline script>',
+          content: match.group(2) ?? '',
+          issues: issues,
+        );
+      }
+    }
+
+    final stylesheetTag = RegExp(
+      r'''<link\b([^>]*\brel\s*=\s*["']?stylesheet["']?[^>]*)>''',
+      caseSensitive: false,
+    );
+    for (final match in stylesheetTag.allMatches(content)) {
+      final href = _htmlAttribute(match.group(1) ?? '', 'href');
+      if (href == null || href.trim().isEmpty) {
+        continue;
+      }
+      final resolved = _resolveProjectReference(path, href);
+      if (resolved == null || !projectFiles.contains(resolved)) {
+        issues.add({
+          'severity': 'error',
+          'path': path,
+          'message': 'stylesheet 引用的项目文件不存在：$href',
+        });
+      }
+    }
+  }
+
+  void _analyzeCss({
+    required String path,
+    required String content,
+    required List<Map<String, Object?>> issues,
+  }) {
+    _balancedDelimiterIssue(
+      path: path,
+      content: _stripCssComments(content),
+      open: '{',
+      close: '}',
+      label: 'CSS 大括号',
+      issues: issues,
+    );
+  }
+
+  void _analyzeJavaScript({
+    required String path,
+    required String content,
+    required List<Map<String, Object?>> issues,
+  }) {
+    final stack = <String>[];
+    var quote = '';
+    var escaped = false;
+    var lineComment = false;
+    var blockComment = false;
+    for (var i = 0; i < content.length; i += 1) {
+      final char = content[i];
+      final next = i + 1 < content.length ? content[i + 1] : '';
+      if (lineComment) {
+        if (char == '\n') {
+          lineComment = false;
+        }
+        continue;
+      }
+      if (blockComment) {
+        if (char == '*' && next == '/') {
+          blockComment = false;
+          i += 1;
+        }
+        continue;
+      }
+      if (quote.isNotEmpty) {
+        if (escaped) {
+          escaped = false;
+        } else if (char == '\\') {
+          escaped = true;
+        } else if (char == quote) {
+          quote = '';
+        }
+        continue;
+      }
+      if (char == '/' && next == '/') {
+        lineComment = true;
+        i += 1;
+        continue;
+      }
+      if (char == '/' && next == '*') {
+        blockComment = true;
+        i += 1;
+        continue;
+      }
+      if (char == '"' || char == "'" || char == '`') {
+        quote = char;
+        continue;
+      }
+      if (char == '(' || char == '[' || char == '{') {
+        stack.add(char);
+        continue;
+      }
+      if (char == ')' || char == ']' || char == '}') {
+        if (stack.isEmpty || !_delimiterMatches(stack.removeLast(), char)) {
+          issues.add({
+            'severity': 'error',
+            'path': path,
+            'message': 'JavaScript 存在不匹配的闭合符号：$char',
+          });
+          return;
+        }
+      }
+    }
+    if (quote.isNotEmpty) {
+      issues.add({
+        'severity': 'error',
+        'path': path,
+        'message': 'JavaScript 字符串或模板字面量未闭合。',
+      });
+    }
+    if (blockComment) {
+      issues.add({
+        'severity': 'error',
+        'path': path,
+        'message': 'JavaScript 块注释未闭合。',
+      });
+    }
+    if (stack.isNotEmpty) {
+      issues.add({
+        'severity': 'error',
+        'path': path,
+        'message': 'JavaScript 存在未闭合的 ${stack.last}。',
+      });
+    }
+  }
+
+  bool _delimiterMatches(String open, String close) {
+    return (open == '(' && close == ')') ||
+        (open == '[' && close == ']') ||
+        (open == '{' && close == '}');
+  }
+
+  void _balancedDelimiterIssue({
+    required String path,
+    required String content,
+    required String open,
+    required String close,
+    required String label,
+    required List<Map<String, Object?>> issues,
+  }) {
+    var depth = 0;
+    for (final codeUnit in content.codeUnits) {
+      final char = String.fromCharCode(codeUnit);
+      if (char == open) {
+        depth += 1;
+      } else if (char == close) {
+        depth -= 1;
+      }
+      if (depth < 0) {
+        issues.add({
+          'severity': 'error',
+          'path': path,
+          'message': '$label 存在多余的闭合符号。',
+        });
+        return;
+      }
+    }
+    if (depth > 0) {
+      issues.add({'severity': 'error', 'path': path, 'message': '$label 未闭合。'});
+    }
+  }
+
+  String _stripCssComments(String content) {
+    return content.replaceAll(RegExp(r'\/\*[\s\S]*?\*\/'), '');
+  }
+
+  String? _htmlAttribute(String attrs, String name) {
+    final quoted = RegExp(
+      "$name\\s*=\\s*([\"'])(.*?)\\1",
+      caseSensitive: false,
+    ).firstMatch(attrs);
+    if (quoted != null) {
+      return quoted.group(2);
+    }
+    return RegExp(
+      '$name\\s*=\\s*([^\\s>]+)',
+      caseSensitive: false,
+    ).firstMatch(attrs)?.group(1);
+  }
+
+  String? _resolveProjectReference(String fromPath, String reference) {
+    final raw = reference.trim();
+    if (raw.isEmpty ||
+        raw.startsWith('#') ||
+        raw.startsWith('http://') ||
+        raw.startsWith('https://') ||
+        raw.startsWith('data:') ||
+        raw.startsWith('blob:') ||
+        raw.startsWith('//') ||
+        raw.startsWith('/')) {
+      return null;
+    }
+    final dir = fromPath.contains('/')
+        ? fromPath.substring(0, fromPath.lastIndexOf('/'))
+        : '';
+    try {
+      return normalizeAppFilePath(dir.isEmpty ? raw : '$dir/$raw');
+    } on AppFileStoreException {
+      return null;
+    }
   }
 
   CapabilityExecutionResult _projectError(

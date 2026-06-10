@@ -157,6 +157,14 @@ Map<String, Object?> modelObservationForCapability({
         'cancelled': output['cancelled'],
       });
       return observation;
+    case 'media.pick_images':
+      observation.addAll({
+        'count': output['count'],
+        'items': output['items'],
+        'source': output['source'],
+        'mediaType': output['mediaType'],
+      });
+      return observation;
     case 'clipboard.write':
       observation['length'] = output['length'];
       return observation;
@@ -374,6 +382,14 @@ String _titleFor(String capabilityId) {
       return 'Artifact 查询';
     case 'project.create_web_app':
       return 'Web App 创建';
+    case 'project.test_web_app':
+      return 'Web App 测试';
+    case 'flashlight.set':
+      return '手电筒控制';
+    case 'flashlight.status':
+      return '手电筒状态';
+    case 'media.pick_images':
+      return '多图选择';
     case 'memory.create':
       return '记忆创建';
     case 'memory.query':
@@ -422,8 +438,14 @@ String _summaryFor(
       return _pickedFileSummary(output, fallback: '已拍摄照片。');
     case 'camera.capture_video':
       return _pickedFileSummary(output, fallback: '已拍摄视频。');
+    case 'flashlight.set':
+      return output['enabled'] == true ? '已打开手电筒。' : '已关闭手电筒。';
+    case 'flashlight.status':
+      return output['enabled'] == true ? '手电筒当前已打开。' : '手电筒当前已关闭。';
     case 'media.pick_image':
       return _pickedFileSummary(output, fallback: '已选择图片。');
+    case 'media.pick_images':
+      return '已选择 ${output['count'] ?? 0} 张图片。';
     case 'media.pick_video':
       return _pickedFileSummary(output, fallback: '已选择视频。');
     case 'file.pick_system_file':

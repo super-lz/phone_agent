@@ -134,6 +134,11 @@ class PhoneAgentSeed {
       CapabilityRisk.medium,
     ),
     _capability(
+      'project.test_web_app',
+      CapabilityAdapter.file,
+      CapabilityRisk.low,
+    ),
+    _capability(
       'project.version_history',
       CapabilityAdapter.file,
       CapabilityRisk.low,
@@ -210,7 +215,23 @@ class PhoneAgentSeed {
       requiredPermissions: const ['camera', 'microphone'],
     ),
     _capability(
+      'flashlight.set',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+      requiredPermissions: const ['camera'],
+    ),
+    _capability(
+      'flashlight.status',
+      CapabilityAdapter.native,
+      CapabilityRisk.low,
+    ),
+    _capability(
       'media.pick_image',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'media.pick_images',
       CapabilityAdapter.native,
       CapabilityRisk.medium,
     ),

@@ -235,7 +235,7 @@ class CapabilityToolDefinitions {
         'function': {
           'name': 'project_update_web_app',
           'description':
-              '维护已有本地 Web App 项目，只更新原项目文件和原 Artifact，不创建新项目或新卡片。用于用户反馈已有网页、小游戏、Web App 的 bug、样式或功能迭代；调用前应先 artifact_query 定位，再读运行日志和项目文件。',
+              '维护已有本地 Web App 项目，只更新原项目文件和原 Artifact，不创建新项目或新卡片。用于用户反馈已有网页、小游戏、Web App 的 bug、样式或功能迭代；调用前应先 artifact_query 定位，再读运行日志和项目文件。patches/files 的 path 可以传项目根相对路径（如 index.html、assets/photo.svg），也可以传当前 Workspace 中包含项目根的完整相对路径（如 apps/demo/index.html）；允许新增项目目录内的资源文件，禁止写到项目目录外。',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -263,7 +263,7 @@ class CapabilityToolDefinitions {
               },
               'files': {
                 'type': 'array',
-                'description': '完整写入或新增的项目文件。',
+                'description': '完整写入或新增的项目目录内文件，可用于添加图片、SVG、CSS、JS、HTML 等资源。',
                 'items': {
                   'type': 'object',
                   'properties': {
@@ -277,6 +277,24 @@ class CapabilityToolDefinitions {
                 'type': 'array',
                 'description': '可选，更新 Web App manifest 中声明的 capability 权限。',
                 'items': {'type': 'string'},
+              },
+            },
+            'required': ['artifact_id'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'project_test_web_app',
+          'description':
+              '对已有本地 Web App 项目做受控静态检查。创建或更新 Web App 后调用，用来确认入口文件、manifest 文件清单、HTML 引用、CSS 大括号和 JavaScript 字符串/括号/注释是否存在明显语法问题。当前不执行任意 shell、npm 或网络测试。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'artifact_id': {
+                'type': 'string',
+                'description': '要检查的 Web App Artifact ID。',
               },
             },
             'required': ['artifact_id'],
@@ -513,9 +531,54 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'flashlight_set',
+          'description':
+              '打开或关闭手机手电筒/闪光灯硬件。只有用户明确要求开灯、关灯、打开手电筒、关闭手电筒、toggle torch 等设备硬件控制时使用；不要用于网页里的视觉闪光效果。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'enabled': {
+                'type': 'boolean',
+                'description': 'true 表示打开手电筒，false 表示关闭手电筒。',
+              },
+            },
+            'required': ['enabled'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'flashlight_status',
+          'description': '查询当前手机手电筒/闪光灯硬件是否可用以及是否开启。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'media_pick_image',
           'description':
               '打开系统相册选择一张图片。只有用户明确要求从相册选择图片、上传图片或 Web App 需要图片输入时使用；用户可取消。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'max_width': {'type': 'number', 'description': '可选，限制图片最大宽度。'},
+              'max_height': {'type': 'number', 'description': '可选，限制图片最大高度。'},
+              'image_quality': {
+                'type': 'integer',
+                'description': '可选，图片质量 1-100。',
+              },
+            },
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'media_pick_images',
+          'description':
+              '打开系统相册一次选择多张图片。只有用户明确要求多选图片、选择多张照片、批量上传图片、导入一组图片，或 Web App 需要多张图片输入时使用；用户可取消。',
           'parameters': {
             'type': 'object',
             'properties': {

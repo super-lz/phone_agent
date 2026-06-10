@@ -8,6 +8,7 @@ void main() {
 
     expect(camera.affectedCapabilities, contains('camera.capture_photo'));
     expect(camera.affectedCapabilities, contains('camera.capture_video'));
+    expect(camera.affectedCapabilities, contains('flashlight.set'));
     expect(camera.affectedCapabilities, contains('barcode.scan_camera'));
     expect(microphone.affectedCapabilities, contains('camera.capture_video'));
     expect(microphone.affectedCapabilities, contains('audio.record_start'));

@@ -82,12 +82,48 @@ class NativeCapabilityHandler {
     );
   }
 
+  Future<CapabilityExecutionResult> setFlashlight({
+    required Map<String, Object?> arguments,
+  }) async {
+    final rawEnabled = arguments['enabled'];
+    if (rawEnabled is! bool) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'flashlight.set',
+        output: {'ok': false, 'error': 'enabled is required'},
+      );
+    }
+    return CapabilityExecutionResult(
+      capabilityId: 'flashlight.set',
+      output: await _adapter.setFlashlight(rawEnabled),
+    );
+  }
+
+  Future<CapabilityExecutionResult> getFlashlightStatus() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'flashlight.status',
+      output: await _adapter.getFlashlightStatus(),
+    );
+  }
+
   Future<CapabilityExecutionResult> pickImage({
     required Map<String, Object?> arguments,
   }) async {
     return CapabilityExecutionResult(
       capabilityId: 'media.pick_image',
       output: await _adapter.pickImage(
+        maxWidth: _optionalPositiveDouble(arguments['max_width']),
+        maxHeight: _optionalPositiveDouble(arguments['max_height']),
+        imageQuality: _optionalImageQuality(arguments['image_quality']),
+      ),
+    );
+  }
+
+  Future<CapabilityExecutionResult> pickImages({
+    required Map<String, Object?> arguments,
+  }) async {
+    return CapabilityExecutionResult(
+      capabilityId: 'media.pick_images',
+      output: await _adapter.pickImages(
         maxWidth: _optionalPositiveDouble(arguments['max_width']),
         maxHeight: _optionalPositiveDouble(arguments['max_height']),
         imageQuality: _optionalImageQuality(arguments['image_quality']),

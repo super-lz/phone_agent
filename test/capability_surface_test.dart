@@ -11,6 +11,7 @@ void main() {
         .toSet();
 
     expect(seedCapabilities, containsAll(WebAppRuntimeDefaults.permissions));
+    expect(seedCapabilities, contains('project.test_web_app'));
   });
 
   test('native seed capabilities have expected adapters and permissions', () {
@@ -107,7 +108,10 @@ void main() {
         'clipboard_write',
         'camera_capture_photo',
         'camera_capture_video',
+        'flashlight_set',
+        'flashlight_status',
         'media_pick_image',
+        'media_pick_images',
         'media_pick_video',
         'file_pick_system_file',
         'audio_record_start',
@@ -136,6 +140,7 @@ void main() {
         'notification_cancel',
         'notification_cancel_all',
         'calendar_event_create',
+        'project_test_web_app',
       ]),
     );
   });

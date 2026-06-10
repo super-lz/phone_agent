@@ -85,6 +85,7 @@ class AppPermissionRegistry {
       affectedCapabilities: [
         'camera.capture_photo',
         'camera.capture_video',
+        'flashlight.set',
         'barcode.scan_camera',
       ],
     ),

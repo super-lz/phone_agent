@@ -34,7 +34,10 @@ class WebAppRuntimeDefaults {
     'clipboard.write',
     'camera.capture_photo',
     'camera.capture_video',
+    'flashlight.set',
+    'flashlight.status',
     'media.pick_image',
+    'media.pick_images',
     'media.pick_video',
     'file.pick_system_file',
     'audio.record_start',
@@ -327,8 +330,14 @@ class WebAppCapabilityBridge {
         return 'camera_capture_photo';
       case 'camera.capture_video':
         return 'camera_capture_video';
+      case 'flashlight.set':
+        return 'flashlight_set';
+      case 'flashlight.status':
+        return 'flashlight_status';
       case 'media.pick_image':
         return 'media_pick_image';
+      case 'media.pick_images':
+        return 'media_pick_images';
       case 'media.pick_video':
         return 'media_pick_video';
       case 'file.pick_system_file':

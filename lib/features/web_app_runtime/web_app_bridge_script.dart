@@ -112,8 +112,19 @@ String buildWebAppBridgeHeadHtml(AgentArtifact webApp) {
         captureVideo: function(options) {
           return window.PhoneAgent.callCapability('camera.capture_video', options || {});
         },
+        setFlashlight: function(enabled) {
+          return window.PhoneAgent.callCapability('flashlight.set', {
+            enabled: !!enabled
+          });
+        },
+        getFlashlightStatus: function() {
+          return window.PhoneAgent.callCapability('flashlight.status', {});
+        },
         pickImage: function(options) {
           return window.PhoneAgent.callCapability('media.pick_image', options || {});
+        },
+        pickImages: function(options) {
+          return window.PhoneAgent.callCapability('media.pick_images', options || {});
         },
         pickVideo: function() {
           return window.PhoneAgent.callCapability('media.pick_video', {});

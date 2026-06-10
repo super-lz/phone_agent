@@ -34,17 +34,22 @@ class NativeCapabilityAdapter {
     AudioRecorder? audioRecorder,
     FlutterLocalNotificationsPlugin? notifications,
     AppPermissionService? permissionService,
+    MethodChannel? nativeChannel,
   }) : _deviceInfo = deviceInfo ?? DeviceInfoPlugin(),
        _imagePicker = imagePicker ?? ImagePicker(),
        _audioRecorder = audioRecorder,
        _notifications = notifications ?? FlutterLocalNotificationsPlugin(),
-       _permissionService = permissionService ?? const AppPermissionService();
+       _permissionService = permissionService ?? const AppPermissionService(),
+       _nativeChannel =
+           nativeChannel ??
+           const MethodChannel('phone_agent/native_capabilities');
 
   final DeviceInfoPlugin _deviceInfo;
   final ImagePicker _imagePicker;
   AudioRecorder? _audioRecorder;
   final FlutterLocalNotificationsPlugin _notifications;
   final AppPermissionService _permissionService;
+  final MethodChannel _nativeChannel;
   Future<bool>? _notificationInitialization;
   String? _activeAudioRecordingPath;
   String _screenOrientationMode = 'unlocked';
@@ -220,6 +225,48 @@ class NativeCapabilityAdapter {
     }
   }
 
+  Future<Map<String, Object?>> setFlashlight(bool enabled) async {
+    try {
+      final permission = await _permissionService.ensureGranted(
+        AppPermissionId.camera,
+      );
+      if (!permission.granted) {
+        return _permissionErrorOutput(permission);
+      }
+      final output = await _invokeNativeCapability('setFlashlight', {
+        'enabled': enabled,
+      });
+      final isEnabled = output['enabled'] == true;
+      return {
+        'ok': output['ok'] != false,
+        'enabled': isEnabled,
+        'available': output['available'] ?? true,
+        'summary': isEnabled ? '手电筒已打开。' : '手电筒已关闭。',
+        ...output,
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.flashlight_set.failed', error, stackTrace);
+      return _nativeCapabilityError(error, fallbackCode: 'flashlight_failed');
+    }
+  }
+
+  Future<Map<String, Object?>> getFlashlightStatus() async {
+    try {
+      final output = await _invokeNativeCapability('getFlashlightStatus');
+      final isEnabled = output['enabled'] == true;
+      return {
+        'ok': output['ok'] != false,
+        'enabled': isEnabled,
+        'available': output['available'] ?? true,
+        'summary': isEnabled ? '手电筒当前已打开。' : '手电筒当前已关闭。',
+        ...output,
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.flashlight_status.failed', error, stackTrace);
+      return _nativeCapabilityError(error, fallbackCode: 'flashlight_failed');
+    }
+  }
+
   Future<Map<String, Object?>> pickImage({
     double? maxWidth,
     double? maxHeight,
@@ -242,6 +289,44 @@ class NativeCapabilityAdapter {
       );
     } on Object catch (error, stackTrace) {
       AppLogger.error('native.media_pick_image.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> pickImages({
+    double? maxWidth,
+    double? maxHeight,
+    int? imageQuality,
+  }) async {
+    try {
+      final files = await _imagePicker.pickMultiImage(
+        maxWidth: maxWidth,
+        maxHeight: maxHeight,
+        imageQuality: imageQuality,
+      );
+      if (files.isEmpty) {
+        return const {'ok': false, 'error': 'user_cancelled'};
+      }
+      final items = <Map<String, Object?>>[];
+      for (final file in files) {
+        final output = await _xFileOutput(
+          file,
+          mediaType: 'image',
+          source: 'photo_library',
+        );
+        final item = Map<String, Object?>.from(output)..remove('ok');
+        items.add(item);
+      }
+      return {
+        'ok': true,
+        'source': 'photo_library',
+        'mediaType': 'image',
+        'count': items.length,
+        'items': items,
+        'summary': '已选择 ${items.length} 张图片。',
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.media_pick_images.failed', error, stackTrace);
       return {'ok': false, 'error': error.toString()};
     }
   }
@@ -1006,6 +1091,40 @@ class NativeCapabilityAdapter {
       return decoded;
     }
     return {'raw': decoded.toString()};
+  }
+
+  Future<Map<String, Object?>> _invokeNativeCapability(
+    String method, [
+    Map<String, Object?> arguments = const {},
+  ]) async {
+    final raw = await _nativeChannel.invokeMethod<Object?>(method, arguments);
+    if (raw is Map) {
+      return {
+        for (final entry in raw.entries)
+          if (entry.key is String) entry.key as String: entry.value,
+      };
+    }
+    return {'ok': false, 'error': 'invalid_native_result'};
+  }
+
+  Map<String, Object?> _nativeCapabilityError(
+    Object error, {
+    required String fallbackCode,
+  }) {
+    if (error is PlatformException) {
+      return {
+        'ok': false,
+        'error': error.code,
+        'detail': error.message ?? error.details?.toString(),
+        'userMessage': error.message ?? '手机原生能力调用失败。',
+      };
+    }
+    return {
+      'ok': false,
+      'error': fallbackCode,
+      'detail': error.toString(),
+      'userMessage': '手机原生能力调用失败：$error',
+    };
   }
 
   Map<String, Object?> _normalizedDeviceInfo(Map<String, Object?> data) {
