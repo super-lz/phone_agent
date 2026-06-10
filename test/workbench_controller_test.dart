@@ -142,7 +142,54 @@ void main() {
     expect(text, contains('本轮路由模型只暴露以下工具 schema'));
     expect(text, contains('web_search / web_fetch'));
     expect(text, contains('<workflow_contracts>'));
+    expect(text, isNot(contains('<jsbridge_skill>')));
     expect(text, contains('<current_context>'));
+  });
+
+  test('model prompt includes JSBridge skill only for web app work', () async {
+    final chatClient = _FakeChatClient([
+      [
+        ChatStreamEvent(
+          toolCallDeltas: [
+            ToolCallDelta(
+              index: 0,
+              id: 'call-jsbridge-app',
+              name: 'project_create_web_app',
+              argumentsDelta: jsonEncode({
+                'title': '设备信息 Web App',
+                'summary': '用于验证 JSBridge 指南注入。',
+                'entry_path': 'apps/device-info/index.html',
+                'files': [
+                  {
+                    'path': 'apps/device-info/index.html',
+                    'content':
+                        '<!doctype html><html><body><main>Device</main></body></html>',
+                  },
+                ],
+                'permissions': ['device.info'],
+              }),
+            ),
+          ],
+        ),
+      ],
+      [const ChatStreamEvent(contentDelta: '已创建。')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt('创建一个能读取设备信息的 Web App');
+
+    final systemPrompt = chatClient.capturedMessages.first.first['content'];
+    expect(systemPrompt, isA<String>());
+    final text = systemPrompt! as String;
+    expect(text, contains('<jsbridge_skill>'));
+    expect(text, contains('Phone Agent Runtime injects window.PhoneAgent'));
+    expect(
+      text,
+      contains('permissions: [\'device.info\', \'time.get_current\']'),
+    );
   });
 
   test(

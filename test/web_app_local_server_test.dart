@@ -13,7 +13,7 @@ void main() {
       workspaceId: 'work',
       path: 'apps/demo/index.html',
       content:
-          '<!doctype html><html><head><link rel="stylesheet" href="./style.css"></head><body>Hello</body></html>',
+          '<!doctype html><html><head><script src="./app.js"></script><link rel="stylesheet" href="./style.css"></head><body>Hello</body></html>',
       overwrite: true,
     );
     await fileStore.writeText(
@@ -56,11 +56,68 @@ void main() {
     expect(html.statusCode, HttpStatus.ok);
     expect(html.body, contains('window.__phoneAgentBridge = true'));
     expect(html.body, contains('Hello'));
+    expect(
+      html.body.indexOf('window.__phoneAgentBridge = true'),
+      lessThan(html.body.indexOf('<script src="./app.js"></script>')),
+    );
 
     final css = await _get(url.resolve('style.css'));
     expect(css.statusCode, HttpStatus.ok);
     expect(css.contentType, startsWith('text/css'));
     expect(css.body, contains('rgb(1, 2, 3)'));
+
+    final mediaDir = await Directory.systemTemp.createTemp(
+      'phone-agent-webapp-media-',
+    );
+    addTearDown(() async {
+      if (await mediaDir.exists()) {
+        await mediaDir.delete(recursive: true);
+      }
+    });
+    final audioFile = File('${mediaDir.path}/voice.m4a');
+    await audioFile.writeAsBytes([0, 1, 2, 3, 4]);
+    final imageFile = File('${mediaDir.path}/photo.jpg');
+    await imageFile.writeAsBytes([5, 6, 7]);
+
+    final bridgeResult = server.attachLocalFileUrls({
+      'ok': true,
+      'capabilityId': 'audio.record_stop',
+      'output': {
+        'ok': true,
+        'mediaType': 'audio',
+        'path': audioFile.path,
+        'uri': audioFile.uri.toString(),
+        'mimeType': 'audio/mp4',
+        'items': [
+          {
+            'ok': true,
+            'mediaType': 'image',
+            'path': imageFile.path,
+            'uri': imageFile.uri.toString(),
+            'mimeType': 'image/jpeg',
+          },
+        ],
+      },
+    });
+    final output = bridgeResult['output']! as Map<String, Object?>;
+    final mediaUrl = Uri.parse(output['mediaUrl']! as String);
+    expect(mediaUrl.host, InternetAddress.loopbackIPv4.address);
+
+    final audio = await _getBytes(mediaUrl);
+    expect(audio.statusCode, HttpStatus.ok);
+    expect(audio.contentType, startsWith('audio/mp4'));
+    expect(audio.bytes, [0, 1, 2, 3, 4]);
+
+    final audioRange = await _getBytes(mediaUrl, range: 'bytes=1-3');
+    expect(audioRange.statusCode, HttpStatus.partialContent);
+    expect(audioRange.bytes, [1, 2, 3]);
+
+    final items = output['items']! as List<Object?>;
+    final firstItem = items.single! as Map<String, Object?>;
+    final image = await _getBytes(Uri.parse(firstItem['mediaUrl']! as String));
+    expect(image.statusCode, HttpStatus.ok);
+    expect(image.contentType, startsWith('image/jpeg'));
+    expect(image.bytes, [5, 6, 7]);
 
     await server.close();
     await expectLater(_get(url), throwsA(isA<SocketException>()));
@@ -83,6 +140,28 @@ Future<_HttpTextResponse> _get(Uri uri) async {
   }
 }
 
+Future<_HttpBytesResponse> _getBytes(Uri uri, {String? range}) async {
+  final client = HttpClient();
+  try {
+    final request = await client.getUrl(uri);
+    if (range != null) {
+      request.headers.set(HttpHeaders.rangeHeader, range);
+    }
+    final response = await request.close();
+    final bytes = await response.fold<List<int>>(
+      <int>[],
+      (previous, element) => previous..addAll(element),
+    );
+    return _HttpBytesResponse(
+      statusCode: response.statusCode,
+      contentType: response.headers.contentType.toString(),
+      bytes: bytes,
+    );
+  } finally {
+    client.close(force: true);
+  }
+}
+
 class _HttpTextResponse {
   const _HttpTextResponse({
     required this.statusCode,
@@ -93,4 +172,16 @@ class _HttpTextResponse {
   final int statusCode;
   final String contentType;
   final String body;
+}
+
+class _HttpBytesResponse {
+  const _HttpBytesResponse({
+    required this.statusCode,
+    required this.contentType,
+    required this.bytes,
+  });
+
+  final int statusCode;
+  final String contentType;
+  final List<int> bytes;
 }

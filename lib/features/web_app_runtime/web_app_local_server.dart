@@ -29,6 +29,7 @@ class WebAppLocalServer {
 
   HttpServer? _server;
   late final String _token = _createToken();
+  final Map<String, _LocalFileResource> _localFiles = {};
 
   Future<Uri> start() async {
     final server = await HttpServer.bind(
@@ -51,6 +52,44 @@ class WebAppLocalServer {
       port: server.port,
       pathSegments: ['webapps', webApp.id, _token, ...entryPath.split('/')],
     );
+  }
+
+  Uri? registerLocalFile({required String path, String? mimeType}) {
+    final server = _server;
+    final normalizedPath = path.trim();
+    if (server == null || normalizedPath.isEmpty) {
+      return null;
+    }
+    final file = File(normalizedPath);
+    if (!file.existsSync()) {
+      return null;
+    }
+    final id = _createToken();
+    _localFiles[id] = _LocalFileResource(
+      path: normalizedPath,
+      contentType: mimeType ?? _mimeTypeFor(normalizedPath),
+    );
+    return Uri(
+      scheme: 'http',
+      host: InternetAddress.loopbackIPv4.address,
+      port: server.port,
+      pathSegments: [
+        'webapps',
+        webApp.id,
+        _token,
+        '__phone_agent_media__',
+        id,
+        _fileNameForPath(normalizedPath),
+      ],
+    );
+  }
+
+  Map<String, Object?> attachLocalFileUrls(Map<String, Object?> bridgeResult) {
+    final output = bridgeResult['output'];
+    if (output is! Map<Object?, Object?>) {
+      return bridgeResult;
+    }
+    return {...bridgeResult, 'output': _decorateCapabilityOutput(output)};
   }
 
   Future<void> close() async {
@@ -82,6 +121,16 @@ class WebAppLocalServer {
         return;
       }
 
+      final localFile = _localFileFor(request.uri);
+      if (localFile != null) {
+        await _writeLocalFileResource(request, localFile);
+        return;
+      }
+      if (_isLocalFileRequest(request.uri)) {
+        _writePlainText(request.response, HttpStatus.notFound, '404');
+        return;
+      }
+
       final path = _resourcePathFor(request.uri);
       if (path == null) {
         _writePlainText(request.response, HttpStatus.forbidden, '403');
@@ -103,6 +152,22 @@ class WebAppLocalServer {
       });
       _writePlainText(request.response, HttpStatus.internalServerError, '500');
     }
+  }
+
+  bool _isLocalFileRequest(Uri uri) {
+    final segments = uri.pathSegments;
+    return segments.length >= 5 &&
+        segments[0] == 'webapps' &&
+        segments[1] == webApp.id &&
+        segments[2] == _token &&
+        segments[3] == '__phone_agent_media__';
+  }
+
+  _LocalFileResource? _localFileFor(Uri uri) {
+    if (!_isLocalFileRequest(uri)) {
+      return null;
+    }
+    return _localFiles[uri.pathSegments[4]];
   }
 
   String? _resourcePathFor(Uri uri) {
@@ -145,6 +210,45 @@ class WebAppLocalServer {
       bytes: utf8.encode(responseContent),
       contentType: mimeType,
     );
+  }
+
+  Future<void> _writeLocalFileResource(
+    HttpRequest request,
+    _LocalFileResource resource,
+  ) async {
+    final file = File(resource.path);
+    if (!await file.exists()) {
+      _writePlainText(request.response, HttpStatus.notFound, '404');
+      return;
+    }
+
+    final length = await file.length();
+    final range = _parseRange(
+      request.headers.value(HttpHeaders.rangeHeader),
+      length,
+    );
+    final start = range?.start ?? 0;
+    final end = range?.end ?? max(length - 1, 0);
+    final contentLength = length == 0 ? 0 : end - start + 1;
+    final response = request.response;
+    response.headers
+      ..contentType = ContentType.parse(resource.contentType)
+      ..set(HttpHeaders.acceptRangesHeader, 'bytes')
+      ..set(HttpHeaders.cacheControlHeader, 'no-store');
+    response.statusCode = range == null
+        ? HttpStatus.ok
+        : HttpStatus.partialContent;
+    if (range != null) {
+      response.headers.set(
+        HttpHeaders.contentRangeHeader,
+        'bytes $start-$end/$length',
+      );
+    }
+    response.contentLength = contentLength;
+    if (request.method != 'HEAD' && contentLength > 0) {
+      await response.addStream(file.openRead(start, end + 1));
+    }
+    await response.close();
   }
 
   void _writeResource(HttpRequest request, _LocalWebResource resource) {
@@ -206,10 +310,12 @@ class WebAppLocalServer {
   }
 
   String _injectBridge(String html) {
-    final lower = html.toLowerCase();
-    final headClose = lower.indexOf('</head>');
-    if (headClose >= 0) {
-      return '${html.substring(0, headClose)}$htmlHeadInjection${html.substring(headClose)}';
+    final headOpen = RegExp(
+      r'<head\b[^>]*>',
+      caseSensitive: false,
+    ).firstMatch(html);
+    if (headOpen != null) {
+      return '${html.substring(0, headOpen.end)}$htmlHeadInjection${html.substring(headOpen.end)}';
     }
 
     final htmlOpen = RegExp(
@@ -274,6 +380,9 @@ $html
     if (lower.endsWith('.mp3')) {
       return 'audio/mpeg';
     }
+    if (lower.endsWith('.m4a') || lower.endsWith('.aac')) {
+      return 'audio/mp4';
+    }
     if (lower.endsWith('.wav')) {
       return 'audio/wav';
     }
@@ -301,12 +410,86 @@ $html
     final bytes = List<int>.generate(18, (_) => random.nextInt(256));
     return base64Url.encode(bytes).replaceAll('=', '');
   }
+
+  Map<String, Object?> _decorateCapabilityOutput(
+    Map<Object?, Object?> rawOutput,
+  ) {
+    final output = <String, Object?>{
+      for (final entry in rawOutput.entries)
+        entry.key.toString(): _decorateCapabilityValue(entry.value),
+    };
+    final localUrl = _localUrlForOutput(output);
+    if (localUrl == null) {
+      return output;
+    }
+
+    output.putIfAbsent('localUrl', () => localUrl);
+    final mediaType = output['mediaType'];
+    if (mediaType == 'image' || mediaType == 'video' || mediaType == 'audio') {
+      output.putIfAbsent('mediaUrl', () => localUrl);
+    } else if (mediaType == 'file') {
+      output.putIfAbsent('fileUrl', () => localUrl);
+    }
+    return output;
+  }
+
+  Object? _decorateCapabilityValue(Object? value) {
+    if (value is Map<Object?, Object?>) {
+      return _decorateCapabilityOutput(value);
+    }
+    if (value is List<Object?>) {
+      return [for (final item in value) _decorateCapabilityValue(item)];
+    }
+    return value;
+  }
+
+  String? _localUrlForOutput(Map<String, Object?> output) {
+    if (output['recording'] == true || output['cancelled'] == true) {
+      return null;
+    }
+    final path = _localPathForOutput(output);
+    if (path == null) {
+      return null;
+    }
+    final rawMimeType = output['mimeType'];
+    return registerLocalFile(
+      path: path,
+      mimeType: rawMimeType is String ? rawMimeType : null,
+    )?.toString();
+  }
+
+  String? _localPathForOutput(Map<String, Object?> output) {
+    final path = output['path'];
+    if (path is String && path.trim().isNotEmpty) {
+      return path.trim();
+    }
+    final uri = output['uri'];
+    if (uri is! String || uri.trim().isEmpty) {
+      return null;
+    }
+    final parsed = Uri.tryParse(uri);
+    if (parsed == null || !parsed.isScheme('file')) {
+      return null;
+    }
+    return parsed.toFilePath();
+  }
+
+  String _fileNameForPath(String path) {
+    return path.split(Platform.pathSeparator).last;
+  }
 }
 
 class _LocalWebResource {
   const _LocalWebResource({required this.bytes, required this.contentType});
 
   final List<int> bytes;
+  final String contentType;
+}
+
+class _LocalFileResource {
+  const _LocalFileResource({required this.path, required this.contentType});
+
+  final String path;
   final String contentType;
 }
 

@@ -18,7 +18,8 @@ String buildWebAppBridgeHeadHtml(AgentArtifact webApp) {
           callCapability: "await window.PhoneAgent.callCapability('device.info', {})",
           getDeviceInfo: "await window.PhoneAgent.getDeviceInfo()",
           getRuntimeInfo: "window.PhoneAgent.getRuntimeInfo()",
-          permissionDeclaration: "artifact_create.metadata.permissions must include each called capability id"
+          permissionDeclaration: "artifact_create.metadata.permissions must include each called capability id",
+          localMediaOutput: "camera/audio/file outputs may include output.mediaUrl, output.fileUrl, or output.localUrl for same-origin preview/playback"
         },
         getManifest: function() {
           return manifest;

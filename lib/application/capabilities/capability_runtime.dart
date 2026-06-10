@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import '../../core/logging/app_logger.dart';
 import '../../data/capabilities/native_capability_adapter.dart';
 import '../../data/capabilities/web_capability_adapter.dart';
@@ -363,9 +365,23 @@ class CapabilityRuntime {
           arguments: toolCall.arguments,
         );
       case 'camera_capture_photo':
-        return await _nativeHandler.capturePhoto(arguments: toolCall.arguments);
+        return await _persistNativeFiles(
+          result: await _nativeHandler.capturePhoto(
+            arguments: toolCall.arguments,
+          ),
+          workspaceId: workspaceId,
+          fileStore: fileStore,
+          directory: 'media/photos',
+        );
       case 'camera_capture_video':
-        return await _nativeHandler.captureVideo(arguments: toolCall.arguments);
+        return await _persistNativeFiles(
+          result: await _nativeHandler.captureVideo(
+            arguments: toolCall.arguments,
+          ),
+          workspaceId: workspaceId,
+          fileStore: fileStore,
+          directory: 'media/videos',
+        );
       case 'flashlight_set':
         return await _nativeHandler.setFlashlight(
           arguments: toolCall.arguments,
@@ -373,19 +389,46 @@ class CapabilityRuntime {
       case 'flashlight_status':
         return await _nativeHandler.getFlashlightStatus();
       case 'media_pick_image':
-        return await _nativeHandler.pickImage(arguments: toolCall.arguments);
+        return await _persistNativeFiles(
+          result: await _nativeHandler.pickImage(arguments: toolCall.arguments),
+          workspaceId: workspaceId,
+          fileStore: fileStore,
+          directory: 'media/images',
+        );
       case 'media_pick_images':
-        return await _nativeHandler.pickImages(arguments: toolCall.arguments);
+        return await _persistNativeFiles(
+          result: await _nativeHandler.pickImages(
+            arguments: toolCall.arguments,
+          ),
+          workspaceId: workspaceId,
+          fileStore: fileStore,
+          directory: 'media/images',
+        );
       case 'media_pick_video':
-        return await _nativeHandler.pickVideo();
+        return await _persistNativeFiles(
+          result: await _nativeHandler.pickVideo(),
+          workspaceId: workspaceId,
+          fileStore: fileStore,
+          directory: 'media/videos',
+        );
       case 'file_pick_system_file':
-        return await _nativeHandler.pickSystemFile(
-          arguments: toolCall.arguments,
+        return await _persistNativeFiles(
+          result: await _nativeHandler.pickSystemFile(
+            arguments: toolCall.arguments,
+          ),
+          workspaceId: workspaceId,
+          fileStore: fileStore,
+          directory: 'imports/files',
         );
       case 'audio_record_start':
         return await _nativeHandler.startAudioRecording();
       case 'audio_record_stop':
-        return await _nativeHandler.stopAudioRecording();
+        return await _persistNativeFiles(
+          result: await _nativeHandler.stopAudioRecording(),
+          workspaceId: workspaceId,
+          fileStore: fileStore,
+          directory: 'media/audio',
+        );
       case 'audio_record_cancel':
         return await _nativeHandler.cancelAudioRecording();
       case 'contacts_pick':
@@ -914,6 +957,143 @@ class CapabilityRuntime {
       return CapabilityInvocationStatus.completed;
     }
     return CapabilityInvocationStatus.failed;
+  }
+
+  Future<CapabilityExecutionResult> _persistNativeFiles({
+    required CapabilityExecutionResult result,
+    required String workspaceId,
+    required AppFileStore? fileStore,
+    required String directory,
+  }) async {
+    if (fileStore == null || result.output['ok'] != true) {
+      return result;
+    }
+    final output = Map<String, Object?>.from(result.output);
+    final rawItems = output['items'];
+    if (rawItems is List<Object?>) {
+      final persistedItems = <Object?>[];
+      for (final item in rawItems) {
+        if (item is Map<Object?, Object?>) {
+          persistedItems.add(
+            await _persistNativeFileOutput(
+              output: item.map((key, value) => MapEntry(key.toString(), value)),
+              workspaceId: workspaceId,
+              fileStore: fileStore,
+              directory: directory,
+            ),
+          );
+        } else {
+          persistedItems.add(item);
+        }
+      }
+      output['items'] = persistedItems;
+      return CapabilityExecutionResult(
+        capabilityId: result.capabilityId,
+        output: output,
+      );
+    }
+
+    return CapabilityExecutionResult(
+      capabilityId: result.capabilityId,
+      output: await _persistNativeFileOutput(
+        output: output,
+        workspaceId: workspaceId,
+        fileStore: fileStore,
+        directory: directory,
+      ),
+    );
+  }
+
+  Future<Map<String, Object?>> _persistNativeFileOutput({
+    required Map<String, Object?> output,
+    required String workspaceId,
+    required AppFileStore fileStore,
+    required String directory,
+  }) async {
+    final sourcePath = _nativeSourcePath(output);
+    if (sourcePath == null) {
+      return output;
+    }
+    try {
+      final sourceFile = File(sourcePath);
+      if (!await sourceFile.exists()) {
+        return {
+          ...output,
+          'savedToWorkspace': false,
+          'workspaceSaveError': 'source_file_not_found',
+        };
+      }
+      final bytes = await sourceFile.readAsBytes();
+      final workspacePath = _workspaceImportPath(
+        directory: directory,
+        sourcePath: sourcePath,
+        name: output['name'],
+      );
+      final writeResult = await fileStore.writeBytes(
+        workspaceId: workspaceId,
+        path: workspacePath,
+        bytes: bytes,
+        overwrite: true,
+      );
+      return {
+        ...output,
+        'savedToWorkspace': true,
+        'workspacePath': writeResult.path,
+        'workspaceUri': writeResult.uri.toString(),
+        'workspaceBytes': writeResult.bytes,
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.warning('capability.native_file_persist.failed', {
+        'workspaceId': workspaceId,
+        'directory': directory,
+        'sourcePath': sourcePath,
+        'error': error.toString(),
+      });
+      AppLogger.error(
+        'capability.native_file_persist.failed.stack',
+        error,
+        stackTrace,
+      );
+      return {
+        ...output,
+        'savedToWorkspace': false,
+        'workspaceSaveError': error.toString(),
+      };
+    }
+  }
+
+  String? _nativeSourcePath(Map<String, Object?> output) {
+    final path = output['path'];
+    if (path is String && path.trim().isNotEmpty) {
+      return path.trim();
+    }
+    final uriText = output['uri'];
+    if (uriText is! String || uriText.trim().isEmpty) {
+      return null;
+    }
+    final uri = Uri.tryParse(uriText);
+    if (uri == null || uri.scheme != 'file') {
+      return null;
+    }
+    return uri.toFilePath();
+  }
+
+  String _workspaceImportPath({
+    required String directory,
+    required String sourcePath,
+    required Object? name,
+  }) {
+    final now = DateTime.now();
+    final date = [
+      now.year.toString().padLeft(4, '0'),
+      now.month.toString().padLeft(2, '0'),
+      now.day.toString().padLeft(2, '0'),
+    ].join('-');
+    final rawName = name is String && name.trim().isNotEmpty
+        ? name.trim()
+        : p.basename(sourcePath);
+    final safeName = rawName.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    return '$directory/$date/${now.microsecondsSinceEpoch}-$safeName';
   }
 
   List<Map<String, Object?>> get toolDefinitions {

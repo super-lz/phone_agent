@@ -18,6 +18,7 @@ import 'agent_run_state.dart';
 import 'conversation_context_builder.dart';
 import 'tool_call_accumulator.dart';
 import 'tool_router.dart';
+import 'web_app_jsbridge_guide.dart';
 
 typedef AddAgentMessage = void Function(AgentMessage message);
 typedef ReplaceAgentMessage =
@@ -537,6 +538,11 @@ class AgentLoop {
     required String toolIndex,
   }) {
     final memoryBlock = memories.isEmpty ? '- 暂无' : memories;
+    final shouldIncludeJsBridgeSkill =
+        toolIndex.contains('project_create_web_app') ||
+        toolIndex.contains('project_update_web_app') ||
+        toolIndex.contains('project_test_web_app') ||
+        toolIndex.contains('artifact_create');
     return [
       '<role>',
       '你是 Phone Agent，运行在移动端 Agent 工作台，帮助用户在手机上完成学习、工作、生活和创作任务。',
@@ -590,6 +596,12 @@ class AgentLoop {
       '- 用户反馈已生成 Web App 的问题时，先读取 .phone-agent/runtime.log 和相关项目文件，再定位并修复。',
       '</web_app_contract>',
       '',
+      if (shouldIncludeJsBridgeSkill) ...[
+        '<jsbridge_skill>',
+        webAppJsBridgeGuide,
+        '</jsbridge_skill>',
+        '',
+      ],
       '<current_context>',
       'Workspace: ${workspace.name}',
       'Local time: $currentTime',

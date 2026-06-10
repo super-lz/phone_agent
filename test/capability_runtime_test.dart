@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone_agent/application/capabilities/capability_runtime.dart';
 import 'package:phone_agent/data/capabilities/native_capability_adapter.dart';
@@ -1275,6 +1277,67 @@ void main() {
       expect(fileResult.output['name'], '需求.pdf');
     },
   );
+
+  test('native media files are copied into workspace file store', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'phone-agent-native-media-test-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+    final photo = File('${tempDir.path}/camera.jpg');
+    final audio = File('${tempDir.path}/voice.m4a');
+    await photo.writeAsBytes([1, 2, 3, 4]);
+    await audio.writeAsBytes([5, 6, 7]);
+
+    final fileStore = InMemoryAppFileStore();
+    final runtime = CapabilityRuntime(
+      nativeAdapter: _FileBackedNativeAdapter(
+        photoPath: photo.path,
+        audioPath: audio.path,
+      ),
+    );
+
+    final photoResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-camera-persist',
+        name: 'camera_capture_photo',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      fileStore: fileStore,
+    );
+    final audioResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-audio-stop-persist',
+        name: 'audio_record_stop',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+      fileStore: fileStore,
+    );
+
+    expect(photoResult.output['savedToWorkspace'], isTrue);
+    expect(photoResult.output['workspacePath'], startsWith('media/photos/'));
+    expect(audioResult.output['savedToWorkspace'], isTrue);
+    expect(audioResult.output['workspacePath'], startsWith('media/audio/'));
+    final files = await fileStore.listFiles(workspaceId: 'default');
+    expect(
+      files.map((file) => file.path),
+      containsAll([
+        photoResult.output['workspacePath'],
+        audioResult.output['workspacePath'],
+      ]),
+    );
+  });
 
   test('runtime can control flashlight through native adapter', () async {
     final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
@@ -2745,6 +2808,46 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
       'endsAt': endsAt.toIso8601String(),
       'allDay': allDay,
       'requiresUserConfirmation': true,
+    };
+  }
+}
+
+class _FileBackedNativeAdapter extends _FakeNativeAdapter {
+  _FileBackedNativeAdapter({required this.photoPath, required this.audioPath});
+
+  final String photoPath;
+  final String audioPath;
+
+  @override
+  Future<Map<String, Object?>> capturePhoto({
+    double? maxWidth,
+    double? maxHeight,
+    int? imageQuality,
+  }) async {
+    return {
+      'ok': true,
+      'source': 'camera',
+      'mediaType': 'image',
+      'name': 'camera.jpg',
+      'path': photoPath,
+      'uri': Uri.file(photoPath).toString(),
+      'bytes': await File(photoPath).length(),
+      'mimeType': 'image/jpeg',
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> stopAudioRecording() async {
+    return {
+      'ok': true,
+      'source': 'microphone',
+      'mediaType': 'audio',
+      'name': 'voice.m4a',
+      'path': audioPath,
+      'uri': Uri.file(audioPath).toString(),
+      'bytes': await File(audioPath).length(),
+      'mimeType': 'audio/mp4',
+      'extension': 'm4a',
     };
   }
 }

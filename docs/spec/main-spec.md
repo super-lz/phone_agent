@@ -184,15 +184,15 @@
 - 对创建网页、网站、小游戏、Web App、原型或本地可维护项目这类真实产物请求，系统必须把真实创建 Capability 视为必需工具；在必需工具成功执行前，Agent 不得声称产物已经创建、已保存或可预览。若模型只用自然语言声称完成，系统必须拦截并重新要求调用必需工具；重试后仍未完成时，必须返回未创建的结构化错误。
 - 当用户要求维护或迭代已生成的本地项目时，Agent 应先搜索或读取相关文件片段，再用精确文本补丁修改文件；需要新增图片、样式、脚本或其它资源时，应写入原 Web App 项目目录内并更新原项目文件清单；补丁原文无法唯一匹配、目标路径越界或试图跨项目写入时必须返回结构化错误，避免盲目覆盖。
 - Web App 创建或更新后，Agent 应调用项目级测试能力检查原项目；测试失败时应基于错误继续修复，或在无法继续时向用户说明剩余问题和未通过项，不得在测试失败后声称项目完全完成。
-- 当前 Workspace 的 App File 必须有可发现入口；用户可以在运行时区域查看当前 Workspace 文件列表，点击预览文本内容，并通过系统分享或保存入口导出文件。
+- 当前 Workspace 的 App File 必须有可发现入口；运行时区域提供工作区文件管理器入口，而不是直接平铺所有文件。文件管理器按相对路径展示顶层目录和文件，用户可以进入文件夹、通过层级导航或返回上级按钮切换目录，点击文件后按类型预览、分享或导出。
 - 第一版 Office/PDF 能力必须支持上传或导入后的 Word、Excel、PPT、PDF 文件内容提取，并让 Agent 基于提取文本完成总结、问答和审阅；扫描版 PDF 的 OCR 不作为第一版承诺。
 - 第一版 Office/PDF 能力必须支持生成新的 `docx`、`xlsx`、`pptx` 和 `pdf` 文件，并写入当前 Workspace 文件区供用户预览、分享或导出。
 - 第一版 Office/PDF 能力可以做受控局部文本替换并生成新文件，但不承诺保留复杂 Office 原格式；完整所见即所得编辑仍应交给外部 App 或后续 OnlyOffice/Collabora 类适配。
 - 当用户要求查看当前应用版本、构建号、包名或 Bundle ID 时，Agent 可以调用 `app.info`；结果必须包含应用名、平台、包名或 Bundle ID、版本号、构建号和面向用户的摘要。该能力只读取当前 Phone Agent 应用本身的信息，不读取其它 App 信息。
 - 当用户要求查看当前设备环境、读取剪贴板或复制内容时，Agent 可以调用 `device.info`、`clipboard.read` 或 `clipboard.write`；设备信息结果必须包含面向用户的摘要和规范化平台、型号、系统版本等基础字段；剪贴板读取不应在用户未明确要求时主动触发。
-- 当用户明确要求拍照、拍视频、从相册选择单张图片、多张图片或视频、从系统文件选择器选择文件时，Agent 可以调用 `camera.capture_photo`、`camera.capture_video`、`media.pick_image`、`media.pick_images`、`media.pick_video` 或 `file.pick_system_file`；这些能力必须触发系统 UI 并允许用户取消，成功时返回文件名、本地 URI、媒体类型、MIME 类型和大小等结构化元数据，多图选择还必须返回数量和每张图片的结构化元数据列表。
+- 当用户明确要求拍照、拍视频、从相册选择单张图片、多张图片或视频、从系统文件选择器选择文件时，Agent 可以调用 `camera.capture_photo`、`camera.capture_video`、`media.pick_image`、`media.pick_images`、`media.pick_video` 或 `file.pick_system_file`；这些能力必须触发系统 UI 并允许用户取消，成功时返回文件名、本地 URI、媒体类型、MIME 类型和大小等结构化元数据，多图选择还必须返回数量和每张图片的结构化元数据列表。成功取得的文件必须复制进当前 Workspace 文件区，并按类型和日期自动归档，例如图片、视频、音频和导入文件分别进入稳定目录；返回结果必须保留原始本地 URI，并补充工作区相对路径。
 - 当用户明确要求打开、关闭或查询手机手电筒/闪光灯硬件时，Agent 可以调用 `flashlight.set` 或 `flashlight.status`；打开或关闭必须检查相机权限并返回是否可用、是否开启和可读摘要，设备无闪光灯、权限拒绝或平台异常时必须返回结构化错误。该能力控制手机硬件，不用于网页视觉闪光效果。
-- 当用户明确要求开始、停止或取消录音时，Agent 可以调用 `audio.record_start`、`audio.record_stop` 或 `audio.record_cancel`；同一时间只能有一个麦克风录音会话，停止成功时必须返回音频文件元数据，没有活跃录音时必须返回结构化错误。
+- 当用户明确要求开始、停止或取消录音时，Agent 可以调用 `audio.record_start`、`audio.record_stop` 或 `audio.record_cancel`；同一时间只能有一个麦克风录音会话，停止成功时必须返回音频文件元数据，并把最终音频复制进当前 Workspace 文件区的音频目录；没有活跃录音时必须返回结构化错误。
 - 当用户明确要求选择联系人、从通讯录导入联系人或本地 Web App 需要联系人输入时，Agent 可以调用 `contacts.pick`；该能力必须触发用户选择流程，只返回用户选中的单个联系人姓名、电话和邮箱等结构化信息，不能读取或返回完整通讯录。
 - 当用户明确要求扫描二维码/条码，或识别图片、截图、照片中的二维码/条码时，Agent 可以调用 `barcode.scan_camera` 或 `barcode.scan_image`；这些能力必须由用户触发系统相机或图片选择流程，成功时返回码值、显示值、格式、类型和数量等结构化结果，用户取消或未识别到码时返回结构化失败。
 - 当用户要求查看电量或网络连接类型时，Agent 可以调用 `battery.status` 或 `network.status`；电量和网络结果必须包含面向用户的摘要；网络状态只表示设备连接类型，不能等同于目标网站或互联网一定可达。
@@ -219,7 +219,9 @@
 - WebView 小应用运行时、manifest 语义和 JSBridge 语义。
 - Web App Artifact 可以从应用库打开；本地 Web App 通过 `window.PhoneAgent.getManifest()` 获取 manifest，通过 `window.PhoneAgent.callCapability(id, input)` 调用 manifest 已声明权限内的 Capability。
 - Web App 运行时必须向页面暴露可发现的 JSBridge 契约，至少包括 manifest 读取、可用 Capability 列表和 Capability 调用入口，便于 AI 生成的网页自检权限和能力。
+- Web App 运行时必须在页面自有脚本执行前暴露 `window.PhoneAgent`，使入口 HTML、外部脚本和后续交互都能稳定读取 JSBridge 契约。
 - Web App JSBridge 必须提供设备信息、手电筒等常用能力的可发现调用方式；页面需要设备信息或受控硬件能力时应通过已声明权限的 JSBridge 调用，而不是依赖浏览器伪造的设备环境。
+- Web App 通过 JSBridge 获取拍照、媒体选择、录音停止或系统文件选择结果时，除保留原始文件元数据外，运行时必须提供 WebApp 可直接使用的同源本地资源 URL，使图片、音频和视频可以在页面内预览或播放。
 - 对话中的 Web App 卡片必须能直接打开同一个 Web App 预览页面，并以清晰的本地应用入口样式展示标题、类型和打开操作。
 - Web App Artifact 必须保存可运行入口内容和可发现的工程 manifest。缺少可运行入口内容时不得展示成“已加载”的假预览，必须返回结构化错误或可诊断提示。
 - Web App 打开前必须向用户展示 manifest 声明的能力权限；用户拒绝后 Web App 仍可打开，但 JSBridge 能力调用必须返回结构化权限错误。

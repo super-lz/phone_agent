@@ -187,7 +187,7 @@ class CapabilityToolDefinitions {
         'function': {
           'name': 'project_create_web_app',
           'description':
-              '创建一个可维护的本地 Web 工程并生成可预览 Web App 卡片。用户要求创建小游戏、交互网页、Web App、原型、HTML 页面或“下面给我卡片/能打开体验”时优先使用本工具；必须写入真实项目文件，不能只在正文中说已创建。除极小页面外，默认拆成 index.html、styles.css、app.js 等文件，后续维护时先用 file_search_app_files/file_read_app_file 定位，再用 file_apply_text_patch 修改。默认按手机竖屏设计，适配 360-430px 宽度、触摸操作和安全区域，避免桌面优先布局。',
+              '创建一个可维护的本地 Web 工程并生成可预览 Web App 卡片。用户要求创建小游戏、交互网页、Web App、原型、HTML 页面或“下面给我卡片/能打开体验”时优先使用本工具；必须写入真实项目文件，不能只在正文中说已创建。除极小页面外，默认拆成 index.html、styles.css、app.js 等文件，后续维护时先用 file_search_app_files/file_read_app_file 定位，再用 file_apply_text_patch 修改。默认按手机竖屏设计，适配 360-430px 宽度、触摸操作和安全区域，避免桌面优先布局。需要手机能力时必须遵循 <jsbridge_skill>：声明 permissions，使用 window.PhoneAgent，不要自建或引用 JSBridge SDK。',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -210,7 +210,7 @@ class CapabilityToolDefinitions {
                     'content': {
                       'type': 'string',
                       'description':
-                          '完整文件内容。入口文件应是完整可运行 HTML，默认移动端竖屏布局；需要 WebView 视口信息时用 window.PhoneAgent.getRuntimeInfo()，需要手机能力时通过 window.PhoneAgent.callCapability 或 window.PhoneAgent.getDeviceInfo 等 JSBridge helper 调用。',
+                          '完整文件内容。入口文件应是完整可运行 HTML，默认移动端竖屏布局；需要 WebView 视口信息时用 window.PhoneAgent.getRuntimeInfo()；需要手机能力时按 <jsbridge_skill> 写防御式调用，通过 window.PhoneAgent.callCapability 或 window.PhoneAgent.getDeviceInfo 等 helper 调用。',
                     },
                   },
                   'required': ['path', 'content'],
@@ -218,7 +218,8 @@ class CapabilityToolDefinitions {
               },
               'permissions': {
                 'type': 'array',
-                'description': 'Web App 需要通过 JSBridge 调用的 capability id 列表。',
+                'description':
+                    'Web App JavaScript 通过 JSBridge 调用的精确 capability id 列表；每一个 window.PhoneAgent 调用都必须在这里声明。',
                 'items': {'type': 'string'},
               },
               'metadata': {
@@ -275,7 +276,8 @@ class CapabilityToolDefinitions {
               },
               'permissions': {
                 'type': 'array',
-                'description': '可选，更新 Web App manifest 中声明的 capability 权限。',
+                'description':
+                    '可选，更新 Web App manifest 中声明的 capability 权限；新增 window.PhoneAgent 调用时必须同步补充精确 capability id。',
                 'items': {'type': 'string'},
               },
             },
@@ -342,7 +344,7 @@ class CapabilityToolDefinitions {
         'function': {
           'name': 'artifact_create',
           'description':
-              '当产出需要后续复用、作为卡片展示或创建本地 Web App 时，把结果保存为当前 Workspace 的 Artifact。只要用户要求卡片、预览入口、打开体验或本地 Web App，就必须调用本工具，不能只在 Markdown 中输出假链接。创建 web_app 时必须同时提供 content_html，且应包含完整 HTML、内联 CSS 和内联 JS；Web App 默认按手机竖屏设计。如果网页脚本调用 window.PhoneAgent.callCapability 或 JSBridge helper，metadata.permissions 必须声明每个精确 capability id。',
+              '当产出需要后续复用、作为卡片展示或创建本地 Web App 时，把结果保存为当前 Workspace 的 Artifact。只要用户要求卡片、预览入口、打开体验或本地 Web App，就必须调用本工具，不能只在 Markdown 中输出假链接。创建 web_app 时必须同时提供 content_html，且应包含完整 HTML、内联 CSS 和内联 JS；Web App 默认按手机竖屏设计。如果网页脚本调用 window.PhoneAgent.callCapability 或 JSBridge helper，必须遵循 <jsbridge_skill>，metadata.permissions 必须声明每个精确 capability id。',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -356,7 +358,7 @@ class CapabilityToolDefinitions {
               'content_html': {
                 'type': 'string',
                 'description':
-                    '仅 web_app 使用：完整可运行 HTML 文档或片段，必须包含页面真实内容、样式和交互脚本。优先内联 CSS/JS，避免依赖外部资源。默认移动端竖屏布局，使用 viewport、touch-friendly 控件和安全区域。WebView 视口可用 window.PhoneAgent.getRuntimeInfo()；调用手机能力时使用 window.PhoneAgent.callCapability 或 helper，例如 await window.PhoneAgent.getDeviceInfo()。',
+                    '仅 web_app 使用：完整可运行 HTML 文档或片段，必须包含页面真实内容、样式和交互脚本。优先内联 CSS/JS，避免依赖外部资源。默认移动端竖屏布局，使用 viewport、touch-friendly 控件和安全区域。WebView 视口可用 window.PhoneAgent.getRuntimeInfo()；调用手机能力时按 <jsbridge_skill> 使用 window.PhoneAgent.callCapability 或 helper，例如 await window.PhoneAgent.getDeviceInfo()。',
               },
               'metadata': {
                 'type': 'object',

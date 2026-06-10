@@ -219,11 +219,12 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
       };
     }
     try {
-      return await widget.callCapability(
+      final result = await widget.callCapability(
         webApp: widget.webApp,
         capabilityId: capabilityId,
         input: input,
       );
+      return _localServer?.attachLocalFileUrls(result) ?? result;
     } on Object catch (error) {
       return {'ok': false, 'error': error.toString()};
     }
