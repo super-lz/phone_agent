@@ -29,6 +29,7 @@ import 'widgets/memory_editor_dialog.dart';
 import 'widgets/mobile_drawer_sections.dart';
 import 'widgets/runtime_panel.dart';
 import 'widgets/workbench_shell.dart';
+import 'widgets/workspace_file_manager_page.dart';
 import 'widgets/workspace_panel.dart';
 
 class PhoneAgentHome extends StatefulWidget {
@@ -341,6 +342,21 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
     _openWebApp(artifact);
   }
 
+  Future<void> _openWorkspaceFileManager() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => WorkspaceFileManagerPage(
+          files: _controller.workspaceFiles,
+          onOpenFile: _openWorkspaceFile,
+          onRefreshFiles: () async {
+            await _controller.refreshWorkspaceFiles();
+            return _controller.workspaceFiles;
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _openWorkspaceFile(AppFileEntry entry) async {
     try {
       final extension = entry.path.split('.').last.toLowerCase();
@@ -571,7 +587,9 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
                     capabilities: _controller.capabilities,
                     permissionMode: _controller.permissionMode,
                     onOpenWebApp: _openWebApp,
-                    onOpenFile: _openWorkspaceFile,
+                    onOpenFileManager: () {
+                      unawaited(_openWorkspaceFileManager());
+                    },
                     onRefreshFiles: () {
                       unawaited(_controller.refreshWorkspaceFiles());
                     },
@@ -613,7 +631,9 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
               capabilities: _controller.capabilities,
               permissionMode: _controller.permissionMode,
               onOpenWebApp: _openWebApp,
-              onOpenFile: _openWorkspaceFile,
+              onOpenFileManager: () {
+                unawaited(_openWorkspaceFileManager());
+              },
               onRefreshFiles: () {
                 unawaited(_controller.refreshWorkspaceFiles());
               },

@@ -15,7 +15,7 @@ class RuntimePanel extends StatelessWidget {
     required this.capabilities,
     required this.permissionMode,
     required this.onOpenWebApp,
-    required this.onOpenFile,
+    required this.onOpenFileManager,
     required this.onRefreshFiles,
     super.key,
   });
@@ -26,7 +26,7 @@ class RuntimePanel extends StatelessWidget {
   final List<CapabilityDefinition> capabilities;
   final PermissionMode permissionMode;
   final ValueChanged<AgentArtifact> onOpenWebApp;
-  final ValueChanged<AppFileEntry> onOpenFile;
+  final VoidCallback onOpenFileManager;
   final VoidCallback onRefreshFiles;
 
   @override
@@ -59,23 +59,8 @@ class RuntimePanel extends StatelessWidget {
               (artifact) => _buildArtifactTile(context, artifact),
             ),
           const SizedBox(height: 24),
-          _buildSectionHeader(
-            context,
-            '工作区文件',
-            trailing: IconButton(
-              visualDensity: VisualDensity.compact,
-              icon: Icon(
-                Icons.refresh_rounded,
-                size: 20,
-                color: colors.primaryAction,
-              ),
-              onPressed: onRefreshFiles,
-            ),
-          ),
-          if (files.isEmpty)
-            _buildEmptyState(Icons.folder_open_outlined, '暂无沙箱文件')
-          else
-            ...files.map((file) => _buildFileTile(context, file)),
+          _buildSectionHeader(context, '工作区文件'),
+          _buildFileManagerEntry(context),
           const SizedBox(height: 24),
           _buildSectionHeader(context, '备忘录 (Notes)'),
           if (notes.isEmpty)
@@ -113,6 +98,75 @@ class RuntimePanel extends StatelessWidget {
           ),
           const SizedBox(height: 48),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFileManagerEntry(BuildContext context) {
+    final colors = context.phoneAgentColors;
+    final directoryCount = files
+        .map((file) => file.path.split('/').first)
+        .where((segment) => segment.isNotEmpty)
+        .toSet()
+        .length;
+    final totalBytes = files.fold<int>(0, (sum, file) => sum + file.bytes);
+    return Material(
+      color: colors.cardBackground,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onOpenFileManager,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: colors.border),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.folder_open_rounded,
+                color: colors.primaryAction,
+                size: 24,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '打开文件管理器',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      files.isEmpty
+                          ? '当前工作区暂无文件'
+                          : '${files.length} 个文件 · $directoryCount 个顶层目录 · ${_formatBytes(totalBytes)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: '刷新',
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                color: colors.textSecondary,
+                onPressed: onRefreshFiles,
+              ),
+              Icon(Icons.chevron_right_rounded, color: colors.textTertiary),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -211,34 +265,6 @@ class RuntimePanel extends StatelessWidget {
     );
   }
 
-  Widget _buildFileTile(BuildContext context, AppFileEntry file) {
-    final colors = context.phoneAgentColors;
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: ListTile(
-        visualDensity: const VisualDensity(vertical: -1),
-        leading: Icon(
-          Icons.description_outlined,
-          color: colors.textSecondary,
-          size: 22,
-        ),
-        title: Text(
-          file.path,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: colors.textPrimary,
-          ),
-        ),
-        subtitle: Text(
-          '${_formatBytes(file.bytes)} · ${_formatModified(file.modifiedAt)}',
-          style: TextStyle(fontSize: 12, color: colors.textSecondary),
-        ),
-        onTap: () => onOpenFile(file),
-      ),
-    );
-  }
-
   Widget _buildNoteTile(BuildContext context, AgentNote note) {
     final colors = context.phoneAgentColors;
     return Card(
@@ -277,15 +303,6 @@ class RuntimePanel extends StatelessWidget {
       return '${kib.toStringAsFixed(1)} KB';
     }
     return '${(kib / 1024).toStringAsFixed(1)} MB';
-  }
-
-  String _formatModified(DateTime modifiedAt) {
-    final local = modifiedAt.toLocal();
-    final month = local.month.toString().padLeft(2, '0');
-    final day = local.day.toString().padLeft(2, '0');
-    final hour = local.hour.toString().padLeft(2, '0');
-    final minute = local.minute.toString().padLeft(2, '0');
-    return '$month-$day $hour:$minute';
   }
 }
 
