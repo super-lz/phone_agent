@@ -22,6 +22,31 @@ void main() {
       content: 'body { color: rgb(1, 2, 3); }',
       overwrite: true,
     );
+    await fileStore.writeText(
+      workspaceId: 'work',
+      path: 'apps/demo/server/create-note.json',
+      content: jsonEncode({
+        'steps': [
+          {
+            'id': 'create',
+            'capability': 'db.note.create',
+            'input': {
+              'title': r'$request.title',
+              'content': r'$request.content',
+              'tag': r'$request.tag',
+            },
+          },
+        ],
+        'response': {
+          'ok': true,
+          'saved': r'$steps.create.ok',
+          'capabilityId': r'$steps.create.capabilityId',
+          'title': r'$steps.create.output.input.title',
+          'tag': r'$steps.create.output.input.tag',
+        },
+      }),
+      overwrite: true,
+    );
 
     final server = WebAppLocalServer(
       webApp: AgentArtifact(
@@ -46,6 +71,11 @@ void main() {
                 'path': '/api/notes',
                 'capability': 'db.note.create',
                 'input': {'source': 'server-route'},
+              },
+              {
+                'method': 'POST',
+                'path': '/api/actions/create-note',
+                'handlerPath': 'server/create-note.json',
               },
             ],
           },
@@ -114,6 +144,23 @@ void main() {
     expect(apiInput['tag'], 'today');
     expect(apiInput['title'], '本地 API');
     expect(apiInput['content'], '来自本地后端');
+
+    final action = await _postJson(
+      Uri(
+        scheme: url.scheme,
+        host: url.host,
+        port: url.port,
+        path: '/api/actions/create-note',
+        queryParameters: {'tag': 'handler'},
+      ),
+      {'title': 'Handler API', 'content': '来自服务端代码'},
+    );
+    expect(action.statusCode, HttpStatus.ok);
+    final actionBody = jsonDecode(action.body) as Map<String, Object?>;
+    expect(actionBody['saved'], isTrue);
+    expect(actionBody['capabilityId'], 'db.note.create');
+    expect(actionBody['title'], 'Handler API');
+    expect(actionBody['tag'], 'handler');
 
     final mediaDir = await Directory.systemTemp.createTemp(
       'phone-agent-webapp-media-',
