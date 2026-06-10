@@ -2,12 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:http/http.dart' as http;
 
 import '../../core/logging/app_logger.dart';
 import '../../domain/models/model_provider_config.dart';
-import 'gemma_local_runtime.dart';
 
 class ModelConnectionResult {
   const ModelConnectionResult({required this.ok, required this.message});
@@ -84,18 +82,15 @@ class ModelRequestException implements Exception {
 class OpenAiCompatibleChatClient {
   OpenAiCompatibleChatClient({
     http.Client? httpClient,
-    GemmaLocalRuntime? gemmaLocalRuntime,
     this.requestTimeout = const Duration(seconds: 30),
     this.streamIdleTimeout = const Duration(seconds: 45),
-  }) : _httpClient = httpClient ?? http.Client(),
-       _gemmaLocalRuntime = gemmaLocalRuntime ?? const GemmaLocalRuntime();
+  }) : _httpClient = httpClient ?? http.Client();
 
   static Object? diagnosticPayloadForLog(Object? value) {
     return _diagnosticValue(value);
   }
 
   final http.Client _httpClient;
-  final GemmaLocalRuntime _gemmaLocalRuntime;
   final Duration requestTimeout;
   final Duration streamIdleTimeout;
 
@@ -121,10 +116,6 @@ class OpenAiCompatibleChatClient {
     required List<Map<String, Object?>> messages,
     List<Map<String, Object?>> tools = const [],
   }) async* {
-    if (provider.id == 'gemma_local') {
-      yield* _streamChatLocal(provider: provider, messages: messages);
-      return;
-    }
     final requestBody = {
       'model': provider.model,
       'messages': messages,
@@ -226,37 +217,6 @@ class OpenAiCompatibleChatClient {
     }
   }
 
-  Stream<ChatStreamEvent> _streamChatLocal({
-    required ModelProviderConfig provider,
-    required List<Map<String, Object?>> messages,
-  }) async* {
-    AppLogger.info('model.stream_chat.local.start', {
-      'provider': provider.id,
-      'model': provider.model,
-      'messageCount': messages.length,
-    });
-
-    final inferenceModel = await _gemmaLocalRuntime.getInferenceModel(
-      provider: provider,
-    );
-
-    final chat = await inferenceModel.createChat();
-    for (final msg in messages) {
-      final content = msg['content'] as String? ?? '';
-      final role = msg['role'] as String? ?? '';
-      final isUser = role == 'user' || role == 'system';
-      await chat.addQueryChunk(Message.text(text: content, isUser: isUser));
-    }
-
-    await for (final response in chat.generateChatResponseAsync()) {
-      if (response is TextResponse) {
-        yield ChatStreamEvent(contentDelta: response.token);
-      } else if (response is ThinkingResponse) {
-        yield ChatStreamEvent(contentDelta: response.content);
-      }
-    }
-  }
-
   Future<String> generateResponse({
     required ModelProviderConfig provider,
     required String apiKey,
@@ -281,45 +241,11 @@ class OpenAiCompatibleChatClient {
     return result.content;
   }
 
-  Future<ChatCompletionResult> _completeTextLocal({
-    required ModelProviderConfig provider,
-    required List<Map<String, Object?>> messages,
-  }) async {
-    try {
-      final inferenceModel = await _gemmaLocalRuntime.getInferenceModel(
-        provider: provider,
-      );
-
-      final chat = await inferenceModel.createChat();
-      for (final msg in messages) {
-        final content = msg['content'] as String? ?? '';
-        final role = msg['role'] as String? ?? '';
-        final isUser = role == 'user' || role == 'system';
-        await chat.addQueryChunk(Message.text(text: content, isUser: isUser));
-      }
-
-      final response = await chat.generateChatResponse();
-      String textResult = '';
-      if (response is TextResponse) {
-        textResult = response.token;
-      }
-      return ChatCompletionResult(
-        ok: textResult.isNotEmpty,
-        content: textResult.isEmpty ? '本地模型响应文本为空。' : textResult,
-      );
-    } catch (e) {
-      return ChatCompletionResult(ok: false, content: '本地模型执行出错: $e');
-    }
-  }
-
   Future<ChatCompletionResult> completeText({
     required ModelProviderConfig provider,
     required String apiKey,
     required List<Map<String, Object?>> messages,
   }) async {
-    if (provider.id == 'gemma_local') {
-      return _completeTextLocal(provider: provider, messages: messages);
-    }
     try {
       final response = await _postChatCompletion(
         provider: provider,
@@ -353,14 +279,6 @@ class OpenAiCompatibleChatClient {
     required ModelProviderConfig provider,
     required String apiKey,
   }) async {
-    if (provider.id == 'gemma_local') {
-      try {
-        await _gemmaLocalRuntime.ensureActiveModel(provider);
-        return const ModelConnectionResult(ok: true, message: '本地模型已激活就绪。');
-      } catch (e) {
-        return ModelConnectionResult(ok: false, message: '检查或激活本地模型失败: $e');
-      }
-    }
     AppLogger.info('model.test_connection.start', {
       'provider': provider.id,
       'model': provider.model,

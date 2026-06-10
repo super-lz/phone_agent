@@ -17,9 +17,7 @@ class ModelProviderConfig {
   final Map<String, Object?> defaultParameters;
   final int? maxContextTokens;
 
-  bool get isLocal => baseUrl.scheme == 'local';
-
-  bool get requiresApiKey => !isLocal;
+  bool get requiresApiKey => true;
 
   int? get defaultMaxTokens {
     final raw = defaultParameters['max_tokens'];
@@ -47,9 +45,6 @@ class ModelProviderConfig {
 class ModelProviders {
   const ModelProviders._();
 
-  static const gemmaLocalDefaultContextTokens = 2048;
-  static const gemmaLocalMaxContextTokens = 32768;
-
   static final aliyunBailianQwenFlash = ModelProviderConfig(
     id: 'aliyun_bailian_glm5',
     vendorName: '阿里云百炼',
@@ -67,25 +62,11 @@ class ModelProviders {
 
   static final aliyunBailianGlm5 = aliyunBailianQwenFlash;
 
-  static final gemmaLocal = ModelProviderConfig(
-    id: 'gemma_local',
-    vendorName: '本地模型',
-    displayName: 'Gemma 4 E4B (Local)',
-    baseUrl: Uri.parse('local://gemma'),
-    model: 'gemma-4-e4b-it-int4.litertlm',
-    defaultParameters: {
-      'temperature': 0.7,
-      'top_k': 40,
-      'max_tokens': gemmaLocalDefaultContextTokens,
-    },
-    maxContextTokens: gemmaLocalMaxContextTokens,
-  );
-
   static final aliyunBailianBaseUrl = Uri.parse(
     'https://dashscope.aliyuncs.com/compatible-mode/v1/',
   );
 
-  static final all = [aliyunBailianQwenFlash, gemmaLocal];
+  static final all = [aliyunBailianQwenFlash];
 
   static ModelProviderConfig byIdOrDefault(String? providerId) {
     for (final provider in all) {

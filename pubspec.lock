@@ -272,14 +272,6 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "2.1.0"
-  flutter_gemma:
-    dependency: "direct main"
-    description:
-      name: flutter_gemma
-      sha256: aea63ed9ef7e114e4f28bd40fc33ab5463802e5ce31e80526e27efec4fb4d8ae
-      url: "https://pub.flutter-io.cn"
-    source: hosted
-    version: "0.16.4"
   flutter_inappwebview:
     dependency: "direct main"
     description:

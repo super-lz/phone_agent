@@ -1118,7 +1118,7 @@ class WorkbenchController extends ChangeNotifier {
         MessageBlock.error(
           '缺少模型 API Key',
           '当前选择的是${provider.vendorName}，普通对话需要 API Key。'
-              '如果你要使用本地模型，请进入“模型设置”切换到本地 Gemma，并确认模型文件已下载或导入。',
+              '请进入“模型设置”填写并保存对应接入方的 API Key。',
         ),
       ],
     );

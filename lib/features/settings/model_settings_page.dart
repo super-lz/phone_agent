@@ -1,6 +1,4 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_gemma/flutter_gemma.dart';
 
 import '../../core/logging/app_logger.dart';
 import '../../data/models/model_api_key_store.dart';
@@ -32,18 +30,12 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
   late final OpenAiCompatibleChatClient _chatClient;
   late final TextEditingController _apiKeyController;
   late final TextEditingController _modelController;
-  late final TextEditingController _gemmaUrlController;
-  late final TextEditingController _hfTokenController;
 
   ModelProviderConfig _provider = ModelProviders.aliyunBailianQwenFlash;
   bool _obscureApiKey = true;
   bool _loading = true;
   bool _testing = false;
   String? _status;
-
-  bool _gemmaInstalled = false;
-  bool _downloading = false;
-  int _downloadProgress = 0;
 
   @override
   void initState() {
@@ -56,11 +48,6 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
         OpenAiCompatibleChatClient(requestTimeout: const Duration(seconds: 15));
     _apiKeyController = TextEditingController();
     _modelController = TextEditingController();
-    _gemmaUrlController = TextEditingController(
-      text:
-          'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-int4.litertlm',
-    );
-    _hfTokenController = TextEditingController();
     _loadSettings();
   }
 
@@ -68,31 +55,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
   void dispose() {
     _apiKeyController.dispose();
     _modelController.dispose();
-    _gemmaUrlController.dispose();
-    _hfTokenController.dispose();
     super.dispose();
-  }
-
-  Future<void> _checkGemmaStatus() async {
-    try {
-      final providerId = _provider.id;
-      final installedModels = await FlutterGemma.listInstalledModels();
-      if (!mounted || _provider.id != providerId) {
-        return;
-      }
-      if (installedModels.isNotEmpty) {
-        final activeModel = installedModels.first;
-        setState(() {
-          _gemmaInstalled = true;
-          _modelController.text = activeModel;
-        });
-        await _modelSettingsStore.saveModelName(providerId, activeModel);
-      } else {
-        setState(() {
-          _gemmaInstalled = false;
-        });
-      }
-    } catch (_) {}
   }
 
   Future<void> _loadSettings() async {
@@ -115,13 +78,6 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
         ? modelName!.trim()
         : provider.model;
 
-    if (provider.isLocal) {
-      _apiKeyController.text = '';
-      await _checkGemmaStatus();
-      setState(() => _loading = false);
-      return;
-    }
-
     final apiKey = await _apiKeyStore.readApiKey(provider.id);
     if (!mounted) {
       return;
@@ -138,17 +94,6 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
     }
 
     await _modelSettingsStore.saveSelectedProviderId(_provider.id);
-    if (_provider.isLocal) {
-      await _modelSettingsStore.saveModelName(_provider.id, modelName);
-      if (!mounted) return;
-      setState(() {
-        _status = _gemmaInstalled
-            ? '已使用本地模型。普通对话不会要求 API Key。'
-            : '已切换到本地模型。普通对话不会要求 API Key；请先下载或导入模型文件。';
-      });
-      return;
-    }
-
     final apiKey = _apiKeyController.text.trim();
     if (apiKey.isEmpty) {
       setState(() => _status = 'API Key 不能为空。');
@@ -160,96 +105,6 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
       return;
     }
     setState(() => _status = '已保存 ${_provider.vendorName} API Key 和模型名称。');
-  }
-
-  Future<void> _downloadGemma() async {
-    setState(() {
-      _downloading = true;
-      _downloadProgress = 0;
-      _status = '正在启动下载...';
-    });
-    try {
-      await FlutterGemma.initialize();
-    } catch (e) {
-      AppLogger.error('settings.gemma_init_failed', {'error': e.toString()});
-      setState(() {
-        _downloading = false;
-        _status =
-            '初始化失败: $e\n提示：如果您刚刚加入插件，请务必进行 Hot Restart (热重启) 或重新运行编译 App！';
-      });
-      return;
-    }
-    try {
-      final url = _gemmaUrlController.text.trim();
-      final token = _hfTokenController.text.trim();
-      await FlutterGemma.installModel(modelType: ModelType.gemma4)
-          .fromNetwork(url, token: token.isEmpty ? null : token)
-          .withProgress((progress) {
-            setState(() {
-              _downloadProgress = progress;
-              _status = '正在下载模型: $progress%';
-            });
-          })
-          .install();
-      await _modelSettingsStore.saveSelectedProviderId(_provider.id);
-      await _checkGemmaStatus();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _gemmaInstalled = true;
-        _downloading = false;
-        _status = '模型下载并安装成功。普通对话将使用本地模型，无需 API Key。';
-      });
-    } catch (e) {
-      setState(() {
-        _downloading = false;
-        _status = '下载失败: $e';
-      });
-    }
-  }
-
-  Future<void> _pickAndInstallLocalFile() async {
-    try {
-      final result = await FilePicker.platform.pickFiles(type: FileType.any);
-      if (result == null || result.files.isEmpty) {
-        return;
-      }
-      final filePath = result.files.first.path;
-      if (filePath == null) {
-        setState(() => _status = '无法获取选定文件的路径。');
-        return;
-      }
-
-      setState(() {
-        _downloading = true;
-        _status = '正在从本地文件导入模型...';
-      });
-
-      try {
-        await FlutterGemma.initialize();
-      } catch (_) {}
-
-      await FlutterGemma.installModel(
-        modelType: ModelType.gemma4,
-      ).fromFile(filePath).install();
-
-      await _modelSettingsStore.saveSelectedProviderId(_provider.id);
-      await _checkGemmaStatus();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _gemmaInstalled = true;
-        _downloading = false;
-        _status = '本地模型文件导入并激活成功。普通对话将使用本地模型，无需 API Key。';
-      });
-    } catch (e) {
-      setState(() {
-        _downloading = false;
-        _status = '导入模型文件失败: $e';
-      });
-    }
   }
 
   Future<void> _clearApiKey() async {
@@ -279,9 +134,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
 
     setState(() {
       _testing = true;
-      _status = _provider.isLocal
-          ? '正在检查本地模型...'
-          : '正在测试 ${_provider.displayName}，最多等待 15 秒...';
+      _status = '正在测试 ${_provider.displayName}，最多等待 15 秒...';
     });
 
     final provider = _effectiveProvider();
@@ -305,9 +158,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
     setState(() {
       _provider = provider;
       _loading = true;
-      _status = provider.isLocal
-          ? '已切换到本地模型：普通对话不会要求 API Key。'
-          : '已选择${provider.vendorName}：普通对话需要 API Key。';
+      _status = '已选择${provider.vendorName}：普通对话需要 API Key。';
     });
     await _modelSettingsStore.saveSelectedProviderId(provider.id);
     await _loadProviderSettings();
@@ -347,12 +198,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
                     ButtonSegment(
                       value: provider,
                       label: Text(provider.vendorName),
-                      icon: Icon(
-                        provider.id == 'gemma_local'
-                            ? Icons.phone_android_outlined
-                            : Icons.cloud_outlined,
-                        size: 18,
-                      ),
+                      icon: const Icon(Icons.cloud_outlined, size: 18),
                     ),
                 ],
                 selected: {_provider},
@@ -373,10 +219,8 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
                     controller: _modelController,
                     enabled: !_loading,
                     decoration: InputDecoration(
-                      labelText: _provider.isLocal ? '本地模型文件名' : '云端模型名称',
-                      hintText: _provider.isLocal
-                          ? '例如 gemma-4-e4b-it-int4.litertlm'
-                          : '例如 qwen3.6-flash',
+                      labelText: '云端模型名称',
+                      hintText: '例如 qwen3.6-flash',
                       prefixIcon: const Icon(Icons.psychology_outlined),
                       suffixIcon: IconButton(
                         tooltip: '恢复默认',
@@ -386,43 +230,29 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  if (_provider.requiresApiKey) ...[
-                    TextField(
-                      controller: _apiKeyController,
-                      enabled: !_loading,
-                      obscureText: _obscureApiKey,
-                      decoration: InputDecoration(
-                        labelText: '${_provider.vendorName} API Key',
-                        hintText: '输入您的 API 密钥',
-                        prefixIcon: const Icon(Icons.key_outlined),
-                        suffixIcon: IconButton(
-                          tooltip: _obscureApiKey ? '显示' : '隐藏',
-                          icon: Icon(
-                            _obscureApiKey
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                            size: 20,
-                          ),
-                          onPressed: () {
-                            setState(() => _obscureApiKey = !_obscureApiKey);
-                          },
+                  TextField(
+                    controller: _apiKeyController,
+                    enabled: !_loading,
+                    obscureText: _obscureApiKey,
+                    decoration: InputDecoration(
+                      labelText: '${_provider.vendorName} API Key',
+                      hintText: '输入您的 API 密钥',
+                      prefixIcon: const Icon(Icons.key_outlined),
+                      suffixIcon: IconButton(
+                        tooltip: _obscureApiKey ? '显示' : '隐藏',
+                        icon: Icon(
+                          _obscureApiKey
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                          size: 20,
                         ),
+                        onPressed: () {
+                          setState(() => _obscureApiKey = !_obscureApiKey);
+                        },
                       ),
                     ),
-                    const SizedBox(height: 16),
-                  ] else ...[
-                    _GemmaModelCard(
-                      installed: _gemmaInstalled,
-                      downloading: _downloading,
-                      downloadProgress: _downloadProgress,
-                      modelName: _modelController.text.trim(),
-                      urlController: _gemmaUrlController,
-                      hfTokenController: _hfTokenController,
-                      onDownload: _downloadGemma,
-                      onPickLocalFile: _pickAndInstallLocalFile,
-                    ),
-                    const SizedBox(height: 16),
-                  ],
+                  ),
+                  const SizedBox(height: 16),
                   _ProviderSummary(provider: _effectiveProvider()),
                   const SizedBox(height: 20),
                   Row(
@@ -466,20 +296,15 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
           Card(
             child: Column(
               children: [
-                if (_provider.requiresApiKey) ...[
-                  ListTile(
-                    leading: const Icon(
-                      Icons.delete_outline,
-                      color: Colors.red,
-                    ),
-                    title: const Text(
-                      '清除当前 API Key',
-                      style: TextStyle(color: Colors.red, fontSize: 14),
-                    ),
-                    onTap: _loading ? null : _clearApiKey,
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text(
+                    '清除当前 API Key',
+                    style: TextStyle(color: Colors.red, fontSize: 14),
                   ),
-                  const Divider(height: 1, indent: 56),
-                ],
+                  onTap: _loading ? null : _clearApiKey,
+                ),
+                const Divider(height: 1, indent: 56),
                 _DiagnosticsSection(logFilePath: AppLogger.logFilePath),
               ],
             ),
