@@ -529,6 +529,22 @@ void main() {
       );
       expect(manifest.content, contains('"server": {'));
       expect(manifest.content, contains('"path": "/api/scores"'));
+      final artifactId = artifacts.single.id;
+      final expectedDatabaseNamespace = 'work::webapp::$artifactId::db';
+      final expectedFileNamespace = 'work::webapp::$artifactId::files';
+      expect(
+        manifest.content,
+        contains('"databaseNamespace": "$expectedDatabaseNamespace"'),
+      );
+      expect(
+        manifest.content,
+        contains('"fileNamespace": "$expectedFileNamespace"'),
+      );
+      expect(
+        artifacts.single.metadata['databaseNamespace'],
+        expectedDatabaseNamespace,
+      );
+      expect(artifacts.single.metadata['fileNamespace'], expectedFileNamespace);
       expect(artifacts.single.metadata['server'], isA<Map<Object?, Object?>>());
       final version = await fileStore.readText(
         workspaceId: 'work',

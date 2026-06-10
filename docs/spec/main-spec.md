@@ -73,7 +73,7 @@
 1. 用户可以让 AI 创建一个本地 Web App。
 2. AI 生成 Web App manifest、入口文件和资源文件。
 3. Web App 写入本地应用库，并作为 Web App Artifact 展示。
-4. 每个 Web App 有独立文件目录、数据库 namespace、权限记录和 manifest。
+4. 每个 Web App 有独立文件目录、数据库 namespace、权限记录和 manifest；manifest 必须记录该 Web App 的数据库 namespace 和运行数据文件 namespace。
 5. Web App 首次运行时按 manifest 请求权限。
 6. Web App 通过 JSBridge 调用受控 Capability。
 7. 权限拒绝、能力不可用或调用失败时，JSBridge 返回结构化错误。
@@ -231,7 +231,7 @@
 - Web App 打开前必须向用户展示 manifest 声明的能力权限；用户拒绝后 Web App 仍可打开，但 JSBridge 能力调用必须返回结构化权限错误。
 - Web App JSBridge 调用必须回到 Capability Runtime；未在 manifest 权限中声明的能力必须返回结构化拒绝错误。
 - Web App 内网页请求相机、麦克风、定位、文件选择或媒体自动播放时，运行时只能在用户已批准该 Web App 权限门后放行；用户未批准时必须拒绝或返回空结果。
-- Web App JSBridge 发起的 `db.note.create`、`db.note.query`、`file.write_app_file` 和 `file.read_app_file` 必须落到该 Web App 的独立 namespace。
+- Web App JSBridge 发起的 `db.note.create`、`db.note.query`、`file.write_app_file` 和 `file.read_app_file` 必须落到该 Web App manifest 记录的独立 namespace。
 - Web App 运行日志必须写入当前 Workspace 的普通项目文件区，使用户和 Agent 能在后续维护中通过文件列表或 `file.read_app_file` 查看；日志写入失败不能阻断 Web App 打开。
 - Agent Skills / Claude Code 风格 Skill 的安装、扫描、索引和受控调用语义。
 - HTTP/SSE 类 MCP 连接语义和失败处理。

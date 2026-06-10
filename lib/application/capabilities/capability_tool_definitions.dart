@@ -222,6 +222,16 @@ class CapabilityToolDefinitions {
                     'Web App JavaScript 通过 JSBridge 调用的精确 capability id 列表；每一个 window.PhoneAgent 调用都必须在这里声明。',
                 'items': {'type': 'string'},
               },
+              'database_namespace': {
+                'type': 'string',
+                'description':
+                    '可选。Web App 运行数据数据库 namespace；默认由系统按 workspace + artifactId 生成，通常不要手动填写。',
+              },
+              'file_namespace': {
+                'type': 'string',
+                'description':
+                    '可选。Web App 运行数据文件 namespace；默认由系统按 workspace + artifactId 生成，通常不要手动填写。',
+              },
               'server': _webAppServerSchema(),
               'metadata': {
                 'type': 'object',

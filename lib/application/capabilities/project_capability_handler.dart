@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../../domain/artifacts/artifact.dart';
 import '../../domain/artifacts/web_app_runtime_log.dart';
 import '../../domain/files/app_file_store.dart';
+import '../../domain/web_apps/web_app_data_namespace.dart';
 import 'capability_execution_result.dart';
 import 'web_app_project_version_store.dart';
 
@@ -124,6 +125,18 @@ class ProjectCapabilityHandler {
     final projectId = _projectIdFor(arguments, artifactId);
     final createdAt = DateTime.now();
     final permissions = _permissions(arguments['permissions']);
+    final databaseNamespace =
+        _stringArgument(arguments, 'database_namespace') ??
+        WebAppDataNamespace.databaseForId(
+          workspaceId: workspaceId,
+          webAppId: artifactId,
+        );
+    final fileNamespace =
+        _stringArgument(arguments, 'file_namespace') ??
+        WebAppDataNamespace.filesForId(
+          workspaceId: workspaceId,
+          webAppId: artifactId,
+        );
     Map<String, Object?>? server = _serverSpec(arguments['server']);
     final rawMetadataForServer = arguments['metadata'];
     if (server == null && rawMetadataForServer is Map<Object?, Object?>) {
@@ -150,6 +163,8 @@ class ProjectCapabilityHandler {
         summary: summary,
         entryPath: entryPath,
         permissions: permissions,
+        databaseNamespace: databaseNamespace,
+        fileNamespace: fileNamespace,
         server: server,
         files: files.map((file) => file.path).toList(growable: false),
         version: 1,
@@ -226,6 +241,8 @@ class ProjectCapabilityHandler {
           )
           .toList(growable: false),
       'permissions': permissions,
+      'databaseNamespace': databaseNamespace,
+      'fileNamespace': fileNamespace,
     });
     if (server == null) {
       metadata.remove('server');
@@ -256,6 +273,8 @@ class ProjectCapabilityHandler {
       'projectId': projectId,
       'version': 1,
       'files': metadata['files'],
+      'databaseNamespace': databaseNamespace,
+      'fileNamespace': fileNamespace,
     };
     if (server != null) {
       output['server'] = server;
@@ -395,6 +414,8 @@ class ProjectCapabilityHandler {
           summary: artifact.summary,
           entryPath: manifest.entryPath,
           permissions: permissions,
+          databaseNamespace: manifest.databaseNamespace,
+          fileNamespace: manifest.fileNamespace,
           server: server,
           files: sortedFiles,
           version: version,
@@ -428,6 +449,8 @@ class ProjectCapabilityHandler {
         manifest: manifest,
         files: sortedFiles,
         permissions: permissions,
+        databaseNamespace: manifest.databaseNamespace,
+        fileNamespace: manifest.fileNamespace,
         server: server,
         version: version,
         updatedAt: updatedAt,
@@ -707,6 +730,8 @@ class ProjectCapabilityHandler {
           summary: artifact.summary,
           entryPath: snapshot.entryPath,
           permissions: manifest.permissions,
+          databaseNamespace: manifest.databaseNamespace,
+          fileNamespace: manifest.fileNamespace,
           server: manifest.server,
           files: files,
           version: version,
@@ -741,6 +766,8 @@ class ProjectCapabilityHandler {
         manifest: manifest.copyWith(entryPath: snapshot.entryPath),
         files: files,
         permissions: manifest.permissions,
+        databaseNamespace: manifest.databaseNamespace,
+        fileNamespace: manifest.fileNamespace,
         server: manifest.server,
         version: version,
         updatedAt: updatedAt,
@@ -1035,6 +1062,14 @@ class ProjectCapabilityHandler {
         );
       }
       final manifest = Map<String, Object?>.from(decoded);
+      final defaultDatabaseNamespace = WebAppDataNamespace.databaseForId(
+        workspaceId: workspaceId,
+        webAppId: artifact.id,
+      );
+      final defaultFileNamespace = WebAppDataNamespace.filesForId(
+        workspaceId: workspaceId,
+        webAppId: artifact.id,
+      );
       return _ProjectManifestLookup(
         manifest: _ProjectManifest(
           projectId: _manifestString(
@@ -1051,6 +1086,20 @@ class ProjectCapabilityHandler {
           entryPath: _manifestString(manifest['entry'], fallback: entryPath),
           manifestPath: manifestPath,
           permissions: _stringItems(manifest['permissions']),
+          databaseNamespace: _manifestString(
+            manifest['databaseNamespace'],
+            fallback: _manifestString(
+              artifact.metadata['databaseNamespace'],
+              fallback: defaultDatabaseNamespace,
+            ),
+          ),
+          fileNamespace: _manifestString(
+            manifest['fileNamespace'],
+            fallback: _manifestString(
+              artifact.metadata['fileNamespace'],
+              fallback: defaultFileNamespace,
+            ),
+          ),
           server: _serverSpec(manifest['server']),
           files: _stringItems(manifest['files']),
           version: _intValue(manifest['version'], fallback: 1),
@@ -1067,6 +1116,14 @@ class ProjectCapabilityHandler {
         );
       }
       final files = _metadataFiles(artifact);
+      final defaultDatabaseNamespace = WebAppDataNamespace.databaseForId(
+        workspaceId: workspaceId,
+        webAppId: artifact.id,
+      );
+      final defaultFileNamespace = WebAppDataNamespace.filesForId(
+        workspaceId: workspaceId,
+        webAppId: artifact.id,
+      );
       return _ProjectManifestLookup(
         manifest: _ProjectManifest(
           projectId: 'project-${artifact.id}',
@@ -1077,6 +1134,14 @@ class ProjectCapabilityHandler {
           entryPath: entryPath,
           manifestPath: manifestPath,
           permissions: _stringItems(artifact.metadata['permissions']),
+          databaseNamespace: _manifestString(
+            artifact.metadata['databaseNamespace'],
+            fallback: defaultDatabaseNamespace,
+          ),
+          fileNamespace: _manifestString(
+            artifact.metadata['fileNamespace'],
+            fallback: defaultFileNamespace,
+          ),
           server: _serverSpec(artifact.metadata['server']),
           files: files.isEmpty ? [entryPath] : files,
           version: _intValue(artifact.metadata['currentVersion'], fallback: 1),
@@ -1104,6 +1169,8 @@ class ProjectCapabilityHandler {
     required _ProjectManifest manifest,
     required List<String> files,
     required List<String> permissions,
+    required String databaseNamespace,
+    required String fileNamespace,
     required Map<String, Object?>? server,
     required int version,
     required DateTime updatedAt,
@@ -1144,8 +1211,12 @@ class ProjectCapabilityHandler {
       'updatedAt': updatedAt.toIso8601String(),
       'files': fileOutputs,
       'permissions': permissions,
+      'databaseNamespace': databaseNamespace,
+      'fileNamespace': fileNamespace,
     };
-    if (server != null) {
+    if (server == null) {
+      metadata.remove('server');
+    } else {
       metadata['server'] = server;
     }
     return AgentArtifact(
@@ -1576,6 +1647,8 @@ class ProjectCapabilityHandler {
     required String summary,
     required String entryPath,
     required List<String> permissions,
+    required String databaseNamespace,
+    required String fileNamespace,
     required Map<String, Object?>? server,
     required List<String> files,
     required int version,
@@ -1591,6 +1664,8 @@ class ProjectCapabilityHandler {
       'summary': summary,
       'entry': entryPath,
       'permissions': permissions,
+      'databaseNamespace': databaseNamespace,
+      'fileNamespace': fileNamespace,
       'files': files,
       'version': version,
       'createdAt': createdAt.toIso8601String(),
@@ -1656,6 +1731,8 @@ class _ProjectManifest {
     required this.entryPath,
     required this.manifestPath,
     required this.permissions,
+    required this.databaseNamespace,
+    required this.fileNamespace,
     required this.server,
     required this.files,
     required this.version,
@@ -1670,6 +1747,8 @@ class _ProjectManifest {
   final String entryPath;
   final String manifestPath;
   final List<String> permissions;
+  final String databaseNamespace;
+  final String fileNamespace;
   final Map<String, Object?>? server;
   final List<String> files;
   final int version;
@@ -1694,6 +1773,8 @@ class _ProjectManifest {
       entryPath: entryPath ?? this.entryPath,
       manifestPath: manifestPath,
       permissions: permissions,
+      databaseNamespace: databaseNamespace,
+      fileNamespace: fileNamespace,
       server: server,
       files: files,
       version: version,
