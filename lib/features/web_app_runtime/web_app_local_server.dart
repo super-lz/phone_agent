@@ -217,10 +217,110 @@ class WebAppLocalServer {
     }
 
     final input = await _apiInputFor(request, route);
-    final result = attachLocalFileUrls(
-      await caller(capabilityId: route.capabilityId, input: input),
+    final result = await _executeServerRoute(
+      route: route,
+      input: input,
+      caller: caller,
     );
     _writeJson(request.response, HttpStatus.ok, result);
+  }
+
+  Future<Map<String, Object?>> _executeServerRoute({
+    required _ServerRoute route,
+    required Map<String, Object?> input,
+    required WebAppApiRouteCaller caller,
+  }) async {
+    final capabilityId = route.capabilityId;
+    if (capabilityId != null) {
+      return attachLocalFileUrls(
+        await caller(capabilityId: capabilityId, input: input),
+      );
+    }
+
+    final handler = await _serverHandlerFor(route);
+    if (handler == null) {
+      return const {'ok': false, 'error': 'server_handler_not_found'};
+    }
+    return _executeServerHandler(handler: handler, input: input, caller: caller);
+  }
+
+  Future<Map<String, Object?>?> _serverHandlerFor(_ServerRoute route) async {
+    final inline = route.handler;
+    if (inline != null) {
+      return inline;
+    }
+    final handlerPath = route.handlerPath;
+    if (handlerPath == null) {
+      return null;
+    }
+    try {
+      final result = await resourceReader(
+        webApp: webApp,
+        path: _serverHandlerPath(handlerPath),
+        maxChars: 1024 * 1024,
+      );
+      final decoded = jsonDecode(result.content);
+      if (decoded is Map<Object?, Object?>) {
+        return _stringMap(decoded);
+      }
+    } on Object catch (error, stackTrace) {
+      AppLogger.warning('webapp.local_server.handler_load_failed', {
+        'artifactId': webApp.id,
+        'handlerPath': handlerPath,
+        'error': error.toString(),
+        'stackTrace': stackTrace.toString(),
+      });
+    }
+    return null;
+  }
+
+  Future<Map<String, Object?>> _executeServerHandler({
+    required Map<String, Object?> handler,
+    required Map<String, Object?> input,
+    required WebAppApiRouteCaller caller,
+  }) async {
+    final steps = <String, Object?>{};
+    final context = <String, Object?>{'request': input, 'steps': steps};
+    final rawSteps = handler['steps'];
+    if (rawSteps is Iterable<Object?>) {
+      for (final rawStep in rawSteps) {
+        if (rawStep is! Map<Object?, Object?>) {
+          return const {'ok': false, 'error': 'invalid_server_step'};
+        }
+        final step = _stringMap(rawStep);
+        final stepId = step['id'];
+        final capabilityId = step['capability'] ?? step['capabilityId'];
+        if (stepId is! String ||
+            stepId.trim().isEmpty ||
+            capabilityId is! String ||
+            capabilityId.trim().isEmpty) {
+          return const {'ok': false, 'error': 'invalid_server_step'};
+        }
+        final stepInput = _templateMap(step['input'], context);
+        final result = attachLocalFileUrls(
+          await caller(capabilityId: capabilityId.trim(), input: stepInput),
+        );
+        steps[stepId.trim()] = result;
+      }
+    }
+
+    final responseTemplate = handler['response'];
+    if (responseTemplate != null) {
+      final resolved = _templateValue(responseTemplate, context);
+      if (resolved is Map<Object?, Object?>) {
+        return _stringMap(resolved);
+      }
+      return {'ok': true, 'data': resolved};
+    }
+
+    if (steps.isEmpty) {
+      return const {'ok': true};
+    }
+    final last = steps.values.last;
+    if (last is Map<Object?, Object?>) {
+      return _stringMap(last);
+    }
+    return {'ok': true, 'result': last};
   }
 
   List<_ServerRoute> _serverRoutesForPath(String apiPath) {
@@ -275,9 +375,16 @@ class WebAppLocalServer {
       final method = route['method'];
       final path = route['path'];
       final capabilityId = route['capability'] ?? route['capabilityId'];
+      final handlerPath = route['handlerPath'] ?? route['handler_path'];
+      final handler = route['handler'];
+      final hasCapability =
+          capabilityId is String && capabilityId.trim().isNotEmpty;
+      final hasHandlerPath =
+          handlerPath is String && handlerPath.trim().isNotEmpty;
+      final hasInlineHandler = handler is Map<Object?, Object?>;
       if (method is! String ||
           path is! String ||
-          capabilityId is! String ||
+          (!hasCapability && !hasHandlerPath && !hasInlineHandler) ||
           !path.startsWith('/api/')) {
         continue;
       }
@@ -285,7 +392,9 @@ class WebAppLocalServer {
         _ServerRoute(
           method: method.trim().toUpperCase(),
           path: path.trim(),
-          capabilityId: capabilityId.trim(),
+          capabilityId: hasCapability ? (capabilityId as String).trim() : null,
+          handlerPath: hasHandlerPath ? (handlerPath as String).trim() : null,
+          handler: handler is Map<Object?, Object?> ? _stringMap(handler) : null,
           input: _stringMap(route['input']),
         ),
       );
@@ -334,6 +443,69 @@ class WebAppLocalServer {
       return const {};
     }
     return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  Map<String, Object?> _templateMap(
+    Object? value,
+    Map<String, Object?> context,
+  ) {
+    final resolved = _templateValue(value, context);
+    if (resolved is Map<Object?, Object?>) {
+      return _stringMap(resolved);
+    }
+    return const {};
+  }
+
+  Object? _templateValue(Object? value, Map<String, Object?> context) {
+    if (value is String && value.startsWith(r'$')) {
+      return _lookupTemplatePath(context, value.substring(1));
+    }
+    if (value is Map<Object?, Object?>) {
+      return {
+        for (final entry in value.entries)
+          entry.key.toString(): _templateValue(entry.value, context),
+      };
+    }
+    if (value is Iterable<Object?>) {
+      return [for (final item in value) _templateValue(item, context)];
+    }
+    return value;
+  }
+
+  Object? _lookupTemplatePath(Map<String, Object?> context, String path) {
+    Object? current = context;
+    for (final part in path.split('.')) {
+      if (part.isEmpty) {
+        return null;
+      }
+      if (current is Map<Object?, Object?>) {
+        current = current[part];
+      } else if (current is List<Object?>) {
+        final index = int.tryParse(part);
+        if (index == null || index < 0 || index >= current.length) {
+          return null;
+        }
+        current = current[index];
+      } else {
+        return null;
+      }
+    }
+    return current;
+  }
+
+  String _serverHandlerPath(String rawPath) {
+    final normalizedPath = normalizeAppFilePath(rawPath);
+    final root = _projectRoot();
+    if (root.isEmpty || normalizedPath.startsWith('$root/')) {
+      return normalizedPath;
+    }
+    return '$root/$normalizedPath';
+  }
+
+  String _projectRoot() {
+    final entryPath = _entryPath();
+    final slash = entryPath.lastIndexOf('/');
+    return slash < 0 ? '' : entryPath.substring(0, slash);
   }
 
   bool _isLocalFileRequest(Uri uri) {
@@ -694,12 +866,16 @@ class _ServerRoute {
     required this.method,
     required this.path,
     required this.capabilityId,
+    required this.handlerPath,
+    required this.handler,
     required this.input,
   });
 
   final String method;
   final String path;
-  final String capabilityId;
+  final String? capabilityId;
+  final String? handlerPath;
+  final Map<String, Object?>? handler;
   final Map<String, Object?> input;
 }
 
