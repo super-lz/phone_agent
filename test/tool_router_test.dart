@@ -166,6 +166,105 @@ void main() {
     expect(route.requiredToolNames, isEmpty);
   });
 
+  test('native device status requests expose phone status tools', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': <String>[],
+        'required_tool_names': <String>[],
+        'uses_context': false,
+        'reason': 'model missed native status tools',
+      }),
+    );
+
+    final route = await router.route(
+      prompt: '看一下手机信息、当前电量、网络状态和现在几点',
+      context: '',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(
+      route.selectedToolNames,
+      containsAll([
+        'device_info',
+        'battery_status',
+        'network_status',
+        'time_get_current',
+      ]),
+    );
+    expect(route.requiredToolNames, isEmpty);
+  });
+
+  test('native control requests expose phone control tools', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': <String>[],
+        'required_tool_names': <String>[],
+        'uses_context': false,
+        'reason': 'model missed native control tools',
+      }),
+    );
+
+    final route = await router.route(
+      prompt:
+          '把这段文字复制到剪贴板并调起系统分享，震动一下，播放提示音，进入全屏沉浸模式，保持屏幕常亮，锁定横屏并查看方向状态，再打开链接 https://example.com',
+      context: '',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(
+      route.selectedToolNames,
+      containsAll([
+        'clipboard_write',
+        'share_text',
+        'system_haptic_feedback',
+        'system_sound_alert',
+        'system_ui_set',
+        'system_ui_status',
+        'screen_keep_awake',
+        'screen_orientation_set',
+        'screen_orientation_status',
+        'url_open_external',
+      ]),
+    );
+    expect(route.requiredToolNames, isEmpty);
+  });
+
+  test('native sensor requests expose sensor snapshot tools', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': <String>[],
+        'required_tool_names': <String>[],
+        'uses_context': false,
+        'reason': 'model missed sensor tools',
+      }),
+    );
+
+    final route = await router.route(
+      prompt: '读取加速度计、陀螺仪和指南针数据',
+      context: '',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(
+      route.selectedToolNames,
+      containsAll([
+        'sensor_accelerometer_read',
+        'sensor_gyroscope_read',
+        'sensor_magnetometer_read',
+      ]),
+    );
+    expect(route.requiredToolNames, isEmpty);
+  });
+
   test('notification management requests expose notification tools', () async {
     final chatClient = _RoutingChatClient(
       jsonEncode({

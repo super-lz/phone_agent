@@ -100,6 +100,14 @@ Map<String, Object?> modelObservationForCapability({
         'notifications': output['notifications'],
       });
       return observation;
+    case 'notification.schedule':
+      observation.addAll({
+        'notificationId': output['notificationId'],
+        'title': output['title'],
+        'body': output['body'],
+        'scheduledAt': output['scheduledAt'],
+      });
+      return observation;
     case 'notification.cancel':
       observation.addAll({
         'notificationId': output['notificationId'],
@@ -137,6 +145,7 @@ Map<String, Object?> modelObservationForCapability({
     case 'file.pick_system_file':
     case 'audio.record_start':
     case 'audio.record_stop':
+    case 'audio.record_cancel':
       observation.addAll({
         'name': output['name'],
         'uri': output['uri'],
@@ -144,6 +153,72 @@ Map<String, Object?> modelObservationForCapability({
         'bytes': output['bytes'],
         'source': output['source'],
         'mediaType': output['mediaType'],
+        'recording': output['recording'],
+        'cancelled': output['cancelled'],
+      });
+      return observation;
+    case 'clipboard.write':
+      observation['length'] = output['length'];
+      return observation;
+    case 'share.text':
+      observation.addAll({
+        'status': output['status'],
+        'length': output['length'],
+      });
+      return observation;
+    case 'system.haptic_feedback':
+    case 'system.sound_alert':
+      observation['type'] = output['type'];
+      return observation;
+    case 'system.ui.set':
+    case 'system.ui.status':
+      observation.addAll({
+        'mode': output['mode'],
+        'overlays': output['overlays'],
+        'isFullscreen': output['isFullscreen'],
+      });
+      return observation;
+    case 'permission.open_settings':
+      observation['opened'] = output['opened'];
+      return observation;
+    case 'url.open_external':
+      observation.addAll({
+        'opened': output['opened'],
+        'url': output['url'],
+        'scheme': output['scheme'],
+      });
+      return observation;
+    case 'screen.keep_awake':
+    case 'screen.keep_awake_status':
+      observation['enabled'] = output['enabled'];
+      return observation;
+    case 'screen.orientation.set':
+    case 'screen.orientation.status':
+      observation.addAll({
+        'mode': output['mode'],
+        'locked': output['locked'],
+        'preferredOrientations': output['preferredOrientations'],
+      });
+      return observation;
+    case 'sensor.accelerometer.read':
+    case 'sensor.gyroscope.read':
+    case 'sensor.magnetometer.read':
+      observation.addAll({
+        'sensor': output['sensor'],
+        'x': output['x'],
+        'y': output['y'],
+        'z': output['z'],
+      });
+      return observation;
+    case 'calendar.event.create':
+      observation.addAll({
+        'title': output['title'],
+        'location': output['location'],
+        'startsAt': output['startsAt'],
+        'endsAt': output['endsAt'],
+        'allDay': output['allDay'],
+        'requiresUserConfirmation': output['requiresUserConfirmation'],
+        'completionInferred': output['completionInferred'],
       });
       return observation;
     case 'web.search':
@@ -375,15 +450,33 @@ String _summaryFor(
     case 'barcode.scan_image':
       return _barcodeSummary(output);
     case 'calendar.event.create':
-      return '已打开系统日历添加流程，请在系统界面确认保存。';
+      return _calendarSummary(output);
     case 'share.text':
-      return '已打开系统分享面板。';
+      return _shareSummary(output);
+    case 'system.haptic_feedback':
+      return '已触发${_hapticTypeLabel(output['type'])}触感反馈。';
+    case 'system.sound_alert':
+      return '已播放${_soundTypeLabel(output['type'])}。';
+    case 'system.ui.set':
+    case 'system.ui.status':
+      return _systemUiSummary(output);
+    case 'url.open_external':
+      return output['opened'] == true
+          ? '已打开外部链接：${output['url'] ?? ''}。'
+          : '未能打开外部链接。';
     case 'screen.keep_awake':
       return output['enabled'] == true ? '已开启当前应用屏幕常亮。' : '已关闭当前应用屏幕常亮。';
     case 'screen.keep_awake_status':
       return output['enabled'] == true ? '当前应用已保持屏幕常亮。' : '当前应用未开启屏幕常亮。';
+    case 'screen.orientation.set':
+    case 'screen.orientation.status':
+      return _screenOrientationSummary(output);
     case 'permission.open_settings':
       return output['opened'] == true ? '已打开系统权限设置。' : '未能打开系统权限设置。';
+    case 'sensor.accelerometer.read':
+    case 'sensor.gyroscope.read':
+    case 'sensor.magnetometer.read':
+      return _sensorSummary(output);
     default:
       return '工具已执行完成。';
   }
@@ -494,6 +587,51 @@ String _notificationSummary(Map<String, Object?> output) {
       : '已创建本地通知：$title，时间 $scheduledAt。';
 }
 
+String _calendarSummary(Map<String, Object?> output) {
+  final title = _stringValue(output['title']) ?? '日历事件';
+  final startsAt = _stringValue(output['startsAt']);
+  final inferred = output['completionInferred'] == true ? '，系统界面打开结果为超时推定' : '';
+  return startsAt == null
+      ? '已打开系统日历添加流程：$title$inferred，请在系统界面确认保存。'
+      : '已打开系统日历添加流程：$title，开始时间 $startsAt$inferred，请在系统界面确认保存。';
+}
+
+String _shareSummary(Map<String, Object?> output) {
+  final status = _stringValue(output['status']);
+  if (status == null) {
+    return '已打开系统分享面板。';
+  }
+  return '系统分享面板已返回：$status。';
+}
+
+String _sensorSummary(Map<String, Object?> output) {
+  final sensor = _sensorNameLabel(output['sensor']);
+  final x = output['x'];
+  final y = output['y'];
+  final z = output['z'];
+  if (x is num && y is num && z is num) {
+    return '$sensor 当前读数：x=${x.toStringAsFixed(3)}，y=${y.toStringAsFixed(3)}，z=${z.toStringAsFixed(3)}。';
+  }
+  return '已读取$sensor数据。';
+}
+
+String _screenOrientationSummary(Map<String, Object?> output) {
+  final mode = _screenOrientationModeLabel(output['mode']);
+  final locked = output['locked'];
+  if (locked == true) {
+    return '当前应用屏幕方向已锁定为$mode。';
+  }
+  return '当前应用屏幕方向跟随系统自动旋转。';
+}
+
+String _systemUiSummary(Map<String, Object?> output) {
+  final mode = _systemUiModeLabel(output['mode']);
+  if (_stringValue(output['mode']) == 'normal') {
+    return '当前应用已恢复显示系统状态栏和导航栏。';
+  }
+  return '当前应用系统 UI 已切换为$mode模式。';
+}
+
 String _pendingNotificationSummary(Map<String, Object?> output) {
   final count = output['count'];
   if (count is! num || count == 0) {
@@ -517,6 +655,83 @@ String _barcodeSummary(Map<String, Object?> output) {
     return '已识别二维码或条码。';
   }
   return '已识别${format ?? '码值'}：$rawValue。';
+}
+
+String _hapticTypeLabel(Object? value) {
+  switch (_stringValue(value)) {
+    case 'selection':
+      return '选择';
+    case 'medium':
+      return '中等';
+    case 'heavy':
+      return '强';
+    case 'vibrate':
+      return '震动';
+    case 'light':
+    default:
+      return '轻';
+  }
+}
+
+String _soundTypeLabel(Object? value) {
+  switch (_stringValue(value)) {
+    case 'click':
+      return '点击音';
+    case 'alert':
+    default:
+      return '系统提示音';
+  }
+}
+
+String _screenOrientationModeLabel(Object? value) {
+  switch (_stringValue(value)) {
+    case 'portrait':
+      return '竖屏';
+    case 'portrait_up':
+      return '正向竖屏';
+    case 'portrait_down':
+      return '倒置竖屏';
+    case 'landscape':
+      return '横屏';
+    case 'landscape_left':
+      return '左横屏';
+    case 'landscape_right':
+      return '右横屏';
+    case 'unlocked':
+    default:
+      return '自动旋转';
+  }
+}
+
+String _systemUiModeLabel(Object? value) {
+  switch (_stringValue(value)) {
+    case 'fullscreen':
+      return '全屏';
+    case 'edge_to_edge':
+      return '边到边';
+    case 'lean_back':
+      return '轻量沉浸';
+    case 'immersive':
+      return '沉浸';
+    case 'immersive_sticky':
+      return '粘性沉浸';
+    case 'normal':
+    default:
+      return '正常显示';
+  }
+}
+
+String _sensorNameLabel(Object? value) {
+  switch (_stringValue(value)) {
+    case 'accelerometer':
+      return '加速度计';
+    case 'gyroscope':
+      return '陀螺仪';
+    case 'magnetometer':
+      return '磁力计';
+    default:
+      return '传感器';
+  }
 }
 
 String? _stringValue(Object? value) {

@@ -63,7 +63,7 @@ class AgentToolRouter {
       recentContext: routingContext,
       allTools: allTools,
     );
-    final decision = _withNativeInputTools(
+    final decision = _withNativeCapabilityTools(
       decision: maintenanceDecision,
       latestPrompt: latestPrompt,
       allTools: allTools,
@@ -76,7 +76,7 @@ class AgentToolRouter {
     );
   }
 
-  Map<String, Object?> _withNativeInputTools({
+  Map<String, Object?> _withNativeCapabilityTools({
     required Map<String, Object?> decision,
     required String latestPrompt,
     required List<Map<String, Object?>> allTools,
@@ -135,6 +135,161 @@ class AgentToolRouter {
       '安排提醒',
       '发个通知',
     ]);
+    final wantsCalendarEvent = _containsAny(prompt, const [
+      '加入日历',
+      '加到日历',
+      '创建日程',
+      '安排日程',
+      '保存日历',
+      '日历事件',
+      '安排会议',
+    ]);
+    final wantsCurrentTime = _containsAny(prompt, const [
+      '现在几点',
+      '当前时间',
+      '本地时间',
+      '今天几号',
+      '设备时间',
+    ]);
+    final wantsDeviceInfo = _containsAny(prompt, const [
+      '设备信息',
+      '手机信息',
+      '系统版本',
+      '手机型号',
+      '机型',
+      'device info',
+    ]);
+    final wantsBattery = _containsAny(prompt, const [
+      '电量',
+      '电池',
+      '充电',
+      '省电模式',
+      'battery',
+    ]);
+    final wantsNetwork = _containsAny(prompt, const [
+      '网络状态',
+      '联网状态',
+      '网络连接',
+      'wifi',
+      'wi-fi',
+      '蜂窝',
+      'vpn',
+      '断网',
+      'network status',
+    ]);
+    final wantsClipboardRead = _containsAny(prompt, const [
+      '读取剪贴板',
+      '看看剪贴板',
+      '剪贴板内容',
+      '粘贴板内容',
+    ]);
+    final wantsClipboardWrite = _containsAny(prompt, const [
+      '复制到剪贴板',
+      '写入剪贴板',
+      '放到剪贴板',
+      '拷贝到剪贴板',
+    ]);
+    final wantsShareText = _containsAny(prompt, const [
+      '系统分享',
+      '分享这段',
+      '分享文本',
+      '调起分享',
+      '分享给',
+    ]);
+    final wantsHaptic = _containsAny(prompt, const [
+      '震动',
+      '振动',
+      '触感',
+      'haptic',
+    ]);
+    final wantsSound = _containsAny(prompt, const [
+      '提示音',
+      '响一下',
+      '播放声音',
+      '播放提示',
+      '点击音',
+    ]);
+    final wantsSystemUiStatus = _containsAny(prompt, const [
+      '系统栏状态',
+      '状态栏状态',
+      '导航栏状态',
+      '全屏状态',
+      '沉浸状态',
+    ]);
+    final wantsSystemUiSet = _containsAny(prompt, const [
+      '全屏',
+      '退出全屏',
+      '沉浸式',
+      '沉浸模式',
+      '隐藏状态栏',
+      '显示状态栏',
+      '隐藏导航栏',
+      '显示导航栏',
+      'edge-to-edge',
+      'edge to edge',
+      'immersive',
+      'fullscreen',
+    ]);
+    final wantsPermissionSettings = _containsAny(prompt, const [
+      '权限设置',
+      '打开设置',
+      '系统设置',
+      '去设置',
+      '授权设置',
+    ]);
+    final wantsOpenExternalUrl =
+        _containsAny(prompt, const ['打开链接', '打开网址', '外部打开', '浏览器打开']) ||
+        prompt.startsWith('打开 http://') ||
+        prompt.startsWith('打开 https://') ||
+        prompt.startsWith('打开 tel:') ||
+        prompt.startsWith('打开 mailto:') ||
+        prompt.startsWith('打开 sms:') ||
+        prompt.startsWith('打开 geo:');
+    final wantsKeepAwakeStatus = _containsAny(prompt, const [
+      '常亮状态',
+      '是否常亮',
+      '屏幕常亮状态',
+    ]);
+    final wantsKeepAwake = _containsAny(prompt, const [
+      '屏幕常亮',
+      '保持常亮',
+      '不要熄屏',
+      '禁止熄屏',
+      '取消常亮',
+      '恢复熄屏',
+    ]);
+    final wantsOrientationStatus = _containsAny(prompt, const [
+      '方向状态',
+      '旋转状态',
+      '是否锁定方向',
+      '屏幕方向状态',
+    ]);
+    final wantsOrientationSet = _containsAny(prompt, const [
+      '横屏',
+      '竖屏',
+      '屏幕方向',
+      '方向锁定',
+      '锁定方向',
+      '解锁方向',
+      '自动旋转',
+      '恢复旋转',
+      'orientation',
+      'rotate',
+      'rotation',
+    ]);
+    final wantsAccelerometer = _containsAny(prompt, const [
+      '加速度计',
+      '加速度',
+      '摇晃',
+      '运动传感器',
+    ]);
+    final wantsGyroscope = _containsAny(prompt, const ['陀螺仪', '旋转传感器', '姿态变化']);
+    final wantsMagnetometer = _containsAny(prompt, const [
+      '磁力计',
+      '指南针',
+      '罗盘',
+      '磁场',
+    ]);
     final wantsBarcodeFromImage =
         _containsAny(prompt, const ['截图', '相册', '图片', '照片']) &&
         _containsAny(prompt, const ['二维码', '条码', '扫码', 'barcode', 'qr']);
@@ -153,6 +308,24 @@ class AgentToolRouter {
 
     if (_containsAny(prompt, const ['拍照', '拍一张', '相机', 'camera'])) {
       addIfAvailable('camera_capture_photo');
+    }
+    if (wantsDeviceInfo) {
+      addIfAvailable('device_info');
+    }
+    if (wantsCurrentTime || wantsScheduleNotification || wantsCalendarEvent) {
+      addIfAvailable('time_get_current');
+    }
+    if (wantsBattery) {
+      addIfAvailable('battery_status');
+    }
+    if (wantsNetwork) {
+      addIfAvailable('network_status');
+    }
+    if (wantsClipboardRead) {
+      addIfAvailable('clipboard_read');
+    }
+    if (wantsClipboardWrite) {
+      addIfAvailable('clipboard_write');
     }
     if (wantsCaptureVideo) {
       addIfAvailable('camera_capture_video');
@@ -204,6 +377,9 @@ class AgentToolRouter {
     if (wantsScheduleNotification) {
       addIfAvailable('notification_schedule');
     }
+    if (wantsCalendarEvent) {
+      addIfAvailable('calendar_event_create');
+    }
     if (wantsListNotifications || wantsCancelNotification) {
       addIfAvailable('notification_pending');
     }
@@ -212,6 +388,48 @@ class AgentToolRouter {
     }
     if (wantsCancelAllNotifications) {
       addIfAvailable('notification_cancel_all');
+    }
+    if (wantsShareText) {
+      addIfAvailable('share_text');
+    }
+    if (wantsHaptic) {
+      addIfAvailable('system_haptic_feedback');
+    }
+    if (wantsSound) {
+      addIfAvailable('system_sound_alert');
+    }
+    if (wantsSystemUiSet) {
+      addIfAvailable('system_ui_set');
+    }
+    if (wantsSystemUiStatus || wantsSystemUiSet) {
+      addIfAvailable('system_ui_status');
+    }
+    if (wantsPermissionSettings) {
+      addIfAvailable('permission_open_settings');
+    }
+    if (wantsOpenExternalUrl) {
+      addIfAvailable('url_open_external');
+    }
+    if (wantsKeepAwake) {
+      addIfAvailable('screen_keep_awake');
+    }
+    if (wantsKeepAwakeStatus) {
+      addIfAvailable('screen_keep_awake_status');
+    }
+    if (wantsOrientationSet) {
+      addIfAvailable('screen_orientation_set');
+    }
+    if (wantsOrientationStatus || wantsOrientationSet) {
+      addIfAvailable('screen_orientation_status');
+    }
+    if (wantsAccelerometer) {
+      addIfAvailable('sensor_accelerometer_read');
+    }
+    if (wantsGyroscope) {
+      addIfAvailable('sensor_gyroscope_read');
+    }
+    if (wantsMagnetometer) {
+      addIfAvailable('sensor_magnetometer_read');
     }
 
     if (selected.length ==
@@ -223,7 +441,7 @@ class AgentToolRouter {
       'selected_tool_names': selected.toList(growable: false)..sort(),
       'reason': [
         if (decision['reason'] is String) decision['reason'],
-        'native_input_request_requires_system_picker_tools',
+        'native_capability_request_requires_phone_tools',
       ].whereType<String>().join('; '),
     };
   }

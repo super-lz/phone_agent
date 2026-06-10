@@ -47,6 +47,9 @@ class NativeCapabilityAdapter {
   final AppPermissionService _permissionService;
   Future<bool>? _notificationInitialization;
   String? _activeAudioRecordingPath;
+  String _screenOrientationMode = 'unlocked';
+  String _systemUiMode = 'normal';
+  List<SystemUiOverlay> _systemUiOverlays = SystemUiOverlay.values;
 
   AudioRecorder get _recorder => _audioRecorder ??= AudioRecorder();
 
@@ -537,6 +540,65 @@ class NativeCapabilityAdapter {
       );
       return {'ok': false, 'error': error.toString()};
     }
+  }
+
+  Future<Map<String, Object?>> setScreenOrientation(String mode) async {
+    try {
+      final normalized = _normalizeScreenOrientationMode(mode);
+      final orientations = _screenOrientationsForMode(normalized);
+      if (orientations == null) {
+        return {
+          'ok': false,
+          'error': 'invalid_orientation_mode',
+          'mode': mode,
+          'allowedModes': _allowedScreenOrientationModes,
+        };
+      }
+      await SystemChrome.setPreferredOrientations(orientations);
+      _screenOrientationMode = normalized;
+      return _screenOrientationStatusOutput();
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'native.screen_orientation_set.failed',
+        error,
+        stackTrace,
+      );
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> getScreenOrientation() async {
+    return _screenOrientationStatusOutput();
+  }
+
+  Future<Map<String, Object?>> setSystemUiMode(String mode) async {
+    try {
+      final normalized = _normalizeSystemUiMode(mode);
+      final configuration = _systemUiConfigurationForMode(normalized);
+      if (configuration == null) {
+        return {
+          'ok': false,
+          'error': 'invalid_system_ui_mode',
+          'mode': mode,
+          'allowedModes': _allowedSystemUiModes,
+        };
+      }
+
+      await SystemChrome.setEnabledSystemUIMode(
+        configuration.mode,
+        overlays: configuration.overlays,
+      );
+      _systemUiMode = normalized;
+      _systemUiOverlays = configuration.overlays;
+      return _systemUiStatusOutput();
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.system_ui_set.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
+  Future<Map<String, Object?>> getSystemUiMode() async {
+    return _systemUiStatusOutput();
   }
 
   Future<Map<String, Object?>> readAccelerometer() async {
@@ -1345,6 +1407,227 @@ class NativeCapabilityAdapter {
         return scanner.BarcodeFormat.upcE;
       default:
         return null;
+    }
+  }
+
+  static const List<String> _allowedScreenOrientationModes = [
+    'unlocked',
+    'portrait',
+    'portrait_up',
+    'portrait_down',
+    'landscape',
+    'landscape_left',
+    'landscape_right',
+  ];
+
+  String _normalizeScreenOrientationMode(String mode) {
+    final normalized = mode.trim().toLowerCase().replaceAll(
+      RegExp(r'[\s-]+'),
+      '_',
+    );
+    switch (normalized) {
+      case 'free':
+      case 'system':
+      case 'auto':
+      case 'default':
+      case 'unlock':
+      case 'unlocked':
+        return 'unlocked';
+      case 'portraitup':
+      case 'portrait_up':
+        return 'portrait_up';
+      case 'portraitdown':
+      case 'portrait_down':
+        return 'portrait_down';
+      case 'landscapeleft':
+      case 'landscape_left':
+        return 'landscape_left';
+      case 'landscaperight':
+      case 'landscape_right':
+        return 'landscape_right';
+      default:
+        return normalized;
+    }
+  }
+
+  List<DeviceOrientation>? _screenOrientationsForMode(String mode) {
+    switch (mode) {
+      case 'unlocked':
+        return const [];
+      case 'portrait':
+        return const [
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+        ];
+      case 'portrait_up':
+        return const [DeviceOrientation.portraitUp];
+      case 'portrait_down':
+        return const [DeviceOrientation.portraitDown];
+      case 'landscape':
+        return const [
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ];
+      case 'landscape_left':
+        return const [DeviceOrientation.landscapeLeft];
+      case 'landscape_right':
+        return const [DeviceOrientation.landscapeRight];
+      default:
+        return null;
+    }
+  }
+
+  Map<String, Object?> _screenOrientationStatusOutput() {
+    final orientations =
+        _screenOrientationsForMode(_screenOrientationMode) ?? const [];
+    final labels = orientations
+        .map(_deviceOrientationLabel)
+        .toList(growable: false);
+    final locked = _screenOrientationMode != 'unlocked';
+    return {
+      'ok': true,
+      'mode': _screenOrientationMode,
+      'locked': locked,
+      'preferredOrientations': labels,
+      'summary': locked
+          ? '当前应用屏幕方向已锁定为${_screenOrientationModeLabel(_screenOrientationMode)}。'
+          : '当前应用屏幕方向跟随系统自动旋转。',
+    };
+  }
+
+  String _deviceOrientationLabel(DeviceOrientation orientation) {
+    switch (orientation) {
+      case DeviceOrientation.portraitUp:
+        return 'portrait_up';
+      case DeviceOrientation.portraitDown:
+        return 'portrait_down';
+      case DeviceOrientation.landscapeLeft:
+        return 'landscape_left';
+      case DeviceOrientation.landscapeRight:
+        return 'landscape_right';
+    }
+  }
+
+  String _screenOrientationModeLabel(String mode) {
+    switch (mode) {
+      case 'portrait':
+        return '竖屏';
+      case 'portrait_up':
+        return '正向竖屏';
+      case 'portrait_down':
+        return '倒置竖屏';
+      case 'landscape':
+        return '横屏';
+      case 'landscape_left':
+        return '左横屏';
+      case 'landscape_right':
+        return '右横屏';
+      default:
+        return mode;
+    }
+  }
+
+  static const List<String> _allowedSystemUiModes = [
+    'normal',
+    'fullscreen',
+    'edge_to_edge',
+    'lean_back',
+    'immersive',
+    'immersive_sticky',
+  ];
+
+  String _normalizeSystemUiMode(String mode) {
+    final normalized = mode.trim().toLowerCase().replaceAll(
+      RegExp(r'[\s-]+'),
+      '_',
+    );
+    switch (normalized) {
+      case 'default':
+      case 'visible':
+      case 'manual':
+      case 'restore':
+      case 'restored':
+      case 'normal':
+        return 'normal';
+      case 'full_screen':
+      case 'hide':
+      case 'hidden':
+      case 'fullscreen':
+        return 'fullscreen';
+      case 'edge':
+      case 'edge_to_edge':
+      case 'edgetoedge':
+        return 'edge_to_edge';
+      case 'leanback':
+      case 'lean_back':
+        return 'lean_back';
+      case 'immersivesticky':
+      case 'immersive_sticky':
+        return 'immersive_sticky';
+      default:
+        return normalized;
+    }
+  }
+
+  ({SystemUiMode mode, List<SystemUiOverlay> overlays})?
+  _systemUiConfigurationForMode(String mode) {
+    switch (mode) {
+      case 'normal':
+        return (mode: SystemUiMode.manual, overlays: SystemUiOverlay.values);
+      case 'fullscreen':
+        return (mode: SystemUiMode.manual, overlays: const []);
+      case 'edge_to_edge':
+        return (mode: SystemUiMode.edgeToEdge, overlays: const []);
+      case 'lean_back':
+        return (mode: SystemUiMode.leanBack, overlays: const []);
+      case 'immersive':
+        return (mode: SystemUiMode.immersive, overlays: const []);
+      case 'immersive_sticky':
+        return (mode: SystemUiMode.immersiveSticky, overlays: const []);
+      default:
+        return null;
+    }
+  }
+
+  Map<String, Object?> _systemUiStatusOutput() {
+    final overlays = _systemUiOverlays
+        .map(_systemUiOverlayLabel)
+        .toList(growable: false);
+    return {
+      'ok': true,
+      'mode': _systemUiMode,
+      'overlays': overlays,
+      'isFullscreen': _systemUiMode != 'normal' && overlays.isEmpty,
+      'summary': _systemUiMode == 'normal'
+          ? '当前应用已恢复显示系统状态栏和导航栏。'
+          : '当前应用系统 UI 已切换为${_systemUiModeLabel(_systemUiMode)}模式。',
+    };
+  }
+
+  String _systemUiOverlayLabel(SystemUiOverlay overlay) {
+    switch (overlay) {
+      case SystemUiOverlay.top:
+        return 'top';
+      case SystemUiOverlay.bottom:
+        return 'bottom';
+    }
+  }
+
+  String _systemUiModeLabel(String mode) {
+    switch (mode) {
+      case 'fullscreen':
+        return '全屏';
+      case 'edge_to_edge':
+        return '边到边';
+      case 'lean_back':
+        return '轻量沉浸';
+      case 'immersive':
+        return '沉浸';
+      case 'immersive_sticky':
+        return '粘性沉浸';
+      case 'normal':
+      default:
+        return '正常显示';
     }
   }
 

@@ -46,10 +46,14 @@ class WebAppRuntimeDefaults {
     'share.text',
     'system.haptic_feedback',
     'system.sound_alert',
+    'system.ui.set',
+    'system.ui.status',
     'permission.open_settings',
     'url.open_external',
     'screen.keep_awake',
     'screen.keep_awake_status',
+    'screen.orientation.set',
+    'screen.orientation.status',
     'sensor.accelerometer.read',
     'sensor.gyroscope.read',
     'sensor.magnetometer.read',
@@ -341,6 +345,10 @@ class WebAppCapabilityBridge {
         return 'system_haptic_feedback';
       case 'system.sound_alert':
         return 'system_sound_alert';
+      case 'system.ui.set':
+        return 'system_ui_set';
+      case 'system.ui.status':
+        return 'system_ui_status';
       case 'permission.open_settings':
         return 'permission_open_settings';
       case 'url.open_external':
@@ -349,6 +357,10 @@ class WebAppCapabilityBridge {
         return 'screen_keep_awake';
       case 'screen.keep_awake_status':
         return 'screen_keep_awake_status';
+      case 'screen.orientation.set':
+        return 'screen_orientation_set';
+      case 'screen.orientation.status':
+        return 'screen_orientation_status';
       case 'sensor.accelerometer.read':
         return 'sensor_accelerometer_read';
       case 'sensor.gyroscope.read':

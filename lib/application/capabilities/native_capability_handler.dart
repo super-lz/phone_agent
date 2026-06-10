@@ -255,6 +255,52 @@ class NativeCapabilityHandler {
     );
   }
 
+  Future<CapabilityExecutionResult> setScreenOrientation({
+    required Map<String, Object?> arguments,
+  }) async {
+    final mode = _optionalTrimmedString(arguments['mode']);
+    if (mode == null) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'screen.orientation.set',
+        output: {'ok': false, 'error': 'mode is required'},
+      );
+    }
+    return CapabilityExecutionResult(
+      capabilityId: 'screen.orientation.set',
+      output: await _adapter.setScreenOrientation(mode),
+    );
+  }
+
+  Future<CapabilityExecutionResult> getScreenOrientation() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'screen.orientation.status',
+      output: await _adapter.getScreenOrientation(),
+    );
+  }
+
+  Future<CapabilityExecutionResult> setSystemUiMode({
+    required Map<String, Object?> arguments,
+  }) async {
+    final mode = _optionalTrimmedString(arguments['mode']);
+    if (mode == null) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'system.ui.set',
+        output: {'ok': false, 'error': 'mode is required'},
+      );
+    }
+    return CapabilityExecutionResult(
+      capabilityId: 'system.ui.set',
+      output: await _adapter.setSystemUiMode(mode),
+    );
+  }
+
+  Future<CapabilityExecutionResult> getSystemUiMode() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'system.ui.status',
+      output: await _adapter.getSystemUiMode(),
+    );
+  }
+
   Future<CapabilityExecutionResult> readAccelerometer() async {
     return CapabilityExecutionResult(
       capabilityId: 'sensor.accelerometer.read',

@@ -995,6 +995,64 @@ void main() {
     expect(readResult.output['text'], '复制这段文字');
   });
 
+  test('runtime accepts native capability ids as direct call names', () async {
+    final adapter = _FakeNativeAdapter();
+    final runtime = CapabilityRuntime(nativeAdapter: adapter);
+
+    final deviceResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-device-by-id',
+        name: 'device.info',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final writeResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-clipboard-write-by-id',
+        name: 'clipboard.write',
+        arguments: {'text': '来自 capability id 的调用'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final accelerometerResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-accelerometer-by-id',
+        name: 'sensor.accelerometer.read',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final readResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-clipboard-read-by-id',
+        name: 'clipboard.read',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(deviceResult.capabilityId, 'device.info');
+    expect(deviceResult.output['ok'], isTrue);
+    expect(writeResult.capabilityId, 'clipboard.write');
+    expect(writeResult.output['ok'], isTrue);
+    expect(accelerometerResult.capabilityId, 'sensor.accelerometer.read');
+    expect(accelerometerResult.output['sensor'], 'accelerometer');
+    expect(readResult.output['text'], '来自 capability id 的调用');
+  });
+
   test(
     'runtime can capture and pick local media through native adapter',
     () async {
@@ -1360,6 +1418,100 @@ void main() {
     expect(keepAwakeResult.output['enabled'], isTrue);
     expect(statusResult.capabilityId, 'screen.keep_awake_status');
     expect(statusResult.output['enabled'], isTrue);
+  });
+
+  test('runtime exposes screen orientation lock capabilities', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final setResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-orientation-set',
+        name: 'screen_orientation_set',
+        arguments: {'mode': 'landscape'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final statusResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-orientation-status',
+        name: 'screen_orientation_status',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final unlockResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-orientation-unlock',
+        name: 'screen.orientation.set',
+        arguments: {'mode': 'unlocked'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(setResult.capabilityId, 'screen.orientation.set');
+    expect(setResult.output['mode'], 'landscape');
+    expect(setResult.output['locked'], isTrue);
+    expect(statusResult.capabilityId, 'screen.orientation.status');
+    expect(statusResult.output['preferredOrientations'], [
+      'landscape_left',
+      'landscape_right',
+    ]);
+    expect(unlockResult.output['locked'], isFalse);
+  });
+
+  test('runtime exposes system UI display mode capabilities', () async {
+    final runtime = CapabilityRuntime(nativeAdapter: _FakeNativeAdapter());
+
+    final setResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-system-ui-set',
+        name: 'system_ui_set',
+        arguments: {'mode': 'immersive_sticky'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final statusResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-system-ui-status',
+        name: 'system_ui_status',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final normalResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-system-ui-normal',
+        name: 'system.ui.set',
+        arguments: {'mode': 'normal'},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+
+    expect(setResult.capabilityId, 'system.ui.set');
+    expect(setResult.output['mode'], 'immersive_sticky');
+    expect(setResult.output['isFullscreen'], isTrue);
+    expect(statusResult.capabilityId, 'system.ui.status');
+    expect(statusResult.output['mode'], 'immersive_sticky');
+    expect(normalResult.output['mode'], 'normal');
+    expect(normalResult.output['overlays'], ['top', 'bottom']);
   });
 
   test('runtime exposes current location through native adapter', () async {
@@ -1786,6 +1938,8 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   final Map<String, Object?> locationOutput;
   String _clipboardText = '';
   bool _keepAwake = false;
+  String _orientationMode = 'unlocked';
+  String _systemUiMode = 'normal';
   bool _recording = false;
   final Map<int, Map<String, Object?>> _pendingNotifications = {};
 
@@ -2092,6 +2246,28 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   }
 
   @override
+  Future<Map<String, Object?>> setScreenOrientation(String mode) async {
+    _orientationMode = mode;
+    return _orientationOutput();
+  }
+
+  @override
+  Future<Map<String, Object?>> getScreenOrientation() async {
+    return _orientationOutput();
+  }
+
+  @override
+  Future<Map<String, Object?>> setSystemUiMode(String mode) async {
+    _systemUiMode = mode;
+    return _systemUiOutput();
+  }
+
+  @override
+  Future<Map<String, Object?>> getSystemUiMode() async {
+    return _systemUiOutput();
+  }
+
+  @override
   Future<Map<String, Object?>> readAccelerometer() async {
     return {
       'ok': true,
@@ -2110,6 +2286,33 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   @override
   Future<Map<String, Object?>> readMagnetometer() async {
     return {'ok': true, 'sensor': 'magnetometer', 'x': 7.0, 'y': 8.0, 'z': 9.0};
+  }
+
+  Map<String, Object?> _orientationOutput() {
+    return {
+      'ok': true,
+      'mode': _orientationMode,
+      'locked': _orientationMode != 'unlocked',
+      'preferredOrientations': switch (_orientationMode) {
+        'landscape' => ['landscape_left', 'landscape_right'],
+        'portrait' => ['portrait_up', 'portrait_down'],
+        'landscape_left' => ['landscape_left'],
+        'landscape_right' => ['landscape_right'],
+        'portrait_up' => ['portrait_up'],
+        'portrait_down' => ['portrait_down'],
+        _ => <String>[],
+      },
+    };
+  }
+
+  Map<String, Object?> _systemUiOutput() {
+    final overlays = _systemUiMode == 'normal' ? ['top', 'bottom'] : <String>[];
+    return {
+      'ok': true,
+      'mode': _systemUiMode,
+      'overlays': overlays,
+      'isFullscreen': overlays.isEmpty,
+    };
   }
 
   @override

@@ -39,4 +39,149 @@ void main() {
       expect(observation['mapsUrl'], contains('uri.amap.com'));
     },
   );
+
+  test('native action results produce useful summaries and observations', () {
+    final notification = _presentAndObserve(
+      capabilityId: 'notification.schedule',
+      output: const {
+        'ok': true,
+        'notificationId': 42,
+        'title': '喝水',
+        'body': '休息一下',
+        'scheduledAt': '2026-06-10T16:30:00',
+      },
+    );
+    expect(notification.presentation.summary, contains('喝水'));
+    expect(notification.observation['notificationId'], 42);
+    expect(notification.observation['body'], '休息一下');
+
+    final sensor = _presentAndObserve(
+      capabilityId: 'sensor.accelerometer.read',
+      output: const {
+        'ok': true,
+        'sensor': 'accelerometer',
+        'x': 1.23456,
+        'y': -2.0,
+        'z': 9.8,
+      },
+    );
+    expect(sensor.presentation.summary, contains('加速度计 当前读数'));
+    expect(sensor.observation['sensor'], 'accelerometer');
+    expect(sensor.observation['z'], 9.8);
+
+    final url = _presentAndObserve(
+      capabilityId: 'url.open_external',
+      output: const {
+        'ok': true,
+        'opened': true,
+        'url': 'https://example.com',
+        'scheme': 'https',
+      },
+    );
+    expect(url.presentation.summary, contains('https://example.com'));
+    expect(url.observation['scheme'], 'https');
+
+    final calendar = _presentAndObserve(
+      capabilityId: 'calendar.event.create',
+      output: const {
+        'ok': true,
+        'title': '项目会',
+        'startsAt': '2026-06-10T18:00:00',
+        'endsAt': '2026-06-10T19:00:00',
+        'allDay': false,
+        'requiresUserConfirmation': true,
+        'completionInferred': false,
+      },
+    );
+    expect(calendar.presentation.summary, contains('系统日历添加流程'));
+    expect(calendar.observation['requiresUserConfirmation'], isTrue);
+  });
+
+  test('native side-effect results avoid generic completed summary', () {
+    final share = _presentAndObserve(
+      capabilityId: 'share.text',
+      output: const {'ok': true, 'status': 'success', 'length': 12},
+    );
+    expect(share.presentation.summary, contains('success'));
+    expect(share.observation['length'], 12);
+
+    final haptic = _presentAndObserve(
+      capabilityId: 'system.haptic_feedback',
+      output: const {'ok': true, 'type': 'selection'},
+    );
+    expect(haptic.presentation.summary, contains('选择'));
+    expect(haptic.observation['type'], 'selection');
+
+    final sound = _presentAndObserve(
+      capabilityId: 'system.sound_alert',
+      output: const {'ok': true, 'type': 'click'},
+    );
+    expect(sound.presentation.summary, contains('点击音'));
+    expect(sound.observation['type'], 'click');
+
+    final systemUi = _presentAndObserve(
+      capabilityId: 'system.ui.set',
+      output: const {
+        'ok': true,
+        'mode': 'immersive_sticky',
+        'overlays': <String>[],
+        'isFullscreen': true,
+      },
+    );
+    expect(systemUi.presentation.summary, contains('粘性沉浸'));
+    expect(systemUi.observation['isFullscreen'], isTrue);
+
+    final systemUiStatus = _presentAndObserve(
+      capabilityId: 'system.ui.status',
+      output: const {
+        'ok': true,
+        'mode': 'normal',
+        'overlays': ['top', 'bottom'],
+        'isFullscreen': false,
+      },
+    );
+    expect(systemUiStatus.presentation.summary, contains('状态栏和导航栏'));
+    expect(systemUiStatus.observation['mode'], 'normal');
+
+    final orientation = _presentAndObserve(
+      capabilityId: 'screen.orientation.set',
+      output: const {
+        'ok': true,
+        'mode': 'landscape',
+        'locked': true,
+        'preferredOrientations': ['landscape_left', 'landscape_right'],
+      },
+    );
+    expect(orientation.presentation.summary, contains('横屏'));
+    expect(orientation.observation['locked'], isTrue);
+
+    final orientationStatus = _presentAndObserve(
+      capabilityId: 'screen.orientation.status',
+      output: const {
+        'ok': true,
+        'mode': 'unlocked',
+        'locked': false,
+        'preferredOrientations': <String>[],
+      },
+    );
+    expect(orientationStatus.presentation.summary, contains('自动旋转'));
+    expect(orientationStatus.observation['mode'], 'unlocked');
+  });
+}
+
+({CapabilityResultPresentation presentation, Map<String, Object?> observation})
+_presentAndObserve({
+  required String capabilityId,
+  required Map<String, Object?> output,
+}) {
+  return (
+    presentation: presentCapabilityResult(
+      capabilityId: capabilityId,
+      output: output,
+    ),
+    observation: modelObservationForCapability(
+      capabilityId: capabilityId,
+      output: output,
+    ),
+  );
 }

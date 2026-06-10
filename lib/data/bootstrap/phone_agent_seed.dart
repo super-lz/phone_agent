@@ -271,6 +271,16 @@ class PhoneAgentSeed {
       CapabilityRisk.low,
     ),
     _capability(
+      'system.ui.set',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'system.ui.status',
+      CapabilityAdapter.native,
+      CapabilityRisk.low,
+    ),
+    _capability(
       'permission.open_settings',
       CapabilityAdapter.native,
       CapabilityRisk.medium,
@@ -287,6 +297,16 @@ class PhoneAgentSeed {
     ),
     _capability(
       'screen.keep_awake_status',
+      CapabilityAdapter.native,
+      CapabilityRisk.low,
+    ),
+    _capability(
+      'screen.orientation.set',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'screen.orientation.status',
       CapabilityAdapter.native,
       CapabilityRisk.low,
     ),

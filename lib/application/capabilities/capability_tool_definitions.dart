@@ -574,7 +574,8 @@ class CapabilityToolDefinitions {
             'properties': {
               'formats': {
                 'type': 'array',
-                'description': '可选，限制识别格式，例如 qr_code、ean13、code128、data_matrix。',
+                'description':
+                    '可选，限制识别格式，例如 qr_code、ean13、code128、data_matrix。',
                 'items': {'type': 'string'},
               },
             },
@@ -592,7 +593,8 @@ class CapabilityToolDefinitions {
             'properties': {
               'formats': {
                 'type': 'array',
-                'description': '可选，限制识别格式，例如 qr_code、ean13、code128、data_matrix。',
+                'description':
+                    '可选，限制识别格式，例如 qr_code、ean13、code128、data_matrix。',
                 'items': {'type': 'string'},
               },
             },
@@ -678,6 +680,33 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'system_ui_set',
+          'description':
+              '设置当前应用的系统 UI 显示模式。适合用户明确要求全屏、沉浸式、显示/隐藏状态栏导航栏，或本地 Web App/游戏/演示需要沉浸显示时使用。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'mode': {
+                'type': 'string',
+                'description':
+                    '显示模式：normal、fullscreen、edge_to_edge、lean_back、immersive、immersive_sticky。',
+              },
+            },
+            'required': ['mode'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'system_ui_status',
+          'description': '查询当前应用的系统 UI 显示模式和状态栏/导航栏显示状态。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'permission_open_settings',
           'description': '打开系统应用设置页，帮助用户手动开启定位、通知等权限。只有用户要求处理权限时使用。',
           'parameters': {'type': 'object', 'properties': <String, Object?>{}},
@@ -720,6 +749,33 @@ class CapabilityToolDefinitions {
         'function': {
           'name': 'screen_keep_awake_status',
           'description': '查询当前应用是否正在保持屏幕常亮。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'screen_orientation_set',
+          'description':
+              '设置当前应用的屏幕方向偏好。适合用户明确要求横屏、竖屏、解锁自动旋转，或本地 Web App/演示需要固定方向时使用。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'mode': {
+                'type': 'string',
+                'description':
+                    '方向模式：unlocked、portrait、portrait_up、portrait_down、landscape、landscape_left、landscape_right。',
+              },
+            },
+            'required': ['mode'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'screen_orientation_status',
+          'description': '查询当前应用的屏幕方向锁定状态和首选方向。',
           'parameters': {'type': 'object', 'properties': <String, Object?>{}},
         },
       },

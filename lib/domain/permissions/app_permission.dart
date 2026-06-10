@@ -82,7 +82,11 @@ class AppPermissionRegistry {
       id: AppPermissionId.camera,
       title: '相机',
       description: '用于用户明确要求拍照、拍视频或本地 Web App 请求相机输入时采集画面。',
-      affectedCapabilities: ['camera.capture_photo', 'camera.capture_video'],
+      affectedCapabilities: [
+        'camera.capture_photo',
+        'camera.capture_video',
+        'barcode.scan_camera',
+      ],
     ),
     AppPermissionDescriptor(
       id: AppPermissionId.microphone,
@@ -92,6 +96,7 @@ class AppPermissionRegistry {
         'camera.capture_video',
         'audio.record_start',
         'audio.record_stop',
+        'audio.record_cancel',
       ],
     ),
     AppPermissionDescriptor(

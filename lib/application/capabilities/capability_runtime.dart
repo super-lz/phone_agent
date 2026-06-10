@@ -28,6 +28,83 @@ import 'web_capability_handler.dart';
 import 'workspace_capability_handler.dart';
 
 class CapabilityRuntime {
+  static const Map<String, String> _capabilityIdsByToolName = {
+    'memory_create': 'memory.create',
+    'memory_query': 'memory.query',
+    'memory_delete': 'memory.delete',
+    'db_note_create': 'db.note.create',
+    'db_note_query': 'db.note.query',
+    'file_write_app_file': 'file.write_app_file',
+    'file_read_app_file': 'file.read_app_file',
+    'file_search_app_files': 'file.search_app_files',
+    'file_apply_text_patch': 'file.apply_text_patch',
+    'artifact_create': 'artifact.create',
+    'artifact_query': 'artifact.query',
+    'artifact_inspect_logs': 'artifact.inspect_logs',
+    'project_create_web_app': 'project.create_web_app',
+    'project_update_web_app': 'project.update_web_app',
+    'project_version_history': 'project.version_history',
+    'project_revert_web_app': 'project.revert_web_app',
+    'workspace_create': 'workspace.create',
+    'workspace_switch': 'workspace.switch',
+    'device_info': 'device.info',
+    'time_get_current': 'time.get_current',
+    'clipboard_read': 'clipboard.read',
+    'battery_status': 'battery.status',
+    'network_status': 'network.status',
+    'clipboard_write': 'clipboard.write',
+    'camera_capture_photo': 'camera.capture_photo',
+    'camera_capture_video': 'camera.capture_video',
+    'media_pick_image': 'media.pick_image',
+    'media_pick_video': 'media.pick_video',
+    'file_pick_system_file': 'file.pick_system_file',
+    'audio_record_start': 'audio.record_start',
+    'audio_record_stop': 'audio.record_stop',
+    'audio_record_cancel': 'audio.record_cancel',
+    'contacts_pick': 'contacts.pick',
+    'barcode_scan_camera': 'barcode.scan_camera',
+    'barcode_scan_image': 'barcode.scan_image',
+    'share_text': 'share.text',
+    'system_haptic_feedback': 'system.haptic_feedback',
+    'system_sound_alert': 'system.sound_alert',
+    'system_ui_set': 'system.ui.set',
+    'system_ui_status': 'system.ui.status',
+    'permission_open_settings': 'permission.open_settings',
+    'url_open_external': 'url.open_external',
+    'screen_keep_awake': 'screen.keep_awake',
+    'screen_keep_awake_status': 'screen.keep_awake_status',
+    'screen_orientation_set': 'screen.orientation.set',
+    'screen_orientation_status': 'screen.orientation.status',
+    'sensor_accelerometer_read': 'sensor.accelerometer.read',
+    'sensor_gyroscope_read': 'sensor.gyroscope.read',
+    'sensor_magnetometer_read': 'sensor.magnetometer.read',
+    'location_get_current': 'location.get_current',
+    'notification_schedule': 'notification.schedule',
+    'notification_pending': 'notification.pending',
+    'notification_cancel': 'notification.cancel',
+    'notification_cancel_all': 'notification.cancel_all',
+    'calendar_event_create': 'calendar.event.create',
+    'document_extract': 'document.extract',
+    'document_generate': 'document.generate',
+    'document_apply_text_patch': 'document.apply_text_patch',
+    'spreadsheet_extract': 'spreadsheet.extract',
+    'spreadsheet_generate': 'spreadsheet.generate',
+    'presentation_extract': 'presentation.extract',
+    'presentation_generate': 'presentation.generate',
+    'pdf_extract': 'pdf.extract',
+    'pdf_generate': 'pdf.generate',
+    'web_search': 'web.search',
+    'web_fetch': 'web.fetch',
+    'skill_install': 'skill.install',
+    'skill_invoke': 'skill.invoke',
+    'mcp_connect': 'mcp.connect',
+  };
+
+  static final Map<String, String> _toolNamesByCapabilityId = {
+    for (final entry in _capabilityIdsByToolName.entries)
+      entry.value: entry.key,
+  };
+
   CapabilityRuntime({
     WebCapabilityAdapter? webAdapter,
     NativeCapabilityAdapter? nativeAdapter,
@@ -140,7 +217,8 @@ class CapabilityRuntime {
     String? apiKey,
     required PermissionMode permissionMode,
   }) async {
-    switch (toolCall.name) {
+    final toolName = _toolNameForCapabilityId(toolCall.name) ?? toolCall.name;
+    switch (toolName) {
       case 'memory_create':
         return _memoryHandler.create(
           arguments: toolCall.arguments,
@@ -303,6 +381,12 @@ class CapabilityRuntime {
         return await _nativeHandler.playSystemSound(
           arguments: toolCall.arguments,
         );
+      case 'system_ui_set':
+        return await _nativeHandler.setSystemUiMode(
+          arguments: toolCall.arguments,
+        );
+      case 'system_ui_status':
+        return await _nativeHandler.getSystemUiMode();
       case 'permission_open_settings':
         return await _nativeHandler.openPermissionSettings();
       case 'url_open_external':
@@ -315,6 +399,12 @@ class CapabilityRuntime {
         );
       case 'screen_keep_awake_status':
         return await _nativeHandler.getKeepScreenAwake();
+      case 'screen_orientation_set':
+        return await _nativeHandler.setScreenOrientation(
+          arguments: toolCall.arguments,
+        );
+      case 'screen_orientation_status':
+        return await _nativeHandler.getScreenOrientation();
       case 'sensor_accelerometer_read':
         return await _nativeHandler.readAccelerometer();
       case 'sensor_gyroscope_read':
@@ -848,140 +938,11 @@ class CapabilityRuntime {
     return null;
   }
 
+  String? _toolNameForCapabilityId(String capabilityId) {
+    return _toolNamesByCapabilityId[capabilityId];
+  }
+
   String _capabilityIdForToolName(String toolName) {
-    switch (toolName) {
-      case 'memory_create':
-        return 'memory.create';
-      case 'memory_query':
-        return 'memory.query';
-      case 'memory_delete':
-        return 'memory.delete';
-      case 'db_note_create':
-        return 'db.note.create';
-      case 'db_note_query':
-        return 'db.note.query';
-      case 'file_write_app_file':
-        return 'file.write_app_file';
-      case 'file_read_app_file':
-        return 'file.read_app_file';
-      case 'file_search_app_files':
-        return 'file.search_app_files';
-      case 'file_apply_text_patch':
-        return 'file.apply_text_patch';
-      case 'artifact_create':
-        return 'artifact.create';
-      case 'project_create_web_app':
-        return 'project.create_web_app';
-      case 'project_update_web_app':
-        return 'project.update_web_app';
-      case 'project_version_history':
-        return 'project.version_history';
-      case 'project_revert_web_app':
-        return 'project.revert_web_app';
-      case 'artifact_query':
-        return 'artifact.query';
-      case 'artifact_inspect_logs':
-        return 'artifact.inspect_logs';
-      case 'workspace_create':
-        return 'workspace.create';
-      case 'workspace_switch':
-        return 'workspace.switch';
-      case 'device_info':
-        return 'device.info';
-      case 'time_get_current':
-        return 'time.get_current';
-      case 'clipboard_read':
-        return 'clipboard.read';
-      case 'battery_status':
-        return 'battery.status';
-      case 'network_status':
-        return 'network.status';
-      case 'clipboard_write':
-        return 'clipboard.write';
-      case 'camera_capture_photo':
-        return 'camera.capture_photo';
-      case 'camera_capture_video':
-        return 'camera.capture_video';
-      case 'media_pick_image':
-        return 'media.pick_image';
-      case 'media_pick_video':
-        return 'media.pick_video';
-      case 'file_pick_system_file':
-        return 'file.pick_system_file';
-      case 'audio_record_start':
-        return 'audio.record_start';
-      case 'audio_record_stop':
-        return 'audio.record_stop';
-      case 'audio_record_cancel':
-        return 'audio.record_cancel';
-      case 'contacts_pick':
-        return 'contacts.pick';
-      case 'barcode_scan_camera':
-        return 'barcode.scan_camera';
-      case 'barcode_scan_image':
-        return 'barcode.scan_image';
-      case 'share_text':
-        return 'share.text';
-      case 'system_haptic_feedback':
-        return 'system.haptic_feedback';
-      case 'system_sound_alert':
-        return 'system.sound_alert';
-      case 'permission_open_settings':
-        return 'permission.open_settings';
-      case 'url_open_external':
-        return 'url.open_external';
-      case 'screen_keep_awake':
-        return 'screen.keep_awake';
-      case 'screen_keep_awake_status':
-        return 'screen.keep_awake_status';
-      case 'sensor_accelerometer_read':
-        return 'sensor.accelerometer.read';
-      case 'sensor_gyroscope_read':
-        return 'sensor.gyroscope.read';
-      case 'sensor_magnetometer_read':
-        return 'sensor.magnetometer.read';
-      case 'location_get_current':
-        return 'location.get_current';
-      case 'notification_schedule':
-        return 'notification.schedule';
-      case 'notification_pending':
-        return 'notification.pending';
-      case 'notification_cancel':
-        return 'notification.cancel';
-      case 'notification_cancel_all':
-        return 'notification.cancel_all';
-      case 'calendar_event_create':
-        return 'calendar.event.create';
-      case 'document_extract':
-        return 'document.extract';
-      case 'document_generate':
-        return 'document.generate';
-      case 'document_apply_text_patch':
-        return 'document.apply_text_patch';
-      case 'spreadsheet_extract':
-        return 'spreadsheet.extract';
-      case 'spreadsheet_generate':
-        return 'spreadsheet.generate';
-      case 'presentation_extract':
-        return 'presentation.extract';
-      case 'presentation_generate':
-        return 'presentation.generate';
-      case 'pdf_extract':
-        return 'pdf.extract';
-      case 'pdf_generate':
-        return 'pdf.generate';
-      case 'web_search':
-        return 'web.search';
-      case 'web_fetch':
-        return 'web.fetch';
-      case 'skill_install':
-        return 'skill.install';
-      case 'skill_invoke':
-        return 'skill.invoke';
-      case 'mcp_connect':
-        return 'mcp.connect';
-      default:
-        return toolName;
-    }
+    return _capabilityIdsByToolName[toolName] ?? toolName;
   }
 }

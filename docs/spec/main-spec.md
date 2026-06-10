@@ -161,14 +161,14 @@
 - Markdown 渲染必须对流式输出中的临时未闭合标记具备容错能力，例如未闭合的粗体或行内代码标记，避免把明显的 Markdown 控制符直接暴露给用户。
 - 图片输入、文件输入和系统分享入口的业务入口。
 - 联网搜索和网页读取能力的 Capability 定义。
-- 文件、数据库、记忆、Workspace、Artifact、Office/PDF 文档、时间、定位、剪贴板、相机、媒体选择、系统文件选择、麦克风录音、联系人选择、二维码/条码识别、通知、日历、设备信息、WebView、Skill 和 MCP 的 Capability 定义。
+- 文件、数据库、记忆、Workspace、Artifact、Office/PDF 文档、时间、定位、剪贴板、相机、媒体选择、系统文件选择、麦克风录音、联系人选择、二维码/条码识别、通知、日历、设备信息、屏幕常亮与方向控制、系统 UI 显隐控制、WebView、Skill 和 MCP 的 Capability 定义。
 - Artifact 中心。
 - 全局长期记忆和会话上下文。
 - 模型设置页，支持阿里云百炼 API Key 保存、自定义模型名称、恢复默认模型和连接测试。
 - 正式对话的最小 Agent Loop：模型流式输出、自动发起工具调用、Capability Runtime 执行工具、工具结果回传模型、模型继续回答。
 - Agent Loop 必须具备可调任务预算，并在日志中暴露当前工具调用消耗，方便定位过早停止或循环调用。
 - Agent Loop 必须携带同一会话的近期原文上下文，并在上下文过长时携带较早内容的压缩摘要。
-- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`file.search_app_files`、`file.apply_text_patch`、`project.create_web_app`、`project.update_web_app`、`project.version_history`、`project.revert_web_app`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`document.extract`、`document.generate`、`document.apply_text_patch`、`spreadsheet.extract`、`spreadsheet.generate`、`presentation.extract`、`presentation.generate`、`pdf.extract`、`pdf.generate`、`device.info`、`time.get_current`、`battery.status`、`network.status`、`clipboard.read`、`clipboard.write`、`camera.capture_photo`、`camera.capture_video`、`media.pick_image`、`media.pick_video`、`file.pick_system_file`、`audio.record_start`、`audio.record_stop`、`audio.record_cancel`、`contacts.pick`、`barcode.scan_camera`、`barcode.scan_image`、`share.text`、`system.haptic_feedback`、`system.sound_alert`、`permission.open_settings`、`url.open_external`、`screen.keep_awake`、`screen.keep_awake_status`、`sensor.accelerometer.read`、`sensor.gyroscope.read`、`sensor.magnetometer.read`、`location.get_current`、`notification.schedule`、`notification.pending`、`notification.cancel`、`notification.cancel_all` 和 `calendar.event.create`。
+- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`file.search_app_files`、`file.apply_text_patch`、`project.create_web_app`、`project.update_web_app`、`project.version_history`、`project.revert_web_app`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`document.extract`、`document.generate`、`document.apply_text_patch`、`spreadsheet.extract`、`spreadsheet.generate`、`presentation.extract`、`presentation.generate`、`pdf.extract`、`pdf.generate`、`device.info`、`time.get_current`、`battery.status`、`network.status`、`clipboard.read`、`clipboard.write`、`camera.capture_photo`、`camera.capture_video`、`media.pick_image`、`media.pick_video`、`file.pick_system_file`、`audio.record_start`、`audio.record_stop`、`audio.record_cancel`、`contacts.pick`、`barcode.scan_camera`、`barcode.scan_image`、`share.text`、`system.haptic_feedback`、`system.sound_alert`、`system.ui.set`、`system.ui.status`、`permission.open_settings`、`url.open_external`、`screen.keep_awake`、`screen.keep_awake_status`、`screen.orientation.set`、`screen.orientation.status`、`sensor.accelerometer.read`、`sensor.gyroscope.read`、`sensor.magnetometer.read`、`location.get_current`、`notification.schedule`、`notification.pending`、`notification.cancel`、`notification.cancel_all` 和 `calendar.event.create`。
 - 当用户要求新建或切换工作区时，Agent 可以调用 `workspace.create` 或 `workspace.switch`；创建成功后当前 Workspace 必须切换到新工作区，切换目标不存在时必须返回结构化错误。
 - 当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，Agent 可以调用 `db.note.create` 或 `db.note.query` 读写当前 Workspace 的 Note。
 - `db.note.create` 写入的 Note 必须落到设备本地数据库，而不是只停留在当前进程内存。
@@ -189,8 +189,10 @@
 - 当用户明确要求扫描二维码/条码，或识别图片、截图、照片中的二维码/条码时，Agent 可以调用 `barcode.scan_camera` 或 `barcode.scan_image`；这些能力必须由用户触发系统相机或图片选择流程，成功时返回码值、显示值、格式、类型和数量等结构化结果，用户取消或未识别到码时返回结构化失败。
 - 当用户要求查看电量或网络连接类型时，Agent 可以调用 `battery.status` 或 `network.status`；电量和网络结果必须包含面向用户的摘要；网络状态只表示设备连接类型，不能等同于目标网站或互联网一定可达。
 - 当用户明确要求分享文本、触感反馈、系统提示音或打开应用权限设置时，Agent 可以调用 `share.text`、`system.haptic_feedback`、`system.sound_alert` 或 `permission.open_settings`；分享和设置能力会触发系统 UI，需要用户继续确认或操作。
+- 当用户明确要求进入全屏、沉浸式、隐藏或恢复状态栏和导航栏，或本地 Web App/游戏/演示需要调整当前应用的系统栏可见性时，Agent 可以调用 `system.ui.set`；需要查询当前系统 UI 显隐状态时可以调用 `system.ui.status`。该能力只影响当前应用的展示模式，不承诺修改系统全局设置。
 - 当用户明确要求打开外部链接、电话、短信、邮件或地理 URI 时，Agent 可以调用 `url.open_external`；该能力只允许受支持的外部 URI scheme，并会跳出当前应用或打开系统 UI。
 - 当用户明确要求长时间展示、计时器、演示或防止屏幕熄灭时，Agent 可以调用 `screen.keep_awake` 设置当前应用保持屏幕常亮，也可以调用 `screen.keep_awake_status` 查询当前状态；该能力只影响当前应用运行期间。
+- 当用户明确要求横屏、竖屏、锁定方向、解锁方向、恢复自动旋转，或本地 Web App/游戏/演示需要固定显示方向时，Agent 可以调用 `screen.orientation.set` 设置当前应用的屏幕方向偏好，也可以调用 `screen.orientation.status` 查询当前状态；该能力只影响当前应用，不承诺修改系统全局自动旋转设置。
 - 当用户明确要求使用运动、姿态、方向或磁场信息时，Agent 可以调用 `sensor.accelerometer.read`、`sensor.gyroscope.read` 或 `sensor.magnetometer.read` 读取一次传感器快照；传感器不可用、超时或平台异常时必须返回结构化错误。
 - 每轮对话必须把设备当前本地时间、UTC 时间或时区语义提供给 Agent；当用户询问当前时间，或安排通知/日历前需要校准相对时间时，Agent 可以调用 `time.get_current` 获取设备当前时间。
 - 当用户明确要求使用当前位置时，Agent 可以调用 `location.get_current`；移动端定位必须使用可配置的真实定位 Provider 获取当前定位，成功时返回经纬度、精度、时间戳、坐标系、Provider 诊断、地址信息和面向用户的摘要；定位 Provider 所需平台 Key 必须通过本地不提交的运行配置注入，不能写入仓库或日志；定位服务关闭、权限拒绝、永久拒绝、缺少平台 Key、定位超时或平台异常时必须返回结构化错误和可读处理建议。
@@ -274,6 +276,8 @@
 - AI 能在用户明确要求时安排、查看、取消单条或清空全部本地系统通知；通知权限拒绝、无效提醒时间或平台不可用时，系统不崩溃，并把结构化失败原因返回给 Agent。
 - 用户能进入统一权限管理页查看定位和通知等系统权限状态；可申请的权限能在页内触发系统申请，无法在 App 内恢复的状态能跳转到系统设置。
 - AI 能在用户明确要求时创建日历事件；系统必须打开平台日历添加事件流程，由用户确认保存，并在取消、时间无效或平台不可用时把结构化结果返回给 Agent。
+- AI 能在用户明确要求时设置或查询当前 App 的系统 UI 显隐模式；全屏、沉浸式、边到边显示和恢复系统栏都必须返回结构化结果，并在对话中展示可读摘要。
+- AI 能在用户明确要求时设置或查询当前 App 的屏幕方向偏好；横屏、竖屏、单方向锁定和恢复系统自动旋转都必须返回结构化结果，并在对话中展示可读摘要。
 - AI 能调用 `artifact.create` 创建当前 Workspace 的 Artifact，并在对话中展示对应 Artifact 卡片；`artifact.query` 只返回当前 Workspace 的 Artifact。
 - AI 能生成一个本地 Web App，该 App 出现在应用库并可单独打开。
 - AI 生成 Web App 后，对话中展示的 Web App 卡片可以点击进入预览页面。
