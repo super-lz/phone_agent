@@ -49,6 +49,8 @@ class WebAppRuntimeDefaults {
     'share.text',
     'system.haptic_feedback',
     'system.sound_alert',
+    'system.volume.set',
+    'system.volume.status',
     'system.ui.set',
     'system.ui.status',
     'permission.open_settings',
@@ -356,6 +358,10 @@ class WebAppCapabilityBridge {
         return 'system_haptic_feedback';
       case 'system.sound_alert':
         return 'system_sound_alert';
+      case 'system.volume.set':
+        return 'system_volume_set';
+      case 'system.volume.status':
+        return 'system_volume_status';
       case 'system.ui.set':
         return 'system_ui_set';
       case 'system.ui.status':

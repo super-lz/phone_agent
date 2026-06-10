@@ -566,6 +566,49 @@ class NativeCapabilityAdapter {
     }
   }
 
+  Future<Map<String, Object?>> setMediaVolume(double level) async {
+    try {
+      final output = await _invokeNativeCapability('setMediaVolume', {
+        'level': level,
+      });
+      final currentLevel = _doubleFromObject(output['level']) ?? level;
+      final canSet = output['canSet'] != false;
+      return {
+        'ok': output['ok'] != false,
+        'level': currentLevel,
+        'stream': output['stream'] ?? 'media',
+        'canSet': canSet,
+        'summary': canSet
+            ? '媒体音量已设置为 ${(currentLevel * 100).round()}%。'
+            : '当前平台不支持静默设置媒体音量。',
+        ...output,
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.system_volume_set.failed', error, stackTrace);
+      return _nativeCapabilityError(error, fallbackCode: 'volume_failed');
+    }
+  }
+
+  Future<Map<String, Object?>> getMediaVolume() async {
+    try {
+      final output = await _invokeNativeCapability('getMediaVolume');
+      final currentLevel = _doubleFromObject(output['level']);
+      return {
+        'ok': output['ok'] != false,
+        'level': ?currentLevel,
+        'stream': output['stream'] ?? 'media',
+        'canSet': output['canSet'] == true,
+        'summary': currentLevel == null
+            ? '当前媒体音量不可用。'
+            : '当前媒体音量约为 ${(currentLevel * 100).round()}%。',
+        ...output,
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.system_volume_status.failed', error, stackTrace);
+      return _nativeCapabilityError(error, fallbackCode: 'volume_failed');
+    }
+  }
+
   Future<Map<String, Object?>> openPermissionSettings() async {
     try {
       final opened = await _permissionService.openSettings();

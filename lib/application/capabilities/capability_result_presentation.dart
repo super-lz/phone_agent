@@ -178,6 +178,14 @@ Map<String, Object?> modelObservationForCapability({
     case 'system.sound_alert':
       observation['type'] = output['type'];
       return observation;
+    case 'system.volume.set':
+    case 'system.volume.status':
+      observation.addAll({
+        'level': output['level'],
+        'stream': output['stream'],
+        'canSet': output['canSet'],
+      });
+      return observation;
     case 'system.ui.set':
     case 'system.ui.status':
       observation.addAll({
@@ -315,6 +323,10 @@ String _titleFor(String capabilityId) {
       return '触感反馈';
     case 'system.sound_alert':
       return '系统提示音';
+    case 'system.volume.set':
+      return '媒体音量设置';
+    case 'system.volume.status':
+      return '媒体音量状态';
     case 'permission.open_settings':
       return '权限设置';
     case 'url.open_external':
@@ -483,6 +495,9 @@ String _summaryFor(
       return '已触发${_hapticTypeLabel(output['type'])}触感反馈。';
     case 'system.sound_alert':
       return '已播放${_soundTypeLabel(output['type'])}。';
+    case 'system.volume.set':
+    case 'system.volume.status':
+      return _mediaVolumeSummary(output);
     case 'system.ui.set':
     case 'system.ui.status':
       return _systemUiSummary(output);
@@ -661,6 +676,16 @@ String _screenBrightnessSummary(Map<String, Object?> output) {
     return '当前屏幕亮度约为 $percent%$suffix。';
   }
   return '当前屏幕亮度状态不可用。';
+}
+
+String _mediaVolumeSummary(Map<String, Object?> output) {
+  final level = output['level'];
+  if (level is num) {
+    final percent = (level.clamp(0, 1) * 100).round();
+    final suffix = output['canSet'] == false ? '，当前平台不支持静默设置' : '';
+    return '当前媒体音量约为 $percent%$suffix。';
+  }
+  return '当前媒体音量状态不可用。';
 }
 
 String _systemUiSummary(Map<String, Object?> output) {

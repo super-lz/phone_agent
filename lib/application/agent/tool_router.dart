@@ -254,6 +254,26 @@ class AgentToolRouter {
       '播放提示',
       '点击音',
     ]);
+    final wantsVolumeStatus = _containsAny(prompt, const [
+      '音量状态',
+      '当前音量',
+      '媒体音量是多少',
+      '音量是多少',
+      'volume status',
+    ]);
+    final wantsVolumeSet =
+        !wantsVolumeStatus &&
+        _containsAny(prompt, const [
+          '调高音量',
+          '调低音量',
+          '调大音量',
+          '调小音量',
+          '设置音量',
+          '媒体音量',
+          '静音',
+          '取消静音',
+          'volume',
+        ]);
     final wantsSystemUiStatus = _containsAny(prompt, const [
       '系统栏状态',
       '状态栏状态',
@@ -478,6 +498,12 @@ class AgentToolRouter {
     }
     if (wantsSound) {
       addIfAvailable('system_sound_alert');
+    }
+    if (wantsVolumeSet) {
+      addIfAvailable('system_volume_set');
+    }
+    if (wantsVolumeStatus || wantsVolumeSet) {
+      addIfAvailable('system_volume_status');
     }
     if (wantsSystemUiSet) {
       addIfAvailable('system_ui_set');

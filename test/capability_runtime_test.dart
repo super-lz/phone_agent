@@ -1599,6 +1599,28 @@ void main() {
       notes: const [],
       artifacts: const [],
     );
+    final volumeResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-volume-set',
+        name: 'system_volume_set',
+        arguments: {'level': 0.35},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final volumeStatusResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-volume-status',
+        name: 'system_volume_status',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
 
     expect(urlResult.capabilityId, 'url.open_external');
     expect(urlResult.output['opened'], isTrue);
@@ -1610,6 +1632,10 @@ void main() {
     expect(brightnessResult.output['level'], 0.4);
     expect(brightnessStatusResult.capabilityId, 'screen.brightness.status');
     expect(brightnessStatusResult.output['level'], 0.4);
+    expect(volumeResult.capabilityId, 'system.volume.set');
+    expect(volumeResult.output['level'], 0.35);
+    expect(volumeStatusResult.capabilityId, 'system.volume.status');
+    expect(volumeStatusResult.output['level'], 0.35);
   });
 
   test('runtime exposes screen orientation lock capabilities', () async {
@@ -2134,6 +2160,7 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   String _systemUiMode = 'normal';
   bool _flashlightEnabled = false;
   double _screenBrightness = 0.75;
+  double _mediaVolume = 0.6;
   bool _recording = false;
   final Map<int, Map<String, Object?>> _pendingNotifications = {};
 
@@ -2503,6 +2530,27 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   @override
   Future<Map<String, Object?>> getScreenBrightness() async {
     return {'ok': true, 'level': _screenBrightness, 'usesSystemDefault': false};
+  }
+
+  @override
+  Future<Map<String, Object?>> setMediaVolume(double level) async {
+    _mediaVolume = level;
+    return {
+      'ok': true,
+      'level': _mediaVolume,
+      'stream': 'media',
+      'canSet': true,
+    };
+  }
+
+  @override
+  Future<Map<String, Object?>> getMediaVolume() async {
+    return {
+      'ok': true,
+      'level': _mediaVolume,
+      'stream': 'media',
+      'canSet': true,
+    };
   }
 
   @override

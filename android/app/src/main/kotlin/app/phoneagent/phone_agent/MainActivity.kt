@@ -1,6 +1,7 @@
 package app.phoneagent.phone_agent
 
 import android.content.Context
+import android.media.AudioManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.provider.Settings
@@ -41,6 +42,15 @@ class MainActivity : FlutterActivity() {
                         setScreenBrightness(level, result)
                     }
                     "getScreenBrightness" -> result.success(screenBrightnessStatus())
+                    "setMediaVolume" -> {
+                        val level = call.argument<Double>("level")
+                        if (level == null) {
+                            result.error("invalid_arguments", "level is required", null)
+                            return@setMethodCallHandler
+                        }
+                        setMediaVolume(level, result)
+                    }
+                    "getMediaVolume" -> result.success(mediaVolumeStatus())
                     else -> result.notImplemented()
                 }
             }
@@ -121,5 +131,32 @@ class MainActivity : FlutterActivity() {
             result["systemLevel"] = systemLevel.coerceIn(0.0, 1.0)
         }
         return result
+    }
+
+    private fun setMediaVolume(level: Double, result: MethodChannel.Result) {
+        if (level < 0.0 || level > 1.0) {
+            result.error("invalid_volume_level", "level must be between 0 and 1", null)
+            return
+        }
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val targetVolume = (level * maxVolume).toInt().coerceIn(0, maxVolume)
+        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
+        result.success(mediaVolumeStatus())
+    }
+
+    private fun mediaVolumeStatus(): Map<String, Any> {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val level = if (maxVolume <= 0) 0.0 else currentVolume.toDouble() / maxVolume.toDouble()
+        return mapOf(
+            "ok" to true,
+            "level" to level.coerceIn(0.0, 1.0),
+            "currentVolume" to currentVolume,
+            "maxVolume" to maxVolume,
+            "stream" to "music",
+            "canSet" to true,
+        )
     }
 }

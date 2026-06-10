@@ -71,6 +71,8 @@ class CapabilityRuntime {
     'share_text': 'share.text',
     'system_haptic_feedback': 'system.haptic_feedback',
     'system_sound_alert': 'system.sound_alert',
+    'system_volume_set': 'system.volume.set',
+    'system_volume_status': 'system.volume.status',
     'system_ui_set': 'system.ui.set',
     'system_ui_status': 'system.ui.status',
     'permission_open_settings': 'permission.open_settings',
@@ -402,6 +404,12 @@ class CapabilityRuntime {
         return await _nativeHandler.playSystemSound(
           arguments: toolCall.arguments,
         );
+      case 'system_volume_set':
+        return await _nativeHandler.setMediaVolume(
+          arguments: toolCall.arguments,
+        );
+      case 'system_volume_status':
+        return await _nativeHandler.getMediaVolume();
       case 'system_ui_set':
         return await _nativeHandler.setSystemUiMode(
           arguments: toolCall.arguments,

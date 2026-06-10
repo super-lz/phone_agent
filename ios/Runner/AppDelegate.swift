@@ -57,6 +57,26 @@ import UIKit
             "level": UIScreen.main.brightness,
             "usesSystemDefault": false
           ])
+        case "setMediaVolume":
+          guard
+            let arguments = call.arguments as? [String: Any],
+            let level = arguments["level"] as? Double
+          else {
+            result(FlutterError(
+              code: "invalid_arguments",
+              message: "level is required",
+              details: nil
+            ))
+            return
+          }
+          self?.setMediaVolume(level: level, result: result)
+        case "getMediaVolume":
+          result(self?.mediaVolumeStatus() ?? [
+            "ok": true,
+            "level": AVAudioSession.sharedInstance().outputVolume,
+            "stream": "output",
+            "canSet": false
+          ])
         default:
           result(FlutterMethodNotImplemented)
         }
@@ -122,6 +142,31 @@ import UIKit
       "ok": true,
       "level": Double(UIScreen.main.brightness),
       "usesSystemDefault": false
+    ]
+  }
+
+  private func setMediaVolume(level: Double, result: FlutterResult) {
+    guard level >= 0.0 && level <= 1.0 else {
+      result(FlutterError(
+        code: "invalid_volume_level",
+        message: "level must be between 0 and 1",
+        details: nil
+      ))
+      return
+    }
+    var status = mediaVolumeStatus()
+    status["ok"] = false
+    status["error"] = "unsupported_on_ios"
+    status["userMessage"] = "iOS 不允许 App 通过公开 API 静默设置系统输出音量，请使用设备音量键调整。"
+    result(status)
+  }
+
+  private func mediaVolumeStatus() -> [String: Any] {
+    return [
+      "ok": true,
+      "level": Double(AVAudioSession.sharedInstance().outputVolume),
+      "stream": "output",
+      "canSet": false
     ]
   }
 }

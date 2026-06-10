@@ -743,6 +743,32 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'system_volume_set',
+          'description':
+              '设置当前设备媒体/当前输出音量。适合用户明确要求调高、调低、静音或设置媒体音量时使用；平台不允许静默设置时必须返回结构化 unsupported。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'level': {
+                'type': 'number',
+                'description': '媒体音量比例，范围 0 到 1；0 静音，1 最大。',
+              },
+            },
+            'required': ['level'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'system_volume_status',
+          'description': '查询当前设备媒体/当前输出音量，以及当前平台是否支持静默设置音量。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'system_ui_set',
           'description':
               '设置当前应用的系统 UI 显示模式。适合用户明确要求全屏、沉浸式、显示/隐藏状态栏导航栏，或本地 Web App/游戏/演示需要沉浸显示时使用。',

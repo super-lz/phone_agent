@@ -292,6 +292,16 @@ class PhoneAgentSeed {
       CapabilityRisk.low,
     ),
     _capability(
+      'system.volume.set',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'system.volume.status',
+      CapabilityAdapter.native,
+      CapabilityRisk.low,
+    ),
+    _capability(
       'system.ui.set',
       CapabilityAdapter.native,
       CapabilityRisk.medium,

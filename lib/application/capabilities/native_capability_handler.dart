@@ -238,6 +238,36 @@ class NativeCapabilityHandler {
     );
   }
 
+  Future<CapabilityExecutionResult> setMediaVolume({
+    required Map<String, Object?> arguments,
+  }) async {
+    final rawLevel = arguments['level'];
+    if (rawLevel is! num) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'system.volume.set',
+        output: {'ok': false, 'error': 'level is required'},
+      );
+    }
+    final level = rawLevel.toDouble();
+    if (level < 0 || level > 1) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'system.volume.set',
+        output: {'ok': false, 'error': 'level must be between 0 and 1'},
+      );
+    }
+    return CapabilityExecutionResult(
+      capabilityId: 'system.volume.set',
+      output: await _adapter.setMediaVolume(level),
+    );
+  }
+
+  Future<CapabilityExecutionResult> getMediaVolume() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'system.volume.status',
+      output: await _adapter.getMediaVolume(),
+    );
+  }
+
   Future<CapabilityExecutionResult> openPermissionSettings() async {
     return CapabilityExecutionResult(
       capabilityId: 'permission.open_settings',

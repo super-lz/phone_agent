@@ -157,6 +157,14 @@ String buildWebAppBridgeHeadHtml(AgentArtifact webApp) {
             type: type || 'alert'
           });
         },
+        setMediaVolume: function(level) {
+          return window.PhoneAgent.callCapability('system.volume.set', {
+            level: Number(level)
+          });
+        },
+        getMediaVolume: function() {
+          return window.PhoneAgent.callCapability('system.volume.status', {});
+        },
         setSystemUiMode: function(mode) {
           return window.PhoneAgent.callCapability('system.ui.set', {
             mode: mode || 'normal'
