@@ -65,6 +65,7 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
   late final AppPermissionService _permissionService;
   final _composerController = TextEditingController();
   final List<MessageBlock> _pendingAttachments = [];
+  bool _isPickingAttachment = false;
 
   @override
   void initState() {
@@ -120,14 +121,47 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
   }
 
   Future<void> _pickFileAttachment() async {
-    await _pickAttachment(type: FileType.any);
+    await _runAttachmentPicker(
+      busyMessage: '正在选择附件，请先完成当前选择。',
+      pick: () => _pickAttachment(type: FileType.any),
+    );
   }
 
   Future<void> _pickImageAttachment() async {
-    await _pickAttachment(type: FileType.image);
+    await _runAttachmentPicker(
+      busyMessage: '正在选择图片，请先完成当前选择。',
+      pick: () => _pickAttachment(type: FileType.image),
+    );
   }
 
   Future<void> _takePhoto() async {
+    await _runAttachmentPicker(
+      busyMessage: '正在打开相机，请先完成当前操作。',
+      pick: _takePhotoAttachment,
+    );
+  }
+
+  Future<void> _runAttachmentPicker({
+    required String busyMessage,
+    required Future<void> Function() pick,
+  }) async {
+    if (_isPickingAttachment) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(busyMessage)));
+      }
+      return;
+    }
+    _isPickingAttachment = true;
+    try {
+      await pick();
+    } finally {
+      _isPickingAttachment = false;
+    }
+  }
+
+  Future<void> _takePhotoAttachment() async {
     try {
       final picker = ImagePicker();
       final photo = await picker.pickImage(
@@ -146,6 +180,9 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
         bytes: size,
         mimeType: _imageMimeType(photo.path.split('.').last),
       );
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _pendingAttachments.add(block);
       });
@@ -169,23 +206,12 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
       if (result == null || result.files.isEmpty) {
         return;
       }
-      final blocks = result.files.map((file) {
-        final uri = _uriForPickedFile(file);
-        if (type == FileType.image) {
-          return MessageBlock.image(
-            name: file.name,
-            uri: uri,
-            bytes: file.size,
-            mimeType: _imageMimeType(file.extension),
-          );
-        }
-        return MessageBlock.fileAttachment(
-          name: file.name,
-          uri: uri,
-          bytes: file.size,
-          extension: file.extension,
-        );
-      });
+      final blocks = result.files.map(
+        (file) => _blockForPickedFile(file, type),
+      );
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _pendingAttachments.addAll(blocks);
       });
@@ -197,6 +223,24 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
         context,
       ).showSnackBar(SnackBar(content: Text('选择附件失败：$error')));
     }
+  }
+
+  MessageBlock _blockForPickedFile(PlatformFile file, FileType type) {
+    final uri = _uriForPickedFile(file);
+    if (type == FileType.image) {
+      return MessageBlock.image(
+        name: file.name,
+        uri: uri,
+        bytes: file.size,
+        mimeType: _imageMimeType(file.extension),
+      );
+    }
+    return MessageBlock.fileAttachment(
+      name: file.name,
+      uri: uri,
+      bytes: file.size,
+      extension: file.extension,
+    );
   }
 
   String _uriForPickedFile(PlatformFile file) {

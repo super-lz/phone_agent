@@ -81,7 +81,9 @@ class PromptComposer extends StatelessWidget {
                       ),
                       onPressed: isSending
                           ? null
-                          : () => _showAttachmentMenu(context),
+                          : () {
+                              _showAttachmentMenu(context);
+                            },
                     ),
                     Expanded(
                       child: Container(
@@ -184,9 +186,9 @@ class PromptComposer extends StatelessWidget {
     );
   }
 
-  void _showAttachmentMenu(BuildContext context) {
+  Future<void> _showAttachmentMenu(BuildContext context) async {
     final colors = context.phoneAgentColors;
-    showModalBottomSheet<void>(
+    final action = await showModalBottomSheet<_AttachmentAction>(
       context: context,
       backgroundColor: colors.cardBackground,
       shape: const RoundedRectangleBorder(
@@ -201,24 +203,21 @@ class PromptComposer extends StatelessWidget {
                 leading: const Icon(Icons.camera_alt_outlined),
                 title: const Text('拍照上传'),
                 onTap: () {
-                  Navigator.pop(context);
-                  onTakePhoto();
+                  Navigator.pop(context, _AttachmentAction.camera);
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.image_outlined),
                 title: const Text('从相册选择'),
                 onTap: () {
-                  Navigator.pop(context);
-                  onAddImage();
+                  Navigator.pop(context, _AttachmentAction.image);
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.insert_drive_file_outlined),
                 title: const Text('上传文件'),
                 onTap: () {
-                  Navigator.pop(context);
-                  onAddFile();
+                  Navigator.pop(context, _AttachmentAction.file);
                 },
               ),
               const SizedBox(height: 8),
@@ -227,8 +226,21 @@ class PromptComposer extends StatelessWidget {
         );
       },
     );
+    if (!context.mounted || action == null) {
+      return;
+    }
+    switch (action) {
+      case _AttachmentAction.camera:
+        onTakePhoto();
+      case _AttachmentAction.image:
+        onAddImage();
+      case _AttachmentAction.file:
+        onAddFile();
+    }
   }
 }
+
+enum _AttachmentAction { camera, image, file }
 
 class _AgentRunStatusBar extends StatelessWidget {
   const _AgentRunStatusBar({required this.run});

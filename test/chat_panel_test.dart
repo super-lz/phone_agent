@@ -120,6 +120,58 @@ void main() {
     expect(find.byTooltip('滚动到底部'), findsNothing);
   });
 
+  testWidgets('attachment menu dispatches the picked action once', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(420, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    var addFileCalls = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatPanel(
+            workspace: AgentWorkspace(
+              id: 'default',
+              name: '默认',
+              description: '测试工作区',
+              createdAt: DateTime(2026),
+            ),
+            messages: const [],
+            composerController: controller,
+            isSending: false,
+            currentRun: null,
+            onCancelRun: () {},
+            onSendPrompt: () {},
+            onOpenWebAppArtifact: (_) {},
+            onApproveCapability: (_) {},
+            onDenyCapability: (_) {},
+            pendingAttachments: const [],
+            onAddFile: () {
+              addFileCalls += 1;
+            },
+            onAddImage: () {},
+            onTakePhoto: () {},
+            onRemovePendingAttachment: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byTooltip('添加附件'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('上传文件'));
+    await tester.pumpAndSettle();
+
+    expect(addFileCalls, 1);
+    expect(find.text('上传文件'), findsNothing);
+  });
+
   testWidgets(
     'loads recent messages first and prepends older messages on top',
     (tester) async {
