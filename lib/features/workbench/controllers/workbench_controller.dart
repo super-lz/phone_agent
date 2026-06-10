@@ -11,6 +11,7 @@ import '../../../application/capabilities/capability_result_presentation.dart';
 import '../../../application/capabilities/capability_runtime.dart';
 import '../../../application/capabilities/office_document_codec.dart';
 import '../../../core/logging/app_logger.dart';
+import '../../../data/background/agent_run_background_service.dart';
 import '../../../data/bootstrap/phone_agent_seed.dart';
 import '../../../data/models/model_api_key_store.dart';
 import '../../../data/models/model_settings_store.dart';
@@ -25,6 +26,7 @@ import '../../../domain/models/model_provider_config.dart';
 import '../../../domain/notes/note.dart';
 import '../../../domain/notes/note_store.dart';
 import '../../../domain/permissions/permission_policy.dart';
+import '../../../domain/workbench/pending_agent_run.dart';
 import '../../../domain/workbench/workbench_store.dart';
 import '../../../domain/workspace/workspace.dart';
 import '../../web_app_runtime/web_app_capability_bridge.dart';
@@ -38,6 +40,7 @@ class WorkbenchController extends ChangeNotifier {
     AgentNoteStore? noteStore,
     AppFileStore? fileStore,
     WorkbenchStore? workbenchStore,
+    AgentRunBackgroundService? backgroundService,
   }) : this._(
          apiKeyStore: apiKeyStore ?? ModelApiKeyStore(),
          chatClient: chatClient ?? OpenAiCompatibleChatClient(),
@@ -46,6 +49,8 @@ class WorkbenchController extends ChangeNotifier {
          noteStore: noteStore ?? InMemoryAgentNoteStore(PhoneAgentSeed.notes()),
          fileStore: fileStore ?? InMemoryAppFileStore(),
          workbenchStore: workbenchStore ?? InMemoryWorkbenchStore(),
+         backgroundService:
+             backgroundService ?? const NoopAgentRunBackgroundService(),
        );
 
   WorkbenchController._({
@@ -56,6 +61,7 @@ class WorkbenchController extends ChangeNotifier {
     required AgentNoteStore noteStore,
     required AppFileStore fileStore,
     required WorkbenchStore workbenchStore,
+    required AgentRunBackgroundService backgroundService,
   }) : _apiKeyStore = apiKeyStore,
        _modelSettingsStore = modelSettingsStore,
        _agentLoop = AgentLoop(
@@ -72,6 +78,7 @@ class WorkbenchController extends ChangeNotifier {
        _noteStore = noteStore,
        _fileStore = fileStore,
        _workbenchStore = workbenchStore,
+       _backgroundService = backgroundService,
        _workspaces = PhoneAgentSeed.workspaces(),
        _capabilities = PhoneAgentSeed.capabilities(),
        _messages = PhoneAgentSeed.messages(),
@@ -80,7 +87,7 @@ class WorkbenchController extends ChangeNotifier {
        _notes = PhoneAgentSeed.notes() {
     unawaited(_loadNotes());
     _stateReady = _loadWorkbenchState();
-    unawaited(_stateReady);
+    unawaited(_stateReady.then((_) => _resumePendingAgentRunIfNeeded()));
   }
 
   final ModelApiKeyStore _apiKeyStore;
@@ -90,6 +97,7 @@ class WorkbenchController extends ChangeNotifier {
   final AgentNoteStore _noteStore;
   final AppFileStore _fileStore;
   final WorkbenchStore _workbenchStore;
+  final AgentRunBackgroundService _backgroundService;
   final List<AgentWorkspace> _workspaces;
   final List<CapabilityDefinition> _capabilities;
   final List<AgentMessage> _messages;
@@ -288,6 +296,42 @@ class WorkbenchController extends ChangeNotifier {
     }
   }
 
+  Future<void> _resumePendingAgentRunIfNeeded() async {
+    if (_isDisposed || _isSending) {
+      return;
+    }
+    final pendingRun = await _workbenchStore.loadPendingAgentRun();
+    if (pendingRun == null || _isDisposed || _isSending) {
+      return;
+    }
+    final workspaceExists = _workspaces.any(
+      (workspace) => workspace.id == pendingRun.workspaceId,
+    );
+    if (!workspaceExists) {
+      await _workbenchStore.clearPendingAgentRun(pendingRun.id);
+      return;
+    }
+    if (_workspaceId != pendingRun.workspaceId) {
+      _workspaceId = pendingRun.workspaceId;
+      _messages
+        ..clear()
+        ..addAll(await _workbenchStore.loadMessages(_workspaceId));
+      await _workbenchStore.saveCurrentWorkspaceId(_workspaceId);
+    }
+    AppLogger.warning('workbench.agent_run.resume_pending', {
+      'runId': pendingRun.id,
+      'workspaceId': pendingRun.workspaceId,
+      'startedAt': pendingRun.startedAt.toIso8601String(),
+    });
+    _addMessage(_agentRunResumingResponse(pendingRun));
+    notifyListeners();
+    await _runConfiguredModel(
+      pendingRun.modelPrompt,
+      priorMessages: pendingRun.priorMessages,
+      pendingRun: pendingRun,
+    );
+  }
+
   Future<void> _persistCurrentMessages() async {
     for (final message in _messages) {
       await _workbenchStore.upsertMessage(
@@ -323,6 +367,63 @@ class WorkbenchController extends ChangeNotifier {
       unawaited(_workbenchStore.upsertSkill(skill));
     }
     unawaited(_workbenchStore.saveCurrentWorkspaceId(_workspaceId));
+  }
+
+  Future<PendingAgentRun> _createPendingAgentRun({
+    required Object modelPrompt,
+    required String userPrompt,
+    required List<AgentMessage> priorMessages,
+  }) async {
+    final now = DateTime.now();
+    return PendingAgentRun(
+      id: 'agent-run-${now.microsecondsSinceEpoch}',
+      workspaceId: _workspaceId,
+      userPrompt: userPrompt,
+      modelPrompt: modelPrompt,
+      priorMessages: priorMessages,
+      startedAt: now,
+    );
+  }
+
+  Future<void> _startBackgroundRun(PendingAgentRun run) async {
+    try {
+      await _backgroundService.start(
+        AgentRunBackgroundTask(
+          runId: run.id,
+          title: 'Phone Agent 正在运行',
+          detail: '正在继续处理：${_compactPrompt(run.userPrompt)}',
+        ),
+      );
+      AppLogger.info('workbench.background_run.started', {
+        'runId': run.id,
+        'workspaceId': run.workspaceId,
+      });
+    } on Object catch (error) {
+      AppLogger.warning('workbench.background_run.start_failed', {
+        'runId': run.id,
+        'error': error.toString(),
+      });
+    }
+  }
+
+  Future<void> _stopBackgroundRun(String runId) async {
+    try {
+      await _backgroundService.stop(runId: runId);
+      AppLogger.info('workbench.background_run.stopped', {'runId': runId});
+    } on Object catch (error) {
+      AppLogger.warning('workbench.background_run.stop_failed', {
+        'runId': runId,
+        'error': error.toString(),
+      });
+    }
+  }
+
+  String _compactPrompt(String prompt) {
+    final normalized = prompt.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.length <= 48) {
+      return normalized;
+    }
+    return '${normalized.substring(0, 48)}...';
   }
 
   void setPermissionMode(PermissionMode? mode) {
@@ -623,7 +724,11 @@ class WorkbenchController extends ChangeNotifier {
     );
     notifyListeners();
 
-    await _runConfiguredModel(modelPrompt, priorMessages: priorMessages);
+    await _runConfiguredModel(
+      modelPrompt,
+      priorMessages: priorMessages,
+      userPrompt: prompt,
+    );
   }
 
   void cancelCurrentRun() {
@@ -978,10 +1083,15 @@ class WorkbenchController extends ChangeNotifier {
   Future<void> _runConfiguredModel(
     Object prompt, {
     required List<AgentMessage> priorMessages,
+    String? userPrompt,
+    PendingAgentRun? pendingRun,
   }) async {
     final provider = await _configuredProvider();
     if (!provider.canRunConnectionTest) {
       _addMessage(_unsupportedProviderResponse(provider));
+      if (pendingRun != null) {
+        await _workbenchStore.clearPendingAgentRun(pendingRun.id);
+      }
       notifyListeners();
       return;
     }
@@ -994,8 +1104,22 @@ class WorkbenchController extends ChangeNotifier {
         'provider': provider.id,
       });
       _addMessage(_missingApiKeyResponse(provider));
+      if (pendingRun != null) {
+        await _workbenchStore.clearPendingAgentRun(pendingRun.id);
+      }
       notifyListeners();
       return;
+    }
+
+    final activePendingRun =
+        pendingRun ??
+        await _createPendingAgentRun(
+          modelPrompt: prompt,
+          userPrompt: userPrompt ?? '',
+          priorMessages: priorMessages,
+        );
+    if (pendingRun == null) {
+      await _workbenchStore.savePendingAgentRun(activePendingRun);
     }
 
     _isSending = true;
@@ -1009,6 +1133,7 @@ class WorkbenchController extends ChangeNotifier {
       startedAt: DateTime.now(),
     );
     notifyListeners();
+    await _startBackgroundRun(activePendingRun);
 
     try {
       await _agentLoop.run(
@@ -1048,6 +1173,8 @@ class WorkbenchController extends ChangeNotifier {
       _addMessage(_modelErrorResponse(error.toString()));
     } finally {
       _persistCollections();
+      await _workbenchStore.clearPendingAgentRun(activePendingRun.id);
+      await _stopBackgroundRun(activePendingRun.id);
       await _refreshWorkspaceFiles(notify: false);
       _isSending = false;
       _currentRunControl = null;
@@ -1159,6 +1286,19 @@ class WorkbenchController extends ChangeNotifier {
       role: MessageRole.assistant,
       createdAt: DateTime.now(),
       blocks: [MessageBlock.error('本轮任务已停止', detail)],
+    );
+  }
+
+  AgentMessage _agentRunResumingResponse(PendingAgentRun run) {
+    return AgentMessage(
+      id: 'msg-agent-resuming-${run.id}',
+      role: MessageRole.system,
+      createdAt: DateTime.now(),
+      blocks: [
+        MessageBlock.markdown(
+          '检测到上次运行中的会话被系统中断，正在继续处理：${_compactPrompt(run.userPrompt)}',
+        ),
+      ],
     );
   }
 

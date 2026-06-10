@@ -3,6 +3,7 @@ import '../capabilities/capability.dart';
 import '../conversation/message_block.dart';
 import '../memory/memory.dart';
 import '../workspace/workspace.dart';
+import 'pending_agent_run.dart';
 
 abstract class WorkbenchStore {
   Future<void> initialize({
@@ -18,6 +19,12 @@ abstract class WorkbenchStore {
   Future<String?> loadCurrentWorkspaceId();
 
   Future<void> saveCurrentWorkspaceId(String workspaceId);
+
+  Future<PendingAgentRun?> loadPendingAgentRun();
+
+  Future<void> savePendingAgentRun(PendingAgentRun run);
+
+  Future<void> clearPendingAgentRun(String runId);
 
   Future<void> upsertWorkspace(AgentWorkspace workspace);
 
@@ -70,6 +77,7 @@ class InMemoryWorkbenchStore implements WorkbenchStore {
   final _invocations = <CapabilityInvocation>[];
   final _mcpConnections = <String, McpConnection>{};
   final _skills = <String, AgentSkill>{};
+  PendingAgentRun? _pendingAgentRun;
   String? _currentWorkspaceId;
 
   @override
@@ -109,6 +117,21 @@ class InMemoryWorkbenchStore implements WorkbenchStore {
   @override
   Future<void> saveCurrentWorkspaceId(String workspaceId) async {
     _currentWorkspaceId = workspaceId;
+  }
+
+  @override
+  Future<PendingAgentRun?> loadPendingAgentRun() async => _pendingAgentRun;
+
+  @override
+  Future<void> savePendingAgentRun(PendingAgentRun run) async {
+    _pendingAgentRun = run;
+  }
+
+  @override
+  Future<void> clearPendingAgentRun(String runId) async {
+    if (_pendingAgentRun?.id == runId) {
+      _pendingAgentRun = null;
+    }
   }
 
   @override
@@ -215,6 +238,7 @@ class InMemoryWorkbenchStore implements WorkbenchStore {
       for (final message in defaultMessages) message.id: message,
     };
     _invocations.clear();
+    _pendingAgentRun = null;
     _currentWorkspaceId = defaultWorkspace.id;
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../application/capabilities/capability_runtime.dart';
+import '../data/background/agent_run_background_service.dart';
 import '../data/models/model_api_key_store.dart';
 import '../data/models/model_settings_store.dart';
 import '../data/models/openai_compatible_chat_client.dart';
@@ -19,6 +20,7 @@ class PhoneAgentApp extends StatelessWidget {
     this.noteStore,
     this.fileStore,
     this.workbenchStore,
+    this.backgroundService,
     super.key,
   });
 
@@ -29,6 +31,7 @@ class PhoneAgentApp extends StatelessWidget {
   final AgentNoteStore? noteStore;
   final AppFileStore? fileStore;
   final WorkbenchStore? workbenchStore;
+  final AgentRunBackgroundService? backgroundService;
 
   @override
   Widget build(BuildContext context) {
@@ -121,6 +124,7 @@ class PhoneAgentApp extends StatelessWidget {
         noteStore: noteStore,
         fileStore: fileStore,
         workbenchStore: workbenchStore,
+        backgroundService: backgroundService,
       ),
     );
   }

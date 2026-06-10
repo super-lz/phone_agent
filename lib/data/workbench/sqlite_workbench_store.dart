@@ -4,10 +4,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../../core/logging/app_logger.dart';
 import '../../domain/artifacts/artifact.dart';
 import '../../domain/capabilities/capability.dart';
 import '../../domain/conversation/message_block.dart';
 import '../../domain/memory/memory.dart';
+import '../../domain/workbench/pending_agent_run.dart';
 import '../../domain/workbench/workbench_store.dart';
 import '../../domain/workspace/workspace.dart';
 
@@ -19,6 +21,7 @@ class SqliteWorkbenchStore implements WorkbenchStore {
   final String? _dbPath;
   Database? _database;
   static const _resetMarkerKey = 'local_data_reset_at';
+  static const _pendingAgentRunKey = 'pending_agent_run';
 
   @override
   Future<void> initialize({
@@ -69,6 +72,56 @@ class SqliteWorkbenchStore implements WorkbenchStore {
       'key': 'current_workspace_id',
       'value': workspaceId,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  @override
+  Future<PendingAgentRun?> loadPendingAgentRun() async {
+    final rows = await (await _open()).query(
+      'app_state',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [_pendingAgentRunKey],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    try {
+      return PendingAgentRun.fromJson(
+        _decodeMap(rows.first['value']! as String),
+      );
+    } on Object catch (error) {
+      AppLogger.warning('workbench.pending_run.decode_failed', {
+        'error': error.toString(),
+      });
+      await (await _open()).delete(
+        'app_state',
+        where: 'key = ?',
+        whereArgs: [_pendingAgentRunKey],
+      );
+      return null;
+    }
+  }
+
+  @override
+  Future<void> savePendingAgentRun(PendingAgentRun run) async {
+    await (await _open()).insert('app_state', {
+      'key': _pendingAgentRunKey,
+      'value': jsonEncode(run.toJson()),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  @override
+  Future<void> clearPendingAgentRun(String runId) async {
+    final pending = await loadPendingAgentRun();
+    if (pending?.id != runId) {
+      return;
+    }
+    await (await _open()).delete(
+      'app_state',
+      where: 'key = ?',
+      whereArgs: [_pendingAgentRunKey],
+    );
   }
 
   @override
@@ -577,11 +630,12 @@ class SqliteWorkbenchStore implements WorkbenchStore {
     'created_at': connection.createdAt.toIso8601String(),
   };
 
-  McpConnection _mcpConnectionFromRow(Map<String, Object?> row) => McpConnection(
-    url: row['url']! as String,
-    transport: row['transport']! as String,
-    createdAt: DateTime.parse(row['created_at']! as String),
-  );
+  McpConnection _mcpConnectionFromRow(Map<String, Object?> row) =>
+      McpConnection(
+        url: row['url']! as String,
+        transport: row['transport']! as String,
+        createdAt: DateTime.parse(row['created_at']! as String),
+      );
 
   Map<String, Object?> _skillToRow(AgentSkill skill) => {
     'id': skill.id,

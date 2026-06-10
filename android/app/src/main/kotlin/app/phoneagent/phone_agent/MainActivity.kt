@@ -13,10 +13,40 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val channelName = "phone_agent/native_capabilities"
+    private val agentRunBackgroundChannelName = "phone_agent/agent_run_background"
     private var flashlightEnabled = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, agentRunBackgroundChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "start" -> {
+                        val runId = call.argument<String>("runId")
+                        val title = call.argument<String>("title") ?: "Phone Agent 正在运行"
+                        val detail = call.argument<String>("detail") ?: "正在处理当前会话"
+                        if (runId.isNullOrBlank()) {
+                            result.error("invalid_arguments", "runId is required", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            AgentRunForegroundService.start(applicationContext, runId, title, detail)
+                            result.success(null)
+                        } catch (error: Exception) {
+                            result.error("background_start_failed", error.message, null)
+                        }
+                    }
+                    "stop" -> {
+                        try {
+                            AgentRunForegroundService.stop(applicationContext)
+                            result.success(null)
+                        } catch (error: Exception) {
+                            result.error("background_stop_failed", error.message, null)
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {

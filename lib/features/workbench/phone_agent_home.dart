@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:open_filex/open_filex.dart';
 
 import '../../application/capabilities/capability_runtime.dart';
+import '../../data/background/agent_run_background_service.dart';
 import '../../data/models/model_api_key_store.dart';
 import '../../data/models/model_settings_store.dart';
 import '../../data/models/openai_compatible_chat_client.dart';
@@ -39,6 +40,7 @@ class PhoneAgentHome extends StatefulWidget {
     this.noteStore,
     this.fileStore,
     this.workbenchStore,
+    this.backgroundService,
     super.key,
   });
 
@@ -49,6 +51,7 @@ class PhoneAgentHome extends StatefulWidget {
   final AgentNoteStore? noteStore;
   final AppFileStore? fileStore;
   final WorkbenchStore? workbenchStore;
+  final AgentRunBackgroundService? backgroundService;
 
   @override
   State<PhoneAgentHome> createState() => _PhoneAgentHomeState();
@@ -79,6 +82,7 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
       noteStore: widget.noteStore,
       fileStore: widget.fileStore,
       workbenchStore: widget.workbenchStore,
+      backgroundService: widget.backgroundService,
     );
     _controller.addListener(_handleControllerChanged);
   }

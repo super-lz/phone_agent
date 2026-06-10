@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone_agent/application/capabilities/capability_runtime.dart';
+import 'package:phone_agent/data/background/agent_run_background_service.dart';
 import 'package:phone_agent/data/capabilities/native_capability_adapter.dart';
 import 'package:phone_agent/data/capabilities/web_capability_adapter.dart';
 import 'package:phone_agent/data/models/model_api_key_store.dart';
@@ -14,6 +15,7 @@ import 'package:phone_agent/domain/conversation/message_block.dart';
 import 'package:phone_agent/domain/files/app_file_store.dart';
 import 'package:phone_agent/domain/models/model_provider_config.dart';
 import 'package:phone_agent/domain/notes/note_store.dart';
+import 'package:phone_agent/domain/workbench/pending_agent_run.dart';
 import 'package:phone_agent/domain/workbench/workbench_store.dart';
 import 'package:phone_agent/features/workbench/controllers/workbench_controller.dart';
 
@@ -59,6 +61,67 @@ void main() {
       );
     },
   );
+
+  test(
+    'running prompt starts background service and clears recovery record',
+    () async {
+      final store = InMemoryWorkbenchStore();
+      final backgroundService = _RecordingBackgroundService();
+      final chatClient = _FakeChatClient([
+        [const ChatStreamEvent(contentDelta: '后台运行完成')],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+        workbenchStore: store,
+        backgroundService: backgroundService,
+      );
+
+      await controller.sendPrompt('后台继续处理');
+
+      expect(backgroundService.started.single.detail, contains('后台继续处理'));
+      expect(
+        backgroundService.stopped.single,
+        backgroundService.started.single.runId,
+      );
+      expect(await store.loadPendingAgentRun(), isNull);
+    },
+  );
+
+  test('restores pending agent run on controller startup', () async {
+    final store = InMemoryWorkbenchStore();
+    final pendingRun = PendingAgentRun(
+      id: 'pending-run-1',
+      workspaceId: 'default',
+      userPrompt: '恢复后台会话',
+      modelPrompt: '恢复后台会话',
+      priorMessages: const [],
+      startedAt: DateTime(2026),
+    );
+    await store.savePendingAgentRun(pendingRun);
+    final backgroundService = _RecordingBackgroundService();
+    final chatClient = _FakeChatClient([
+      [const ChatStreamEvent(contentDelta: '恢复成功')],
+    ]);
+
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+      workbenchStore: store,
+      backgroundService: backgroundService,
+    );
+
+    await _waitFor(() => chatClient.callCount == 1 && !controller.isSending);
+
+    expect(backgroundService.started.single.runId, pendingRun.id);
+    expect(backgroundService.stopped.single, pendingRun.id);
+    expect(await store.loadPendingAgentRun(), isNull);
+    expect(
+      controller.messages.map((message) => message.blocks.first.data['text']),
+      contains('检测到上次运行中的会话被系统中断，正在继续处理：恢复后台会话'),
+    );
+    expect(controller.messages.last.blocks.first.data['text'], '恢复成功');
+  });
 
   test('model prompt uses structured system sections', () async {
     final chatClient = _FakeChatClient([
@@ -1532,6 +1595,21 @@ class _FakeApiKeyStore extends ModelApiKeyStore {
   }
 }
 
+class _RecordingBackgroundService implements AgentRunBackgroundService {
+  final started = <AgentRunBackgroundTask>[];
+  final stopped = <String?>[];
+
+  @override
+  Future<void> start(AgentRunBackgroundTask task) async {
+    started.add(task);
+  }
+
+  @override
+  Future<void> stop({String? runId}) async {
+    stopped.add(runId);
+  }
+}
+
 class _FakeWebAdapter extends WebCapabilityAdapter {
   _FakeWebAdapter({required this.searchOutput, required this.fetchOutput});
 
@@ -1901,4 +1979,18 @@ ChatCompletionResult _emptyRouteDecision() {
       'reason': 'test empty route',
     }),
   );
+}
+
+Future<void> _waitFor(
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 2),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(deadline)) {
+    if (condition()) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  fail('Timed out waiting for condition.');
 }
