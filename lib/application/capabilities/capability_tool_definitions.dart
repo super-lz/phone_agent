@@ -818,6 +818,32 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'screen_brightness_set',
+          'description':
+              '设置当前应用/当前屏幕亮度。适合用户明确要求调亮、调暗、设置屏幕亮度，或本地 Web App/演示需要临时调整亮度时使用；不承诺修改系统全局永久亮度。',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'level': {
+                'type': 'number',
+                'description': '亮度比例，范围 0 到 1；0 最暗，1 最亮。',
+              },
+            },
+            'required': ['level'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'screen_brightness_status',
+          'description': '查询当前应用/当前屏幕亮度状态和是否使用系统默认亮度。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'screen_orientation_set',
           'description':
               '设置当前应用的屏幕方向偏好。适合用户明确要求横屏、竖屏、解锁自动旋转，或本地 Web App/演示需要固定方向时使用。',

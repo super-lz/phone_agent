@@ -1577,6 +1577,28 @@ void main() {
       notes: const [],
       artifacts: const [],
     );
+    final brightnessResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-brightness-set',
+        name: 'screen_brightness_set',
+        arguments: {'level': 0.4},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
+    final brightnessStatusResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-brightness-status',
+        name: 'screen_brightness_status',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
 
     expect(urlResult.capabilityId, 'url.open_external');
     expect(urlResult.output['opened'], isTrue);
@@ -1584,6 +1606,10 @@ void main() {
     expect(keepAwakeResult.output['enabled'], isTrue);
     expect(statusResult.capabilityId, 'screen.keep_awake_status');
     expect(statusResult.output['enabled'], isTrue);
+    expect(brightnessResult.capabilityId, 'screen.brightness.set');
+    expect(brightnessResult.output['level'], 0.4);
+    expect(brightnessStatusResult.capabilityId, 'screen.brightness.status');
+    expect(brightnessStatusResult.output['level'], 0.4);
   });
 
   test('runtime exposes screen orientation lock capabilities', () async {
@@ -2107,6 +2133,7 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   String _orientationMode = 'unlocked';
   String _systemUiMode = 'normal';
   bool _flashlightEnabled = false;
+  double _screenBrightness = 0.75;
   bool _recording = false;
   final Map<int, Map<String, Object?>> _pendingNotifications = {};
 
@@ -2465,6 +2492,17 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   @override
   Future<Map<String, Object?>> getKeepScreenAwake() async {
     return {'ok': true, 'enabled': _keepAwake};
+  }
+
+  @override
+  Future<Map<String, Object?>> setScreenBrightness(double level) async {
+    _screenBrightness = level;
+    return {'ok': true, 'level': _screenBrightness, 'usesSystemDefault': false};
+  }
+
+  @override
+  Future<Map<String, Object?>> getScreenBrightness() async {
+    return {'ok': true, 'level': _screenBrightness, 'usesSystemDefault': false};
   }
 
   @override

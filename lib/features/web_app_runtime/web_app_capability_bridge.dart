@@ -55,6 +55,8 @@ class WebAppRuntimeDefaults {
     'url.open_external',
     'screen.keep_awake',
     'screen.keep_awake_status',
+    'screen.brightness.set',
+    'screen.brightness.status',
     'screen.orientation.set',
     'screen.orientation.status',
     'sensor.accelerometer.read',
@@ -366,6 +368,10 @@ class WebAppCapabilityBridge {
         return 'screen_keep_awake';
       case 'screen.keep_awake_status':
         return 'screen_keep_awake_status';
+      case 'screen.brightness.set':
+        return 'screen_brightness_set';
+      case 'screen.brightness.status':
+        return 'screen_brightness_status';
       case 'screen.orientation.set':
         return 'screen_orientation_set';
       case 'screen.orientation.status':

@@ -77,6 +77,8 @@ class CapabilityRuntime {
     'url_open_external': 'url.open_external',
     'screen_keep_awake': 'screen.keep_awake',
     'screen_keep_awake_status': 'screen.keep_awake_status',
+    'screen_brightness_set': 'screen.brightness.set',
+    'screen_brightness_status': 'screen.brightness.status',
     'screen_orientation_set': 'screen.orientation.set',
     'screen_orientation_status': 'screen.orientation.status',
     'sensor_accelerometer_read': 'sensor.accelerometer.read',
@@ -418,6 +420,12 @@ class CapabilityRuntime {
         );
       case 'screen_keep_awake_status':
         return await _nativeHandler.getKeepScreenAwake();
+      case 'screen_brightness_set':
+        return await _nativeHandler.setScreenBrightness(
+          arguments: toolCall.arguments,
+        );
+      case 'screen_brightness_status':
+        return await _nativeHandler.getScreenBrightness();
       case 'screen_orientation_set':
         return await _nativeHandler.setScreenOrientation(
           arguments: toolCall.arguments,

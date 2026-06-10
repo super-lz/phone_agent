@@ -627,6 +627,54 @@ class NativeCapabilityAdapter {
     }
   }
 
+  Future<Map<String, Object?>> setScreenBrightness(double level) async {
+    try {
+      final output = await _invokeNativeCapability('setScreenBrightness', {
+        'level': level,
+      });
+      final currentLevel = _doubleFromObject(output['level']) ?? level;
+      return {
+        'ok': output['ok'] != false,
+        'level': currentLevel,
+        'usesSystemDefault': output['usesSystemDefault'] == true,
+        'summary': '屏幕亮度已设置为 ${(currentLevel * 100).round()}%。',
+        ...output,
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.screen_brightness_set.failed', error, stackTrace);
+      return _nativeCapabilityError(
+        error,
+        fallbackCode: 'screen_brightness_failed',
+      );
+    }
+  }
+
+  Future<Map<String, Object?>> getScreenBrightness() async {
+    try {
+      final output = await _invokeNativeCapability('getScreenBrightness');
+      final currentLevel = _doubleFromObject(output['level']);
+      return {
+        'ok': output['ok'] != false,
+        'level': ?currentLevel,
+        'usesSystemDefault': output['usesSystemDefault'] == true,
+        'summary': currentLevel == null
+            ? '当前屏幕亮度不可用。'
+            : '当前屏幕亮度约为 ${(currentLevel * 100).round()}%。',
+        ...output,
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.error(
+        'native.screen_brightness_status.failed',
+        error,
+        stackTrace,
+      );
+      return _nativeCapabilityError(
+        error,
+        fallbackCode: 'screen_brightness_failed',
+      );
+    }
+  }
+
   Future<Map<String, Object?>> setScreenOrientation(String mode) async {
     try {
       final normalized = _normalizeScreenOrientationMode(mode);
@@ -1125,6 +1173,13 @@ class NativeCapabilityAdapter {
       'detail': error.toString(),
       'userMessage': '手机原生能力调用失败：$error',
     };
+  }
+
+  double? _doubleFromObject(Object? value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    return null;
   }
 
   Map<String, Object?> _normalizedDeviceInfo(Map<String, Object?> data) {

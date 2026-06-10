@@ -323,6 +323,10 @@ String _titleFor(String capabilityId) {
       return '屏幕常亮设置';
     case 'screen.keep_awake_status':
       return '屏幕常亮状态';
+    case 'screen.brightness.set':
+      return '屏幕亮度设置';
+    case 'screen.brightness.status':
+      return '屏幕亮度状态';
     case 'sensor.accelerometer.read':
       return '加速度计';
     case 'sensor.gyroscope.read':
@@ -490,6 +494,9 @@ String _summaryFor(
       return output['enabled'] == true ? '已开启当前应用屏幕常亮。' : '已关闭当前应用屏幕常亮。';
     case 'screen.keep_awake_status':
       return output['enabled'] == true ? '当前应用已保持屏幕常亮。' : '当前应用未开启屏幕常亮。';
+    case 'screen.brightness.set':
+    case 'screen.brightness.status':
+      return _screenBrightnessSummary(output);
     case 'screen.orientation.set':
     case 'screen.orientation.status':
       return _screenOrientationSummary(output);
@@ -644,6 +651,16 @@ String _screenOrientationSummary(Map<String, Object?> output) {
     return '当前应用屏幕方向已锁定为$mode。';
   }
   return '当前应用屏幕方向跟随系统自动旋转。';
+}
+
+String _screenBrightnessSummary(Map<String, Object?> output) {
+  final level = output['level'];
+  if (level is num) {
+    final percent = (level.clamp(0, 1) * 100).round();
+    final suffix = output['usesSystemDefault'] == true ? '，当前使用系统默认亮度' : '';
+    return '当前屏幕亮度约为 $percent%$suffix。';
+  }
+  return '当前屏幕亮度状态不可用。';
 }
 
 String _systemUiSummary(Map<String, Object?> output) {

@@ -129,6 +129,8 @@ void main() {
         'url_open_external',
         'screen_keep_awake',
         'screen_keep_awake_status',
+        'screen_brightness_set',
+        'screen_brightness_status',
         'screen_orientation_set',
         'screen_orientation_status',
         'sensor_accelerometer_read',

@@ -181,6 +181,14 @@ String buildWebAppBridgeHeadHtml(AgentArtifact webApp) {
         getKeepScreenAwakeStatus: function() {
           return window.PhoneAgent.callCapability('screen.keep_awake_status', {});
         },
+        setScreenBrightness: function(level) {
+          return window.PhoneAgent.callCapability('screen.brightness.set', {
+            level: Number(level)
+          });
+        },
+        getScreenBrightness: function() {
+          return window.PhoneAgent.callCapability('screen.brightness.status', {});
+        },
         setScreenOrientation: function(mode) {
           return window.PhoneAgent.callCapability('screen.orientation.set', {
             mode: mode || 'unlocked'

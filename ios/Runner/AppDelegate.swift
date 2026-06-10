@@ -38,6 +38,25 @@ import UIKit
             "available": false,
             "enabled": false
           ])
+        case "setScreenBrightness":
+          guard
+            let arguments = call.arguments as? [String: Any],
+            let level = arguments["level"] as? Double
+          else {
+            result(FlutterError(
+              code: "invalid_arguments",
+              message: "level is required",
+              details: nil
+            ))
+            return
+          }
+          self?.setScreenBrightness(level: level, result: result)
+        case "getScreenBrightness":
+          result(self?.screenBrightnessStatus() ?? [
+            "ok": true,
+            "level": UIScreen.main.brightness,
+            "usesSystemDefault": false
+          ])
         default:
           result(FlutterMethodNotImplemented)
         }
@@ -82,6 +101,27 @@ import UIKit
       "ok": true,
       "available": isAvailable,
       "enabled": isAvailable && flashlightEnabled
+    ]
+  }
+
+  private func setScreenBrightness(level: Double, result: FlutterResult) {
+    guard level >= 0.0 && level <= 1.0 else {
+      result(FlutterError(
+        code: "invalid_brightness_level",
+        message: "level must be between 0 and 1",
+        details: nil
+      ))
+      return
+    }
+    UIScreen.main.brightness = CGFloat(level)
+    result(screenBrightnessStatus())
+  }
+
+  private func screenBrightnessStatus() -> [String: Any] {
+    return [
+      "ok": true,
+      "level": Double(UIScreen.main.brightness),
+      "usesSystemDefault": false
     ]
   }
 }

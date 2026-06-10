@@ -303,6 +303,27 @@ class AgentToolRouter {
       '取消常亮',
       '恢复熄屏',
     ]);
+    final wantsBrightnessStatus = _containsAny(prompt, const [
+      '亮度状态',
+      '当前亮度',
+      '屏幕亮度是多少',
+      '亮度是多少',
+      'brightness status',
+    ]);
+    final wantsBrightnessSet =
+        !wantsBrightnessStatus &&
+        _containsAny(prompt, const [
+          '调亮',
+          '调暗',
+          '调高亮度',
+          '调低亮度',
+          '屏幕亮一点',
+          '屏幕暗一点',
+          '设置亮度',
+          '调整亮度',
+          '屏幕亮度',
+          'brightness',
+        ]);
     final wantsOrientationStatus = _containsAny(prompt, const [
       '方向状态',
       '旋转状态',
@@ -475,6 +496,12 @@ class AgentToolRouter {
     }
     if (wantsKeepAwakeStatus) {
       addIfAvailable('screen_keep_awake_status');
+    }
+    if (wantsBrightnessSet) {
+      addIfAvailable('screen_brightness_set');
+    }
+    if (wantsBrightnessStatus || wantsBrightnessSet) {
+      addIfAvailable('screen_brightness_status');
     }
     if (wantsOrientationSet) {
       addIfAvailable('screen_orientation_set');

@@ -291,6 +291,36 @@ class NativeCapabilityHandler {
     );
   }
 
+  Future<CapabilityExecutionResult> setScreenBrightness({
+    required Map<String, Object?> arguments,
+  }) async {
+    final rawLevel = arguments['level'];
+    if (rawLevel is! num) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'screen.brightness.set',
+        output: {'ok': false, 'error': 'level is required'},
+      );
+    }
+    final level = rawLevel.toDouble();
+    if (level < 0 || level > 1) {
+      return const CapabilityExecutionResult(
+        capabilityId: 'screen.brightness.set',
+        output: {'ok': false, 'error': 'level must be between 0 and 1'},
+      );
+    }
+    return CapabilityExecutionResult(
+      capabilityId: 'screen.brightness.set',
+      output: await _adapter.setScreenBrightness(level),
+    );
+  }
+
+  Future<CapabilityExecutionResult> getScreenBrightness() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'screen.brightness.status',
+      output: await _adapter.getScreenBrightness(),
+    );
+  }
+
   Future<CapabilityExecutionResult> setScreenOrientation({
     required Map<String, Object?> arguments,
   }) async {

@@ -322,6 +322,16 @@ class PhoneAgentSeed {
       CapabilityRisk.low,
     ),
     _capability(
+      'screen.brightness.set',
+      CapabilityAdapter.native,
+      CapabilityRisk.medium,
+    ),
+    _capability(
+      'screen.brightness.status',
+      CapabilityAdapter.native,
+      CapabilityRisk.low,
+    ),
+    _capability(
       'screen.orientation.set',
       CapabilityAdapter.native,
       CapabilityRisk.medium,
