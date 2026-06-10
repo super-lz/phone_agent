@@ -1,5 +1,179 @@
 part of 'model_settings_page.dart';
 
+class _ProviderGroupSection extends StatelessWidget {
+  const _ProviderGroupSection({
+    required this.title,
+    required this.providers,
+    required this.selectedProviderId,
+    required this.onSelected,
+  });
+
+  final String title;
+  final List<ModelProviderConfig> providers;
+  final String selectedProviderId;
+  final ValueChanged<ModelProviderConfig> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF6B7280),
+                ),
+              ),
+            ),
+            for (final provider in providers)
+              _ProviderTile(
+                provider: provider,
+                selected: provider.id == selectedProviderId,
+                onTap: () => onSelected(provider),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProviderTile extends StatelessWidget {
+  const _ProviderTile({
+    required this.provider,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final ModelProviderConfig provider;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ListTile(
+      dense: true,
+      selected: selected,
+      selectedTileColor: colorScheme.primary.withValues(alpha: 0.08),
+      leading: Icon(
+        provider.group == ModelProviderGroup.aggregator
+            ? Icons.hub_outlined
+            : Icons.cloud_outlined,
+        color: selected ? colorScheme.primary : null,
+      ),
+      title: Text(
+        provider.vendorName,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        provider.defaultModel,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 12),
+      ),
+      trailing: selected
+          ? Icon(Icons.check_circle, color: colorScheme.primary, size: 18)
+          : null,
+      onTap: onTap,
+    );
+  }
+}
+
+class _ProviderHeader extends StatelessWidget {
+  const _ProviderHeader({required this.provider});
+
+  final ModelProviderConfig provider;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            provider.group == ModelProviderGroup.aggregator
+                ? Icons.hub_outlined
+                : Icons.cloud_outlined,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                provider.vendorName,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                provider.displayName,
+                style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+              ),
+            ],
+          ),
+        ),
+        _ProtocolBadge(provider: provider),
+      ],
+    );
+  }
+}
+
+class _ProtocolBadge extends StatelessWidget {
+  const _ProtocolBadge({required this.provider});
+
+  final ModelProviderConfig provider;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = switch (provider.apiProtocol) {
+      ModelApiProtocol.openAiChatCompletions => 'OpenAI',
+      ModelApiProtocol.anthropicMessages => 'Messages',
+      ModelApiProtocol.unavailable => '待确认',
+    };
+    final color = provider.apiProtocol == ModelApiProtocol.unavailable
+        ? Colors.orange
+        : Colors.green;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color.shade700,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
 class _ProviderSummary extends StatelessWidget {
   const _ProviderSummary({required this.provider});
 
@@ -12,54 +186,59 @@ class _ProviderSummary extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade100),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade200),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Icon(Icons.info_outline, size: 14, color: Colors.grey),
-              const SizedBox(width: 6),
-              Text(
-                '厂商: ${provider.vendorName}',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-            ],
+          _SummaryLine(
+            icon: Icons.dns_outlined,
+            text: provider.apiProtocol == ModelApiProtocol.unavailable
+                ? 'Endpoint: 官方 API 地址待确认'
+                : 'Endpoint: ${provider.baseUrl}',
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Endpoint: ${provider.baseUrl}',
+          const SizedBox(height: 6),
+          _SummaryLine(
+            icon: Icons.psychology_outlined,
+            text: '当前模型: ${provider.model}',
+          ),
+          const SizedBox(height: 6),
+          _SummaryLine(
+            icon: Icons.build_outlined,
+            text: provider.supportsTools ? '工具调用: 支持' : '工具调用: 当前关闭',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryLine extends StatelessWidget {
+  const _SummaryLine({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 14, color: Colors.grey),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            text,
             style: const TextStyle(
               fontSize: 11,
               color: Colors.grey,
               fontFamily: 'monospace',
             ),
           ),
-          if (provider.defaultMaxTokens != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              _contextWindowText(provider),
-              style: const TextStyle(
-                fontSize: 11,
-                color: Colors.grey,
-                fontFamily: 'monospace',
-              ),
-            ),
-          ],
-        ],
-      ),
+        ),
+      ],
     );
-  }
-
-  String _contextWindowText(ModelProviderConfig provider) {
-    final maxContextTokens = provider.maxContextTokens;
-    final defaultTokens = provider.defaultMaxTokens;
-    if (maxContextTokens == null) {
-      return '上下文: 当前使用 $defaultTokens tokens';
-    }
-    return '上下文: 当前使用 $defaultTokens tokens · 上限 $maxContextTokens tokens';
   }
 }
 
@@ -76,7 +255,7 @@ class _StatusCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isError ? Colors.red.shade50 : Colors.green.shade50,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: isError ? Colors.red.shade100 : Colors.green.shade100,
         ),

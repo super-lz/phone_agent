@@ -980,6 +980,11 @@ class WorkbenchController extends ChangeNotifier {
     required List<AgentMessage> priorMessages,
   }) async {
     final provider = await _configuredProvider();
+    if (!provider.canRunConnectionTest) {
+      _addMessage(_unsupportedProviderResponse(provider));
+      notifyListeners();
+      return;
+    }
     final storedApiKey = provider.requiresApiKey
         ? await _apiKeyStore.readApiKey(provider.id)
         : '';
@@ -1119,6 +1124,21 @@ class WorkbenchController extends ChangeNotifier {
           '缺少模型 API Key',
           '当前选择的是${provider.vendorName}，普通对话需要 API Key。'
               '请进入“模型设置”填写并保存对应接入方的 API Key。',
+        ),
+      ],
+    );
+  }
+
+  AgentMessage _unsupportedProviderResponse(ModelProviderConfig provider) {
+    return AgentMessage(
+      id: 'msg-unsupported-provider-${DateTime.now().microsecondsSinceEpoch}',
+      role: MessageRole.assistant,
+      createdAt: DateTime.now(),
+      blocks: [
+        MessageBlock.error(
+          '模型接入暂不可用',
+          '${provider.vendorName} 已加入模型配置列表，但官方 API endpoint 尚未确认。'
+              '当前版本可以保存它的 Key 和模型选择，普通对话请先切换到已启用的接入方。',
         ),
       ],
     );

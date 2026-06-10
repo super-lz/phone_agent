@@ -185,7 +185,9 @@ class AgentLoop {
             provider: provider,
             apiKey: apiKey,
             messages: modelMessages,
-            tools: runState.canUseTools ? toolRoute.tools : const [],
+            tools: provider.supportsTools && runState.canUseTools
+                ? toolRoute.tools
+                : const [],
           )) {
             throwIfCancelled();
 

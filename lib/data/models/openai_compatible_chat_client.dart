@@ -116,6 +116,17 @@ class OpenAiCompatibleChatClient {
     required List<Map<String, Object?>> messages,
     List<Map<String, Object?>> tools = const [],
   }) async* {
+    if (provider.apiProtocol == ModelApiProtocol.unavailable) {
+      throw ModelRequestException(_unavailableProviderMessage(provider));
+    }
+    if (provider.apiProtocol == ModelApiProtocol.anthropicMessages) {
+      yield* _streamAnthropicMessages(
+        provider: provider,
+        apiKey: apiKey,
+        messages: messages,
+      );
+      return;
+    }
     final requestBody = {
       'model': provider.model,
       'messages': messages,
@@ -142,6 +153,7 @@ class OpenAiCompatibleChatClient {
       ..headers.addAll({
         'Authorization': 'Bearer $apiKey',
         'Content-Type': 'application/json',
+        ...provider.defaultHeaders,
       })
       ..body = jsonEncode(requestBody);
 
@@ -246,6 +258,19 @@ class OpenAiCompatibleChatClient {
     required String apiKey,
     required List<Map<String, Object?>> messages,
   }) async {
+    if (provider.apiProtocol == ModelApiProtocol.unavailable) {
+      return ChatCompletionResult(
+        ok: false,
+        content: _unavailableProviderMessage(provider),
+      );
+    }
+    if (provider.apiProtocol == ModelApiProtocol.anthropicMessages) {
+      return _completeAnthropicMessages(
+        provider: provider,
+        apiKey: apiKey,
+        messages: messages,
+      );
+    }
     try {
       final response = await _postChatCompletion(
         provider: provider,
@@ -279,6 +304,22 @@ class OpenAiCompatibleChatClient {
     required ModelProviderConfig provider,
     required String apiKey,
   }) async {
+    if (provider.apiProtocol == ModelApiProtocol.unavailable) {
+      return ModelConnectionResult(
+        ok: false,
+        message: _unavailableProviderMessage(provider),
+      );
+    }
+    if (provider.apiProtocol == ModelApiProtocol.anthropicMessages) {
+      final result = await _completeAnthropicMessages(
+        provider: provider,
+        apiKey: apiKey,
+        messages: const [
+          {'role': 'user', 'content': '请用一句话回答：Phone Agent 模型连接正常吗？'},
+        ],
+      );
+      return ModelConnectionResult(ok: result.ok, message: result.content);
+    }
     AppLogger.info('model.test_connection.start', {
       'provider': provider.id,
       'model': provider.model,
@@ -321,6 +362,229 @@ class OpenAiCompatibleChatClient {
       AppLogger.error('model.test_connection.exception', error);
       return ModelConnectionResult(ok: false, message: error.toString());
     }
+  }
+
+  Stream<ChatStreamEvent> _streamAnthropicMessages({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async* {
+    final requestBody = _anthropicRequestBody(
+      provider: provider,
+      messages: messages,
+      stream: true,
+    );
+    AppLogger.info('model.stream_chat.anthropic.start', {
+      'provider': provider.id,
+      'model': provider.model,
+      'messageCount': messages.length,
+    });
+    final request = http.Request('POST', provider.anthropicMessagesEndpoint)
+      ..headers.addAll(_anthropicHeaders(provider: provider, apiKey: apiKey))
+      ..body = jsonEncode(requestBody);
+
+    late final http.StreamedResponse response;
+    try {
+      response = await _httpClient.send(request).timeout(requestTimeout);
+    } on Object catch (error, stackTrace) {
+      throw _modelRequestExceptionFor(
+        error,
+        stackTrace,
+        provider: provider,
+        stage: 'connect',
+      );
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final body = await response.stream.bytesToString();
+      throw ModelRequestException('HTTP ${response.statusCode}: $body');
+    }
+
+    try {
+      await for (final line
+          in response.stream
+              .timeout(
+                streamIdleTimeout,
+                onTimeout: (sink) {
+                  sink.addError(
+                    TimeoutException(
+                      '模型流式响应 ${_formatDuration(streamIdleTimeout)} 没有新数据。',
+                      streamIdleTimeout,
+                    ),
+                  );
+                  sink.close();
+                },
+              )
+              .transform(utf8.decoder)
+              .transform(const LineSplitter())) {
+        final chunk = _parseSseDataLine(line);
+        if (chunk == null) {
+          continue;
+        }
+        final event = _extractAnthropicStreamEvent(chunk);
+        if (event == null) {
+          continue;
+        }
+        if (!event.isEmpty) {
+          yield event;
+        }
+      }
+    } on Object catch (error, stackTrace) {
+      throw _modelRequestExceptionFor(
+        error,
+        stackTrace,
+        provider: provider,
+        stage: 'receive',
+      );
+    }
+  }
+
+  Future<ChatCompletionResult> _completeAnthropicMessages({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    try {
+      final response = await _httpClient
+          .post(
+            provider.anthropicMessagesEndpoint,
+            headers: _anthropicHeaders(provider: provider, apiKey: apiKey),
+            body: jsonEncode(
+              _anthropicRequestBody(
+                provider: provider,
+                messages: messages,
+                stream: false,
+              ),
+            ),
+          )
+          .timeout(requestTimeout);
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return ChatCompletionResult(
+          ok: false,
+          content: 'HTTP ${response.statusCode}: ${response.body}',
+        );
+      }
+
+      final text = _extractAnthropicTextFromBody(response.body);
+      return ChatCompletionResult(
+        ok: text.isNotEmpty,
+        content: text.isEmpty ? '模型响应中没有文本内容。' : text,
+      );
+    } on Object catch (error) {
+      return ChatCompletionResult(ok: false, content: error.toString());
+    }
+  }
+
+  Map<String, String> _anthropicHeaders({
+    required ModelProviderConfig provider,
+    required String apiKey,
+  }) {
+    return {
+      'x-api-key': apiKey,
+      'Content-Type': 'application/json',
+      ...provider.defaultHeaders,
+    };
+  }
+
+  Map<String, Object?> _anthropicRequestBody({
+    required ModelProviderConfig provider,
+    required List<Map<String, Object?>> messages,
+    required bool stream,
+  }) {
+    final systemParts = <String>[];
+    final anthropicMessages = <Map<String, Object?>>[];
+    for (final message in messages) {
+      final role = message['role'] as String? ?? 'user';
+      final content = _messageContentAsText(message['content']);
+      if (content.isEmpty) {
+        continue;
+      }
+      if (role == 'system') {
+        systemParts.add(content);
+        continue;
+      }
+      anthropicMessages.add({
+        'role': role == 'assistant' ? 'assistant' : 'user',
+        'content': content,
+      });
+    }
+    return {
+      'model': provider.model,
+      ...provider.defaultParameters,
+      if (systemParts.isNotEmpty) 'system': systemParts.join('\n\n'),
+      'messages': anthropicMessages.isEmpty
+          ? [
+              {'role': 'user', 'content': 'Hello'},
+            ]
+          : anthropicMessages,
+      'stream': stream,
+    };
+  }
+
+  String _messageContentAsText(Object? content) {
+    if (content is String) {
+      return content;
+    }
+    if (content is List<Object?>) {
+      final buffer = StringBuffer();
+      for (final part in content) {
+        if (part is Map<String, Object?>) {
+          final text = part['text'];
+          if (text is String && text.isNotEmpty) {
+            if (buffer.isNotEmpty) buffer.write('\n');
+            buffer.write(text);
+          }
+        }
+      }
+      return buffer.toString();
+    }
+    return '';
+  }
+
+  ChatStreamEvent? _extractAnthropicStreamEvent(String chunk) {
+    final decoded = jsonDecode(chunk);
+    if (decoded is! Map<String, Object?>) {
+      return null;
+    }
+    final type = decoded['type'];
+    if (type == 'message_stop') {
+      return const ChatStreamEvent();
+    }
+    if (type != 'content_block_delta') {
+      return null;
+    }
+    final delta = decoded['delta'];
+    if (delta is! Map<String, Object?>) {
+      return null;
+    }
+    final text = delta['text'];
+    return ChatStreamEvent(contentDelta: text is String ? text : '');
+  }
+
+  String _extractAnthropicTextFromBody(String body) {
+    final decoded = jsonDecode(body);
+    if (decoded is! Map<String, Object?>) {
+      return '';
+    }
+    final content = decoded['content'];
+    if (content is! List<Object?>) {
+      return '';
+    }
+    final buffer = StringBuffer();
+    for (final item in content) {
+      if (item is Map<String, Object?>) {
+        final text = item['text'];
+        if (text is String) {
+          buffer.write(text);
+        }
+      }
+    }
+    return buffer.toString();
+  }
+
+  String _unavailableProviderMessage(ModelProviderConfig provider) {
+    return '${provider.vendorName} 已加入模型列表，但官方 API endpoint 尚未确认；'
+        '当前版本可以保存配置，暂不发起连接测试或普通对话调用。';
   }
 
   String? _parseSseDataLine(String line) {
@@ -411,6 +675,7 @@ class OpenAiCompatibleChatClient {
           headers: {
             'Authorization': 'Bearer $apiKey',
             'Content-Type': 'application/json',
+            ...provider.defaultHeaders,
           },
           body: jsonEncode(body),
         )

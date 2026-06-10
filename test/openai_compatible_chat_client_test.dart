@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -56,6 +57,93 @@ void main() {
       );
     },
   );
+
+  test(
+    'openai-compatible provider posts to provider endpoint with bearer key',
+    () async {
+      final httpClient = _CapturingHttpClient(
+        http.Response(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {'content': 'ok'},
+              },
+            ],
+          }),
+          200,
+        ),
+      );
+      final client = OpenAiCompatibleChatClient(httpClient: httpClient);
+
+      final result = await client.completeText(
+        provider: ModelProviders.miniMax,
+        apiKey: 'minimax-key',
+        messages: const [
+          {'role': 'user', 'content': 'hello'},
+        ],
+      );
+
+      expect(result.ok, isTrue);
+      expect(
+        httpClient.lastUrl.toString(),
+        'https://api.minimaxi.com/v1/chat/completions',
+      );
+      expect(httpClient.lastHeaders['Authorization'], 'Bearer minimax-key');
+      final body = jsonDecode(httpClient.lastBody) as Map<String, Object?>;
+      expect(body['model'], 'MiniMax-M3');
+      expect(body['stream'], isFalse);
+    },
+  );
+
+  test(
+    'anthropic provider posts messages request with version header',
+    () async {
+      final httpClient = _CapturingHttpClient(
+        http.Response(
+          jsonEncode({
+            'content': [
+              {'type': 'text', 'text': 'claude ok'},
+            ],
+          }),
+          200,
+        ),
+      );
+      final client = OpenAiCompatibleChatClient(httpClient: httpClient);
+
+      final result = await client.completeText(
+        provider: ModelProviders.anthropicClaude,
+        apiKey: 'claude-key',
+        messages: const [
+          {'role': 'system', 'content': 'system rules'},
+          {'role': 'user', 'content': 'hello'},
+        ],
+      );
+
+      expect(result.content, 'claude ok');
+      expect(
+        httpClient.lastUrl.toString(),
+        'https://api.anthropic.com/v1/messages',
+      );
+      expect(httpClient.lastHeaders['x-api-key'], 'claude-key');
+      expect(httpClient.lastHeaders['anthropic-version'], '2023-06-01');
+      final body = jsonDecode(httpClient.lastBody) as Map<String, Object?>;
+      expect(body['model'], ModelProviders.anthropicClaude.model);
+      expect(body['system'], 'system rules');
+      expect(body['stream'], isFalse);
+    },
+  );
+
+  test('unavailable provider reports configuration-only status', () async {
+    final client = OpenAiCompatibleChatClient();
+
+    final result = await client.testConnection(
+      provider: ModelProviders.xiaomiMimo,
+      apiKey: 'mimo-key',
+    );
+
+    expect(result.ok, isFalse);
+    expect(result.message, contains('官方 API endpoint 尚未确认'));
+  });
 }
 
 class _IdleStreamHttpClient extends http.BaseClient {
@@ -66,5 +154,30 @@ class _IdleStreamHttpClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     return http.StreamedResponse(stream, 200);
+  }
+}
+
+class _CapturingHttpClient extends http.BaseClient {
+  _CapturingHttpClient(this.response);
+
+  final http.Response response;
+  late Uri lastUrl;
+  late Map<String, String> lastHeaders;
+  late String lastBody;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    lastUrl = request.url;
+    lastHeaders = Map<String, String>.of(request.headers);
+    if (request is http.Request) {
+      lastBody = request.body;
+    } else {
+      lastBody = '';
+    }
+    return http.StreamedResponse(
+      Stream<List<int>>.fromIterable([response.bodyBytes]),
+      response.statusCode,
+      headers: response.headers,
+    );
   }
 }

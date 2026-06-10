@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/logging/app_logger.dart';
 import '../../data/models/model_api_key_store.dart';
@@ -25,13 +26,17 @@ class ModelSettingsPage extends StatefulWidget {
 }
 
 class _ModelSettingsPageState extends State<ModelSettingsPage> {
+  static const _customModelValue = '__custom_model__';
+
   late final ModelApiKeyStore _apiKeyStore;
   late final ModelSettingsStore _modelSettingsStore;
   late final OpenAiCompatibleChatClient _chatClient;
   late final TextEditingController _apiKeyController;
-  late final TextEditingController _modelController;
+  late final TextEditingController _customModelController;
 
   ModelProviderConfig _provider = ModelProviders.aliyunBailianQwenFlash;
+  String _selectedModelValue =
+      ModelProviders.aliyunBailianQwenFlash.defaultModel;
   bool _obscureApiKey = true;
   bool _loading = true;
   bool _testing = false;
@@ -47,14 +52,14 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
         widget.chatClient ??
         OpenAiCompatibleChatClient(requestTimeout: const Duration(seconds: 15));
     _apiKeyController = TextEditingController();
-    _modelController = TextEditingController();
+    _customModelController = TextEditingController();
     _loadSettings();
   }
 
   @override
   void dispose() {
     _apiKeyController.dispose();
-    _modelController.dispose();
+    _customModelController.dispose();
     super.dispose();
   }
 
@@ -71,40 +76,49 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
   Future<void> _loadProviderSettings() async {
     final provider = _provider;
     final modelName = await _modelSettingsStore.readModelName(provider.id);
+    final apiKey = await _apiKeyStore.readApiKey(provider.id);
     if (!mounted || _provider.id != provider.id) {
       return;
     }
-    _modelController.text = modelName?.trim().isNotEmpty == true
-        ? modelName!.trim()
-        : provider.model;
-
-    final apiKey = await _apiKeyStore.readApiKey(provider.id);
-    if (!mounted) {
-      return;
-    }
     _apiKeyController.text = apiKey ?? '';
+    _setSelectedModel(modelName?.trim(), provider: provider);
     setState(() => _loading = false);
   }
 
+  void _setSelectedModel(
+    String? modelName, {
+    required ModelProviderConfig provider,
+  }) {
+    final normalized = modelName == null || modelName.isEmpty
+        ? provider.defaultModel
+        : modelName;
+    final matchesPreset = provider.modelOptions.any(
+      (option) => option.name == normalized,
+    );
+    _selectedModelValue = matchesPreset ? normalized : _customModelValue;
+    _customModelController.text = matchesPreset ? '' : normalized;
+  }
+
   Future<void> _saveSettings() async {
-    final modelName = _modelController.text.trim();
+    final modelName = _currentModelName();
     if (modelName.isEmpty) {
       setState(() => _status = '模型名称不能为空。');
       return;
     }
 
-    await _modelSettingsStore.saveSelectedProviderId(_provider.id);
     final apiKey = _apiKeyController.text.trim();
     if (apiKey.isEmpty) {
       setState(() => _status = 'API Key 不能为空。');
       return;
     }
+
+    await _modelSettingsStore.saveSelectedProviderId(_provider.id);
     await _apiKeyStore.saveApiKey(_provider.id, apiKey);
     await _modelSettingsStore.saveModelName(_provider.id, modelName);
     if (!mounted) {
       return;
     }
-    setState(() => _status = '已保存 ${_provider.vendorName} API Key 和模型名称。');
+    setState(() => _status = '已保存 ${_provider.vendorName} API Key 和模型配置。');
   }
 
   Future<void> _clearApiKey() async {
@@ -113,7 +127,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
       return;
     }
     _apiKeyController.clear();
-    setState(() => _status = '已清除 API Key。');
+    setState(() => _status = '已清除 ${_provider.vendorName} API Key。');
   }
 
   Future<void> _restoreDefaultModel() async {
@@ -121,13 +135,15 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
     if (!mounted) {
       return;
     }
-    _modelController.text = _provider.model;
-    setState(() => _status = '已恢复默认模型：${_provider.model}');
+    setState(() {
+      _setSelectedModel(_provider.defaultModel, provider: _provider);
+      _status = '已恢复默认模型：${_provider.defaultModel}';
+    });
   }
 
   Future<void> _testConnection() async {
     final apiKey = _apiKeyController.text.trim();
-    if (_provider.requiresApiKey && apiKey.isEmpty) {
+    if (apiKey.isEmpty) {
       setState(() => _status = '请先填写 API Key。');
       return;
     }
@@ -137,9 +153,8 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
       _status = '正在测试 ${_provider.displayName}，最多等待 15 秒...';
     });
 
-    final provider = _effectiveProvider();
     final result = await _chatClient.testConnection(
-      provider: provider,
+      provider: _effectiveProvider(),
       apiKey: apiKey,
     );
     if (!mounted) {
@@ -158,14 +173,31 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
     setState(() {
       _provider = provider;
       _loading = true;
-      _status = '已选择${provider.vendorName}：普通对话需要 API Key。';
+      _status = '已选择${provider.vendorName}。';
     });
     await _modelSettingsStore.saveSelectedProviderId(provider.id);
     await _loadProviderSettings();
   }
 
+  Future<void> _openUri(Uri? uri) async {
+    if (uri == null) {
+      return;
+    }
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      setState(() => _status = '无法打开链接：$uri');
+    }
+  }
+
+  String _currentModelName() {
+    if (_selectedModelValue == _customModelValue) {
+      return _customModelController.text.trim();
+    }
+    return _selectedModelValue.trim();
+  }
+
   ModelProviderConfig _effectiveProvider() {
-    final modelName = _modelController.text.trim();
+    final modelName = _currentModelName();
     if (modelName.isEmpty || modelName == _provider.model) {
       return _provider;
     }
@@ -174,144 +206,203 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
       appBar: AppBar(title: const Text('模型设置')),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        children: [
-          _buildSectionHeader('模型提供方'),
-          Card(
-            margin: const EdgeInsets.only(bottom: 24),
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: SegmentedButton<ModelProviderConfig>(
-                style: SegmentedButton.styleFrom(
-                  side: BorderSide.none,
-                  backgroundColor: Colors.transparent,
-                  selectedBackgroundColor: colorScheme.primary,
-                  selectedForegroundColor: colorScheme.onPrimary,
-                ),
-                segments: [
-                  for (final provider in ModelProviders.all)
-                    ButtonSegment(
-                      value: provider,
-                      label: Text(provider.vendorName),
-                      icon: const Icon(Icons.cloud_outlined, size: 18),
-                    ),
-                ],
-                selected: {_provider},
-                showSelectedIcon: false,
-                onSelectionChanged: (selection) =>
-                    _setProvider(selection.first),
-              ),
-            ),
-          ),
-          _buildSectionHeader('连接配置'),
-          Card(
-            margin: const EdgeInsets.only(bottom: 24),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  TextField(
-                    controller: _modelController,
-                    enabled: !_loading,
-                    decoration: InputDecoration(
-                      labelText: '云端模型名称',
-                      hintText: '例如 qwen3.6-flash',
-                      prefixIcon: const Icon(Icons.psychology_outlined),
-                      suffixIcon: IconButton(
-                        tooltip: '恢复默认',
-                        icon: const Icon(Icons.restore, size: 20),
-                        onPressed: _loading ? null : _restoreDefaultModel,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _apiKeyController,
-                    enabled: !_loading,
-                    obscureText: _obscureApiKey,
-                    decoration: InputDecoration(
-                      labelText: '${_provider.vendorName} API Key',
-                      hintText: '输入您的 API 密钥',
-                      prefixIcon: const Icon(Icons.key_outlined),
-                      suffixIcon: IconButton(
-                        tooltip: _obscureApiKey ? '显示' : '隐藏',
-                        icon: Icon(
-                          _obscureApiKey
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined,
-                          size: 20,
-                        ),
-                        onPressed: () {
-                          setState(() => _obscureApiKey = !_obscureApiKey);
-                        },
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _ProviderSummary(provider: _effectiveProvider()),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: _loading ? null : _saveSettings,
-                          icon: const Icon(Icons.save_outlined, size: 18),
-                          label: const Text('保存配置'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _loading || _testing
-                              ? null
-                              : _testConnection,
-                          icon: _testing
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.network_check, size: 18),
-                          label: Text(_testing ? '测试中...' : '连接测试'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_status != null) ...[
-                    const SizedBox(height: 16),
-                    _StatusCard(message: _status!),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final wide = constraints.maxWidth >= 720;
+          final content = wide
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(width: 320, child: _providerList()),
+                    const SizedBox(width: 16),
+                    Expanded(child: _configurationPanel()),
                   ],
-                ],
-              ),
-            ),
+                )
+              : Column(
+                  children: [
+                    _providerList(),
+                    const SizedBox(height: 16),
+                    _configurationPanel(),
+                  ],
+                );
+          return ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            children: [content, const SizedBox(height: 32)],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _providerList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader('模型提供方'),
+        for (final group in ModelProviderGroup.values) ...[
+          _ProviderGroupSection(
+            title: _groupTitle(group),
+            providers: ModelProviders.byGroup(group),
+            selectedProviderId: _provider.id,
+            onSelected: _setProvider,
           ),
-          _buildSectionHeader('其他'),
-          Card(
+          const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
+  Widget _configurationPanel() {
+    final provider = _provider;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader('连接配置'),
+        Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ListTile(
-                  leading: const Icon(Icons.delete_outline, color: Colors.red),
-                  title: const Text(
-                    '清除当前 API Key',
-                    style: TextStyle(color: Colors.red, fontSize: 14),
+                _ProviderHeader(provider: provider),
+                const SizedBox(height: 16),
+                _ProviderSummary(provider: _effectiveProvider()),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _apiKeyController,
+                  enabled: !_loading,
+                  obscureText: _obscureApiKey,
+                  decoration: InputDecoration(
+                    labelText: '${provider.vendorName} API Key',
+                    hintText: '输入您的 API 密钥',
+                    prefixIcon: const Icon(Icons.key_outlined),
+                    suffixIcon: IconButton(
+                      tooltip: _obscureApiKey ? '显示' : '隐藏',
+                      icon: Icon(
+                        _obscureApiKey
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                        size: 20,
+                      ),
+                      onPressed: () {
+                        setState(() => _obscureApiKey = !_obscureApiKey);
+                      },
+                    ),
                   ),
-                  onTap: _loading ? null : _clearApiKey,
                 ),
-                const Divider(height: 1, indent: 56),
-                _DiagnosticsSection(logFilePath: AppLogger.logFilePath),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: _selectedModelValue,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: '模型',
+                    prefixIcon: Icon(Icons.psychology_outlined),
+                  ),
+                  items: [
+                    for (final option in provider.modelOptions)
+                      DropdownMenuItem(
+                        value: option.name,
+                        child: Text(
+                          option.description == null
+                              ? option.name
+                              : '${option.name} · ${option.description}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    const DropdownMenuItem(
+                      value: _customModelValue,
+                      child: Text('自定义模型名称'),
+                    ),
+                  ],
+                  onChanged: _loading
+                      ? null
+                      : (value) {
+                          if (value == null) return;
+                          setState(() => _selectedModelValue = value);
+                        },
+                ),
+                if (_selectedModelValue == _customModelValue) ...[
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _customModelController,
+                    enabled: !_loading,
+                    decoration: const InputDecoration(
+                      labelText: '自定义模型名称',
+                      hintText: '输入接入方文档中的模型 ID',
+                      prefixIcon: Icon(Icons.edit_outlined),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 20),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _loading ? null : _saveSettings,
+                      icon: const Icon(Icons.save_outlined, size: 18),
+                      label: const Text('保存配置'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _loading || _testing
+                          ? null
+                          : provider.canRunConnectionTest
+                          ? _testConnection
+                          : null,
+                      icon: _testing
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.network_check, size: 18),
+                      label: Text(_testing ? '测试中...' : '连接测试'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : _restoreDefaultModel,
+                      icon: const Icon(Icons.restore, size: 18),
+                      label: const Text('默认模型'),
+                    ),
+                    TextButton.icon(
+                      onPressed: _loading ? null : _clearApiKey,
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      label: const Text('清除 Key'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => _openUri(provider.apiKeyHelpUrl),
+                      icon: const Icon(Icons.vpn_key_outlined, size: 18),
+                      label: const Text('获取 Key'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _openUri(provider.documentationUrl),
+                      icon: const Icon(Icons.article_outlined, size: 18),
+                      label: const Text('接口文档'),
+                    ),
+                  ],
+                ),
+                if (_status != null) ...[
+                  const SizedBox(height: 16),
+                  _StatusCard(message: _status!),
+                ],
               ],
             ),
           ),
-          const SizedBox(height: 32),
-        ],
-      ),
+        ),
+        const SizedBox(height: 24),
+        _buildSectionHeader('其他'),
+        Card(child: _DiagnosticsSection(logFilePath: AppLogger.logFilePath)),
+      ],
     );
   }
 
@@ -327,5 +418,13 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
         ),
       ),
     );
+  }
+
+  String _groupTitle(ModelProviderGroup group) {
+    return switch (group) {
+      ModelProviderGroup.domestic => '国内模型',
+      ModelProviderGroup.international => '国外模型',
+      ModelProviderGroup.aggregator => '聚合平台',
+    };
   }
 }
