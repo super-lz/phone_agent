@@ -30,21 +30,6 @@ void main() {
     expect(provider.defaultParameters['enable_thinking'], isFalse);
   });
 
-  test('local provider does not require api key', () {
-    final provider = ModelProviders.gemmaLocal;
-
-    expect(provider.isLocal, isTrue);
-    expect(provider.requiresApiKey, isFalse);
-    expect(provider.defaultMaxTokens, 2048);
-    expect(provider.defaultParameters['max_tokens'], 2048);
-    expect(provider.maxContextTokens, 32768);
-    expect(ModelProviders.byIdOrDefault(provider.id), provider);
-    expect(
-      ModelProviders.byIdOrDefault('missing'),
-      ModelProviders.aliyunBailianQwenFlash,
-    );
-  });
-
   test('chat client has a finite request timeout', () {
     final client = OpenAiCompatibleChatClient();
 

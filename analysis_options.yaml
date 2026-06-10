@@ -32,14 +32,17 @@ linter:
   # producing the lint.
   rules:
     always_declare_return_types: true
+    avoid_annotating_with_dynamic: true
     avoid_dynamic_calls: true
     avoid_print: true
     directives_ordering: true
     prefer_final_fields: true
     prefer_final_in_for_each: true
     prefer_final_locals: true
+    prefer_typing_uninitialized_variables: true
     prefer_single_quotes: true
     sort_child_properties_last: true
+    strict_top_level_inference: true
     unawaited_futures: true
 
 # Additional information about this file can be found at
