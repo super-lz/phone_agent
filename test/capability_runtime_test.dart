@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -468,6 +469,17 @@ void main() {
             'title': '黄金矿工小游戏',
             'summary': '一个可维护的本地 HTML 小游戏。',
             'entry_path': 'games/gold-miner/index.html',
+            'permissions': ['db.note.query'],
+            'server': {
+              'routes': [
+                {
+                  'method': 'GET',
+                  'path': '/api/scores',
+                  'capability': 'db.note.query',
+                  'input': {'query': 'score'},
+                },
+              ],
+            },
             'files': [
               {
                 'path': 'games/gold-miner/index.html',
@@ -515,6 +527,9 @@ void main() {
         manifest.content,
         contains('"entry": "games/gold-miner/index.html"'),
       );
+      expect(manifest.content, contains('"server": {'));
+      expect(manifest.content, contains('"path": "/api/scores"'));
+      expect(artifacts.single.metadata['server'], isA<Map<Object?, Object?>>());
       final version = await fileStore.readText(
         workspaceId: 'work',
         path: 'games/gold-miner/.phone-agent/versions/v0001.json',
@@ -523,6 +538,68 @@ void main() {
       expect(version.content, contains('"version": 1'));
     },
   );
+
+  test('project_create_web_app isolates root-level generated files', () async {
+    final runtime = CapabilityRuntime();
+    final fileStore = InMemoryAppFileStore();
+    final artifacts = <AgentArtifact>[];
+
+    await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-root-project-a',
+        name: 'project_create_web_app',
+        arguments: {
+          'title': 'First App',
+          'summary': '第一个根路径 Web App。',
+          'files': [
+            {'path': 'index.html', 'content': '<html>first</html>'},
+          ],
+        },
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: artifacts,
+      fileStore: fileStore,
+    );
+    await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-root-project-b',
+        name: 'project_create_web_app',
+        arguments: {
+          'title': 'Second App',
+          'summary': '第二个根路径 Web App。',
+          'files': [
+            {'path': 'index.html', 'content': '<html>second</html>'},
+          ],
+        },
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: artifacts,
+      fileStore: fileStore,
+    );
+
+    final firstEntry = artifacts[0].metadata['entry'] as String;
+    final secondEntry = artifacts[1].metadata['entry'] as String;
+    expect(firstEntry, startsWith('apps/first-app-'));
+    expect(secondEntry, startsWith('apps/second-app-'));
+    expect(firstEntry, isNot(secondEntry));
+
+    final firstFile = await fileStore.readText(
+      workspaceId: 'work',
+      path: firstEntry,
+      maxChars: 12000,
+    );
+    final secondFile = await fileStore.readText(
+      workspaceId: 'work',
+      path: secondEntry,
+      maxChars: 12000,
+    );
+    expect(firstFile.content, contains('first'));
+    expect(secondFile.content, contains('second'));
+  });
 
   test(
     'project_update_web_app versions and reverts existing artifact',
@@ -674,6 +751,63 @@ void main() {
       );
     },
   );
+
+  test('project_test_web_app validates server route permissions', () async {
+    final runtime = CapabilityRuntime();
+    final fileStore = InMemoryAppFileStore();
+    final artifacts = <AgentArtifact>[];
+
+    final createResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-project-create-server-invalid',
+        name: 'project_create_web_app',
+        arguments: {
+          'title': '本地全栈备忘录',
+          'summary': '验证本地 API 权限声明。',
+          'entry_path': 'apps/fullstack-memo/index.html',
+          'files': [
+            {
+              'path': 'apps/fullstack-memo/index.html',
+              'content': '<!doctype html><html><body>Memo</body></html>',
+            },
+          ],
+          'server': {
+            'routes': [
+              {
+                'method': 'POST',
+                'path': '/api/notes',
+                'capability': 'db.note.create',
+              },
+            ],
+          },
+        },
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: artifacts,
+      fileStore: fileStore,
+    );
+
+    final testResult = await runtime.execute(
+      toolCall: ToolCallRequest(
+        id: 'call-project-test-server-invalid',
+        name: 'project_test_web_app',
+        arguments: {'artifact_id': createResult.output['artifactId']},
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: artifacts,
+      fileStore: fileStore,
+    );
+
+    expect(testResult.output['passed'], isFalse);
+    expect(
+      jsonEncode(testResult.output['issues']),
+      contains('server route 使用的 capability 未在 permissions 中声明'),
+    );
+  });
 
   test('project_update_web_app rejects sibling project paths', () async {
     final runtime = CapabilityRuntime();

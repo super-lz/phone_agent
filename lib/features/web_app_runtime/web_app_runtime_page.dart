@@ -97,6 +97,13 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
       resourceReader: widget.readResource,
       htmlHeadInjection: buildWebAppBridgeHeadHtml(widget.webApp),
       fallbackHtml: buildWebAppFallbackHtml(widget.webApp),
+      apiRouteCaller:
+          ({
+            required String capabilityId,
+            required Map<String, Object?> input,
+          }) {
+            return _callCapability(capabilityId, input);
+          },
     );
     try {
       final url = await server.start();

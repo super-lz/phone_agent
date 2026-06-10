@@ -14,18 +14,26 @@ typedef WebAppResourceReader =
       required int maxChars,
     });
 
+typedef WebAppApiRouteCaller =
+    Future<Map<String, Object?>> Function({
+      required String capabilityId,
+      required Map<String, Object?> input,
+    });
+
 class WebAppLocalServer {
   WebAppLocalServer({
     required this.webApp,
     required this.resourceReader,
     required this.htmlHeadInjection,
     required this.fallbackHtml,
+    this.apiRouteCaller,
   });
 
   final AgentArtifact webApp;
   final WebAppResourceReader resourceReader;
   final String htmlHeadInjection;
   final String fallbackHtml;
+  final WebAppApiRouteCaller? apiRouteCaller;
 
   HttpServer? _server;
   late final String _token = _createToken();
@@ -116,6 +124,11 @@ class WebAppLocalServer {
 
   Future<void> _handleRequest(HttpRequest request) async {
     try {
+      if (_isApiRequest(request.uri)) {
+        await _handleApiRequest(request);
+        return;
+      }
+
       if (request.method != 'GET' && request.method != 'HEAD') {
         _writePlainText(request.response, HttpStatus.methodNotAllowed, '405');
         return;
@@ -152,6 +165,175 @@ class WebAppLocalServer {
       });
       _writePlainText(request.response, HttpStatus.internalServerError, '500');
     }
+  }
+
+  bool _isApiRequest(Uri uri) {
+    final segments = uri.pathSegments;
+    if (segments.isNotEmpty && segments.first == 'api') {
+      return true;
+    }
+    return segments.length >= 4 &&
+        segments[0] == 'webapps' &&
+        segments[1] == webApp.id &&
+        segments[2] == _token &&
+        segments[3] == '__phone_agent_api__';
+  }
+
+  Future<void> _handleApiRequest(HttpRequest request) async {
+    final caller = apiRouteCaller;
+    if (caller == null) {
+      _writeJson(request.response, HttpStatus.notFound, const {
+        'ok': false,
+        'error': 'api_runtime_unavailable',
+      });
+      return;
+    }
+
+    final apiPath = _apiPathFor(request.uri);
+    if (apiPath == null) {
+      _writeJson(request.response, HttpStatus.notFound, const {
+        'ok': false,
+        'error': 'api_route_not_found',
+      });
+      return;
+    }
+    final routes = _serverRoutesForPath(apiPath);
+    if (routes.isEmpty) {
+      _writeJson(request.response, HttpStatus.notFound, const {
+        'ok': false,
+        'error': 'api_route_not_found',
+      });
+      return;
+    }
+    final requestMethod = request.method.toUpperCase();
+    final route = _serverRouteForMethod(routes, requestMethod);
+    if (route == null) {
+      _writeJson(request.response, HttpStatus.methodNotAllowed, {
+        'ok': false,
+        'error': 'method_not_allowed',
+        'method': request.method,
+      });
+      return;
+    }
+
+    final input = await _apiInputFor(request, route);
+    final result = attachLocalFileUrls(
+      await caller(capabilityId: route.capabilityId, input: input),
+    );
+    _writeJson(request.response, HttpStatus.ok, result);
+  }
+
+  List<_ServerRoute> _serverRoutesForPath(String apiPath) {
+    return [
+      for (final route in _serverRoutes())
+        if (route.path == apiPath) route,
+    ];
+  }
+
+  _ServerRoute? _serverRouteForMethod(
+    List<_ServerRoute> routes,
+    String method,
+  ) {
+    for (final route in routes) {
+      if (route.method == method) {
+        return route;
+      }
+    }
+    return null;
+  }
+
+  String? _apiPathFor(Uri uri) {
+    final segments = uri.pathSegments;
+    if (segments.isNotEmpty && segments.first == 'api') {
+      return '/${segments.join('/')}';
+    }
+    if (segments.length >= 4 &&
+        segments[0] == 'webapps' &&
+        segments[1] == webApp.id &&
+        segments[2] == _token &&
+        segments[3] == '__phone_agent_api__') {
+      final rest = segments.skip(4).join('/');
+      return rest.isEmpty ? '/api' : '/api/$rest';
+    }
+    return null;
+  }
+
+  List<_ServerRoute> _serverRoutes() {
+    final server = webApp.metadata['server'];
+    if (server is! Map<Object?, Object?>) {
+      return const [];
+    }
+    final routes = server['routes'];
+    if (routes is! Iterable<Object?>) {
+      return const [];
+    }
+    final parsed = <_ServerRoute>[];
+    for (final route in routes) {
+      if (route is! Map<Object?, Object?>) {
+        continue;
+      }
+      final method = route['method'];
+      final path = route['path'];
+      final capabilityId = route['capability'] ?? route['capabilityId'];
+      if (method is! String ||
+          path is! String ||
+          capabilityId is! String ||
+          !path.startsWith('/api/')) {
+        continue;
+      }
+      parsed.add(
+        _ServerRoute(
+          method: method.trim().toUpperCase(),
+          path: path.trim(),
+          capabilityId: capabilityId.trim(),
+          input: _stringMap(route['input']),
+        ),
+      );
+    }
+    return parsed;
+  }
+
+  Future<Map<String, Object?>> _apiInputFor(
+    HttpRequest request,
+    _ServerRoute route,
+  ) async {
+    final input = <String, Object?>{...route.input};
+    input.addAll(request.uri.queryParameters);
+    if (request.method == 'GET' || request.method == 'HEAD') {
+      return input;
+    }
+    final contentLength = request.contentLength;
+    if (contentLength > 1024 * 1024) {
+      return {
+        ...input,
+        'bodyTooLarge': true,
+        'bodyError': 'request_body_too_large',
+      };
+    }
+    final body = await utf8.decodeStream(request);
+    if (body.trim().isEmpty) {
+      return input;
+    }
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<Object?, Object?>) {
+        input.addAll(
+          decoded.map((key, value) => MapEntry(key.toString(), value)),
+        );
+      } else {
+        input['body'] = decoded;
+      }
+    } on Object {
+      input['body'] = body;
+    }
+    return input;
+  }
+
+  Map<String, Object?> _stringMap(Object? value) {
+    if (value is! Map<Object?, Object?>) {
+      return const {};
+    }
+    return value.map((key, value) => MapEntry(key.toString(), value));
   }
 
   bool _isLocalFileRequest(Uri uri) {
@@ -306,6 +488,20 @@ class WebAppLocalServer {
       ..statusCode = statusCode
       ..headers.contentType = ContentType.text
       ..write(body);
+    unawaited(response.close());
+  }
+
+  void _writeJson(
+    HttpResponse response,
+    int statusCode,
+    Map<String, Object?> body,
+  ) {
+    final bytes = utf8.encode(jsonEncode(body));
+    response
+      ..statusCode = statusCode
+      ..headers.contentType = ContentType.json
+      ..contentLength = bytes.length
+      ..add(bytes);
     unawaited(response.close());
   }
 
@@ -491,6 +687,20 @@ class _LocalFileResource {
 
   final String path;
   final String contentType;
+}
+
+class _ServerRoute {
+  const _ServerRoute({
+    required this.method,
+    required this.path,
+    required this.capabilityId,
+    required this.input,
+  });
+
+  final String method;
+  final String path;
+  final String capabilityId;
+  final Map<String, Object?> input;
 }
 
 class _ByteRange {

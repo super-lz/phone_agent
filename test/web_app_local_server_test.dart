@@ -31,7 +31,25 @@ void main() {
         title: 'Demo',
         summary: 'Demo app',
         createdAt: DateTime.utc(2026, 5, 18),
-        metadata: const {'entry': 'apps/demo/index.html'},
+        metadata: const {
+          'entry': 'apps/demo/index.html',
+          'server': {
+            'routes': [
+              {
+                'method': 'GET',
+                'path': '/api/notes',
+                'capability': 'db.note.query',
+                'input': {'source': 'query-route'},
+              },
+              {
+                'method': 'POST',
+                'path': '/api/notes',
+                'capability': 'db.note.create',
+                'input': {'source': 'server-route'},
+              },
+            ],
+          },
+        },
       ),
       resourceReader:
           ({
@@ -47,6 +65,17 @@ void main() {
           },
       htmlHeadInjection: '<script>window.__phoneAgentBridge = true;</script>',
       fallbackHtml: '<main>Fallback</main>',
+      apiRouteCaller:
+          ({
+            required String capabilityId,
+            required Map<String, Object?> input,
+          }) async {
+            return {
+              'ok': true,
+              'capabilityId': capabilityId,
+              'output': {'ok': true, 'input': input},
+            };
+          },
     );
 
     final url = await server.start();
@@ -65,6 +94,26 @@ void main() {
     expect(css.statusCode, HttpStatus.ok);
     expect(css.contentType, startsWith('text/css'));
     expect(css.body, contains('rgb(1, 2, 3)'));
+
+    final api = await _postJson(
+      Uri(
+        scheme: url.scheme,
+        host: url.host,
+        port: url.port,
+        path: '/api/notes',
+        queryParameters: {'tag': 'today'},
+      ),
+      {'title': '本地 API', 'content': '来自本地后端'},
+    );
+    expect(api.statusCode, HttpStatus.ok);
+    final apiBody = jsonDecode(api.body) as Map<String, Object?>;
+    expect(apiBody['capabilityId'], 'db.note.create');
+    final apiOutput = apiBody['output']! as Map<String, Object?>;
+    final apiInput = apiOutput['input']! as Map<String, Object?>;
+    expect(apiInput['source'], 'server-route');
+    expect(apiInput['tag'], 'today');
+    expect(apiInput['title'], '本地 API');
+    expect(apiInput['content'], '来自本地后端');
 
     final mediaDir = await Directory.systemTemp.createTemp(
       'phone-agent-webapp-media-',
@@ -134,6 +183,26 @@ Future<_HttpTextResponse> _get(Uri uri) async {
       statusCode: response.statusCode,
       contentType: response.headers.contentType.toString(),
       body: body,
+    );
+  } finally {
+    client.close(force: true);
+  }
+}
+
+Future<_HttpTextResponse> _postJson(Uri uri, Map<String, Object?> body) async {
+  final client = HttpClient();
+  try {
+    final request = await client.postUrl(uri);
+    final bytes = utf8.encode(jsonEncode(body));
+    request.headers.contentType = ContentType.json;
+    request.contentLength = bytes.length;
+    request.add(bytes);
+    final response = await request.close();
+    final responseBody = await utf8.decodeStream(response);
+    return _HttpTextResponse(
+      statusCode: response.statusCode,
+      contentType: response.headers.contentType.toString(),
+      body: responseBody,
     );
   } finally {
     client.close(force: true);

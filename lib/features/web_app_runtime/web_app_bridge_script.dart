@@ -11,6 +11,17 @@ String buildWebAppBridgeHeadHtml(AgentArtifact webApp) {
     (function() {
       const manifest = ${jsonEncode(_manifestFor(webApp))};
       const supportedCapabilities = ${jsonEncode(capabilities)};
+      function apiBasePath() {
+        const match = location.pathname.match(/^\\/webapps\\/([^/]+)\\/([^/]+)\\//);
+        if (!match) return '/api';
+        return '/webapps/' + match[1] + '/' + match[2] + '/__phone_agent_api__';
+      }
+      function apiPath(path) {
+        const value = String(path || '');
+        if (value.indexOf('/api/') === 0) return apiBasePath() + value.substring(4);
+        if (value === '/api') return apiBasePath();
+        return apiBasePath() + '/' + value.replace(/^\\/+/, '');
+      }
       window.PhoneAgent = {
         version: '0.1.0',
         capabilities: supportedCapabilities.slice(),
@@ -18,6 +29,7 @@ String buildWebAppBridgeHeadHtml(AgentArtifact webApp) {
           callCapability: "await window.PhoneAgent.callCapability('device.info', {})",
           getDeviceInfo: "await window.PhoneAgent.getDeviceInfo()",
           getRuntimeInfo: "window.PhoneAgent.getRuntimeInfo()",
+          serverFetch: "await window.PhoneAgent.serverJson('/api/notes', { method: 'POST', body: { title: 'A', content: 'B' } })",
           permissionDeclaration: "artifact_create.metadata.permissions must include each called capability id",
           localMediaOutput: "camera/audio/file outputs may include output.mediaUrl, output.fileUrl, or output.localUrl for same-origin preview/playback"
         },
@@ -42,8 +54,28 @@ String buildWebAppBridgeHeadHtml(AgentArtifact webApp) {
             userAgent: navigator.userAgent,
             language: navigator.language,
             platform: navigator.platform,
-            url: location.href
+            url: location.href,
+            server: {
+              apiBasePath: apiBasePath()
+            }
           };
+        },
+        serverFetch: function(path, options) {
+          const opts = Object.assign({}, options || {});
+          if (opts.body && typeof opts.body !== 'string' && !(opts.body instanceof FormData)) {
+            opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+            opts.body = JSON.stringify(opts.body);
+          }
+          return fetch(apiPath(path), opts);
+        },
+        serverJson: async function(path, options) {
+          const response = await window.PhoneAgent.serverFetch(path, options || {});
+          const text = await response.text();
+          try {
+            return JSON.parse(text);
+          } catch (_) {
+            return { ok: false, error: 'invalid_json_response', status: response.status, body: text };
+          }
         },
         callCapability: async function(capabilityId, input) {
           if (!window.flutter_inappwebview || !window.flutter_inappwebview.callHandler) {

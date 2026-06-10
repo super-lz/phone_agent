@@ -4,7 +4,7 @@ class CapabilityToolDefinitions {
   const CapabilityToolDefinitions();
 
   List<Map<String, Object?>> get all {
-    return const [
+    return [
       {
         'type': 'function',
         'function': {
@@ -187,7 +187,7 @@ class CapabilityToolDefinitions {
         'function': {
           'name': 'project_create_web_app',
           'description':
-              '创建一个可维护的本地 Web 工程并生成可预览 Web App 卡片。用户要求创建小游戏、交互网页、Web App、原型、HTML 页面或“下面给我卡片/能打开体验”时优先使用本工具；必须写入真实项目文件，不能只在正文中说已创建。除极小页面外，默认拆成 index.html、styles.css、app.js 等文件，后续维护时先用 file_search_app_files/file_read_app_file 定位，再用 file_apply_text_patch 修改。默认按手机竖屏设计，适配 360-430px 宽度、触摸操作和安全区域，避免桌面优先布局。需要手机能力时必须遵循 <jsbridge_skill>：声明 permissions，使用 window.PhoneAgent，不要自建或引用 JSBridge SDK。',
+              '创建一个可维护的本地 Web 工程并生成可预览 Web App 卡片。用户要求创建小游戏、交互网页、Web App、原型、HTML 页面或“下面给我卡片/能打开体验”时优先使用本工具；必须写入真实项目文件，不能只在正文中说已创建。除极小页面外，默认拆成 index.html、styles.css、app.js 等文件；应优先提供带项目目录的 entry_path，例如 apps/my-game/index.html。若模型只传 index.html 等根路径，系统会自动套入独立项目目录，避免多个 Web App 互相覆盖。需要服务端、数据库或本地文件操作时，使用 server.routes 声明本地 API 路由，前端通过 window.PhoneAgent.serverJson/serverFetch 或 /api 路径调用；当前只在本机 App 内运行，不生成线上部署配置。后续维护时先用 file_search_app_files/file_read_app_file 定位，再用 file_apply_text_patch 修改。默认按手机竖屏设计，适配 360-430px 宽度、触摸操作和安全区域，避免桌面优先布局。需要手机能力时必须遵循 <jsbridge_skill>：声明 permissions，使用 window.PhoneAgent，不要自建或引用 JSBridge SDK。',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -222,6 +222,7 @@ class CapabilityToolDefinitions {
                     'Web App JavaScript 通过 JSBridge 调用的精确 capability id 列表；每一个 window.PhoneAgent 调用都必须在这里声明。',
                 'items': {'type': 'string'},
               },
+              'server': _webAppServerSchema(),
               'metadata': {
                 'type': 'object',
                 'description': '额外元数据，例如 tags、kind、framework。',
@@ -280,6 +281,7 @@ class CapabilityToolDefinitions {
                     '可选，更新 Web App manifest 中声明的 capability 权限；新增 window.PhoneAgent 调用时必须同步补充精确 capability id。',
                 'items': {'type': 'string'},
               },
+              'server': _webAppServerSchema(),
             },
             'required': ['artifact_id'],
           },
@@ -1123,5 +1125,43 @@ class CapabilityToolDefinitions {
         },
       },
     ];
+  }
+
+  static Map<String, Object?> _webAppServerSchema() {
+    return {
+      'type': 'object',
+      'description':
+          '可选。本地全栈 Web App 的声明式服务端配置。运行时只在 App 内本机回环地址启动，不执行任意 Node/Dart/shell，不生成线上部署。',
+      'properties': {
+        'routes': {
+          'type': 'array',
+          'description':
+              '本地 API 路由。前端用 window.PhoneAgent.serverJson/serverFetch 或 /api 路径调用。',
+          'items': {
+            'type': 'object',
+            'properties': {
+              'method': {
+                'type': 'string',
+                'description': 'GET、POST、PUT、PATCH 或 DELETE。',
+              },
+              'path': {
+                'type': 'string',
+                'description': '必须以 /api/ 开头，例如 /api/notes。',
+              },
+              'capability': {
+                'type': 'string',
+                'description':
+                    '该路由调用的 capability id，例如 db.note.query、db.note.create、file.read_app_file 或 file.write_app_file；必须同步声明到 permissions。',
+              },
+              'input': {
+                'type': 'object',
+                'description': '可选固定输入，会与 query 参数或 JSON body 合并；请求输入优先级更高。',
+              },
+            },
+            'required': ['method', 'path', 'capability'],
+          },
+        },
+      },
+    };
   }
 }

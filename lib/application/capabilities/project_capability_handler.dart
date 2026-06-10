@@ -48,7 +48,7 @@ class ProjectCapabilityHandler {
       );
     }
 
-    final files = <_ProjectFile>[];
+    var files = <_ProjectFile>[];
     final seenPaths = <String>{};
     try {
       for (final file in rawFiles) {
@@ -74,7 +74,7 @@ class ProjectCapabilityHandler {
     }
 
     final requestedEntry = _stringArgument(arguments, 'entry_path');
-    late final String entryPath;
+    var entryPath = '';
     try {
       entryPath = requestedEntry == null
           ? files.first.path
@@ -85,6 +85,29 @@ class ProjectCapabilityHandler {
         output: {'ok': false, 'error': error.code, 'detail': error.message},
       );
     }
+    final artifactId = 'artifact-${DateTime.now().microsecondsSinceEpoch}';
+    final scopedProject = _scopeProjectFilesForCreate(
+      files: files,
+      entryPath: entryPath,
+      title: title,
+      artifactId: artifactId,
+    );
+    files = scopedProject.files;
+    entryPath = scopedProject.entryPath;
+    seenPaths
+      ..clear()
+      ..addAll(files.map((file) => file.path));
+    if (seenPaths.length != files.length) {
+      return CapabilityExecutionResult(
+        capabilityId: 'project.create_web_app',
+        output: {
+          'ok': false,
+          'error': 'duplicate_path',
+          'detail': '自动套入项目目录后出现重复路径，请合并同名文件后重试。',
+        },
+      );
+    }
+
     final entryFile = _fileByPath(files, entryPath);
     if (entryFile == null) {
       return CapabilityExecutionResult(
@@ -98,10 +121,14 @@ class ProjectCapabilityHandler {
       );
     }
 
-    final artifactId = 'artifact-${DateTime.now().microsecondsSinceEpoch}';
     final projectId = _projectIdFor(arguments, artifactId);
     final createdAt = DateTime.now();
     final permissions = _permissions(arguments['permissions']);
+    Map<String, Object?>? server = _serverSpec(arguments['server']);
+    final rawMetadataForServer = arguments['metadata'];
+    if (server == null && rawMetadataForServer is Map<Object?, Object?>) {
+      server = _serverSpec(rawMetadataForServer['server']);
+    }
     final manifestPath = _manifestPathFor(entryPath);
     final writeResults = <AppFileWriteResult>[];
     try {
@@ -123,6 +150,7 @@ class ProjectCapabilityHandler {
         summary: summary,
         entryPath: entryPath,
         permissions: permissions,
+        server: server,
         files: files.map((file) => file.path).toList(growable: false),
         version: 1,
         createdAt: createdAt,
@@ -199,6 +227,11 @@ class ProjectCapabilityHandler {
           .toList(growable: false),
       'permissions': permissions,
     });
+    if (server == null) {
+      metadata.remove('server');
+    } else {
+      metadata['server'] = server;
+    }
 
     final artifact = AgentArtifact(
       id: artifactId,
@@ -212,20 +245,24 @@ class ProjectCapabilityHandler {
     );
     artifacts.add(artifact);
 
+    final output = <String, Object?>{
+      'ok': true,
+      'workspaceId': workspaceId,
+      'artifactId': artifact.id,
+      'type': artifact.type.name,
+      'title': artifact.title,
+      'entryPath': entryPath,
+      'manifestPath': manifestPath,
+      'projectId': projectId,
+      'version': 1,
+      'files': metadata['files'],
+    };
+    if (server != null) {
+      output['server'] = server;
+    }
     return CapabilityExecutionResult(
       capabilityId: 'project.create_web_app',
-      output: {
-        'ok': true,
-        'workspaceId': workspaceId,
-        'artifactId': artifact.id,
-        'type': artifact.type.name,
-        'title': artifact.title,
-        'entryPath': entryPath,
-        'manifestPath': manifestPath,
-        'projectId': projectId,
-        'version': 1,
-        'files': metadata['files'],
-      },
+      output: output,
     );
   }
 
@@ -342,6 +379,9 @@ class ProjectCapabilityHandler {
       final permissions = _permissions(arguments['permissions']).isEmpty
           ? manifest.permissions
           : _permissions(arguments['permissions']);
+      final server = arguments.containsKey('server')
+          ? _serverSpec(arguments['server'])
+          : manifest.server;
       final summary = _stringArgument(arguments, 'summary') ?? '更新 Web App 项目';
       final sortedFiles = projectFiles.toList(growable: false)..sort();
       await store.writeText(
@@ -355,6 +395,7 @@ class ProjectCapabilityHandler {
           summary: artifact.summary,
           entryPath: manifest.entryPath,
           permissions: permissions,
+          server: server,
           files: sortedFiles,
           version: version,
           createdAt: manifest.createdAt,
@@ -387,27 +428,32 @@ class ProjectCapabilityHandler {
         manifest: manifest,
         files: sortedFiles,
         permissions: permissions,
+        server: server,
         version: version,
         updatedAt: updatedAt,
       );
       _replaceArtifact(artifacts, updatedArtifact);
+      final output = <String, Object?>{
+        'ok': true,
+        'workspaceId': workspaceId,
+        'artifactId': artifact.id,
+        'type': updatedArtifact.type.name,
+        'title': updatedArtifact.title,
+        'projectId': manifest.projectId,
+        'version': version,
+        'manifestPath': manifest.manifestPath,
+        'changedFiles': changedPaths.toList(growable: false)..sort(),
+        'versionPath': _versionStore.versionPath(
+          manifest.manifestPath,
+          version,
+        ),
+      };
+      if (server != null) {
+        output['server'] = server;
+      }
       return CapabilityExecutionResult(
         capabilityId: 'project.update_web_app',
-        output: {
-          'ok': true,
-          'workspaceId': workspaceId,
-          'artifactId': artifact.id,
-          'type': updatedArtifact.type.name,
-          'title': updatedArtifact.title,
-          'projectId': manifest.projectId,
-          'version': version,
-          'manifestPath': manifest.manifestPath,
-          'changedFiles': changedPaths.toList(growable: false)..sort(),
-          'versionPath': _versionStore.versionPath(
-            manifest.manifestPath,
-            version,
-          ),
-        },
+        output: output,
       );
     } on AppFileStoreException catch (error) {
       return CapabilityExecutionResult(
@@ -559,6 +605,11 @@ class ProjectCapabilityHandler {
         _analyzeCss(path: path, content: content, issues: issues);
       }
     }
+    _analyzeServer(
+      server: manifest.server,
+      permissions: manifest.permissions.toSet(),
+      issues: issues,
+    );
 
     final passed = !issues.any((issue) => issue['severity'] == 'error');
     return CapabilityExecutionResult(
@@ -656,6 +707,7 @@ class ProjectCapabilityHandler {
           summary: artifact.summary,
           entryPath: snapshot.entryPath,
           permissions: manifest.permissions,
+          server: manifest.server,
           files: files,
           version: version,
           createdAt: manifest.createdAt,
@@ -689,6 +741,7 @@ class ProjectCapabilityHandler {
         manifest: manifest.copyWith(entryPath: snapshot.entryPath),
         files: files,
         permissions: manifest.permissions,
+        server: manifest.server,
         version: version,
         updatedAt: updatedAt,
       );
@@ -802,6 +855,34 @@ class ProjectCapabilityHandler {
     return value.whereType<String>().toList(growable: false);
   }
 
+  Map<String, Object?>? _serverSpec(Object? value) {
+    if (value is! Map<Object?, Object?>) {
+      return null;
+    }
+    final server = _jsonMap(value);
+    return server.isEmpty ? null : server;
+  }
+
+  Map<String, Object?> _jsonMap(Map<Object?, Object?> value) {
+    return {
+      for (final entry in value.entries)
+        entry.key.toString(): _jsonValue(entry.value),
+    };
+  }
+
+  Object? _jsonValue(Object? value) {
+    if (value == null || value is String || value is num || value is bool) {
+      return value;
+    }
+    if (value is Map<Object?, Object?>) {
+      return _jsonMap(value);
+    }
+    if (value is Iterable<Object?>) {
+      return [for (final item in value) _jsonValue(item)];
+    }
+    return value.toString();
+  }
+
   _ProjectFile? _fileByPath(List<_ProjectFile> files, String path) {
     for (final file in files) {
       if (file.path == path) {
@@ -809,6 +890,70 @@ class ProjectCapabilityHandler {
       }
     }
     return null;
+  }
+
+  _ScopedProjectFiles _scopeProjectFilesForCreate({
+    required List<_ProjectFile> files,
+    required String entryPath,
+    required String title,
+    required String artifactId,
+  }) {
+    final root = _projectRootForCreate(
+      files: files,
+      entryPath: entryPath,
+      title: title,
+      artifactId: artifactId,
+    );
+    if (root == null) {
+      return _ScopedProjectFiles(files: files, entryPath: entryPath);
+    }
+    return _ScopedProjectFiles(
+      files: [
+        for (final file in files)
+          _ProjectFile(_pathUnderProjectRoot(root, file.path), file.content),
+      ],
+      entryPath: _pathUnderProjectRoot(root, entryPath),
+    );
+  }
+
+  String? _projectRootForCreate({
+    required List<_ProjectFile> files,
+    required String entryPath,
+    required String title,
+    required String artifactId,
+  }) {
+    final entryDirectory = _directoryForPath(entryPath);
+    if (entryDirectory.isEmpty) {
+      return _autoProjectRoot(title: title, artifactId: artifactId);
+    }
+    final allFilesUnderEntryDirectory = files.every(
+      (file) => file.path.startsWith('$entryDirectory/'),
+    );
+    return allFilesUnderEntryDirectory ? null : entryDirectory;
+  }
+
+  String _pathUnderProjectRoot(String root, String path) {
+    if (path.startsWith('$root/')) {
+      return path;
+    }
+    return '$root/$path';
+  }
+
+  String _directoryForPath(String path) {
+    final slash = path.lastIndexOf('/');
+    if (slash < 0) {
+      return '';
+    }
+    return path.substring(0, slash);
+  }
+
+  String _autoProjectRoot({required String title, required String artifactId}) {
+    final slug = title
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    final suffix = artifactId.split('-').last;
+    return 'apps/${slug.isEmpty ? 'web-app' : slug}-$suffix';
   }
 
   String _manifestPathFor(String entryPath) {
@@ -906,6 +1051,7 @@ class ProjectCapabilityHandler {
           entryPath: _manifestString(manifest['entry'], fallback: entryPath),
           manifestPath: manifestPath,
           permissions: _stringItems(manifest['permissions']),
+          server: _serverSpec(manifest['server']),
           files: _stringItems(manifest['files']),
           version: _intValue(manifest['version'], fallback: 1),
           createdAt: _dateValue(manifest['createdAt']) ?? artifact.createdAt,
@@ -931,6 +1077,7 @@ class ProjectCapabilityHandler {
           entryPath: entryPath,
           manifestPath: manifestPath,
           permissions: _stringItems(artifact.metadata['permissions']),
+          server: _serverSpec(artifact.metadata['server']),
           files: files.isEmpty ? [entryPath] : files,
           version: _intValue(artifact.metadata['currentVersion'], fallback: 1),
           createdAt: artifact.createdAt,
@@ -957,6 +1104,7 @@ class ProjectCapabilityHandler {
     required _ProjectManifest manifest,
     required List<String> files,
     required List<String> permissions,
+    required Map<String, Object?>? server,
     required int version,
     required DateTime updatedAt,
   }) async {
@@ -985,6 +1133,21 @@ class ProjectCapabilityHandler {
       }
     }
     final uriText = entryOutput?['uri'];
+    final metadata = <String, Object?>{
+      ...artifact.metadata,
+      'entry': manifest.entryPath,
+      'html': entry.content,
+      'project': true,
+      'projectId': manifest.projectId,
+      'manifestPath': manifest.manifestPath,
+      'currentVersion': version,
+      'updatedAt': updatedAt.toIso8601String(),
+      'files': fileOutputs,
+      'permissions': permissions,
+    };
+    if (server != null) {
+      metadata['server'] = server;
+    }
     return AgentArtifact(
       id: artifact.id,
       workspaceId: artifact.workspaceId,
@@ -993,18 +1156,7 @@ class ProjectCapabilityHandler {
       summary: artifact.summary,
       createdAt: artifact.createdAt,
       uri: uriText is String ? Uri.tryParse(uriText) : artifact.uri,
-      metadata: {
-        ...artifact.metadata,
-        'entry': manifest.entryPath,
-        'html': entry.content,
-        'project': true,
-        'projectId': manifest.projectId,
-        'manifestPath': manifest.manifestPath,
-        'currentVersion': version,
-        'updatedAt': updatedAt.toIso8601String(),
-        'files': fileOutputs,
-        'permissions': permissions,
-      },
+      metadata: metadata,
     );
   }
 
@@ -1192,6 +1344,87 @@ class ProjectCapabilityHandler {
     }
   }
 
+  void _analyzeServer({
+    required Map<String, Object?>? server,
+    required Set<String> permissions,
+    required List<Map<String, Object?>> issues,
+  }) {
+    if (server == null) {
+      return;
+    }
+    final routes = server['routes'];
+    if (routes is! Iterable<Object?>) {
+      issues.add({
+        'severity': 'error',
+        'path': 'server.routes',
+        'message': 'server.routes 必须是路由数组。',
+      });
+      return;
+    }
+    final seen = <String>{};
+    for (final route in routes) {
+      if (route is! Map<Object?, Object?>) {
+        issues.add({
+          'severity': 'error',
+          'path': 'server.routes',
+          'message': '每个 server route 必须是对象。',
+        });
+        continue;
+      }
+      final method = route['method'];
+      final path = route['path'];
+      final capabilityId = route['capability'] ?? route['capabilityId'];
+      if (method is! String || !_isAllowedServerMethod(method)) {
+        issues.add({
+          'severity': 'error',
+          'path': 'server.routes',
+          'message': 'server route method 必须是 GET、POST、PUT、PATCH 或 DELETE。',
+        });
+      }
+      if (path is! String || !path.startsWith('/api/')) {
+        issues.add({
+          'severity': 'error',
+          'path': 'server.routes',
+          'message': 'server route path 必须以 /api/ 开头。',
+        });
+      }
+      if (capabilityId is! String || capabilityId.trim().isEmpty) {
+        issues.add({
+          'severity': 'error',
+          'path': 'server.routes',
+          'message': 'server route 必须声明 capability。',
+        });
+      } else if (!permissions.contains(capabilityId)) {
+        issues.add({
+          'severity': 'error',
+          'path': 'server.routes',
+          'message':
+              'server route 使用的 capability 未在 permissions 中声明：$capabilityId',
+        });
+      }
+      if (method is String && path is String) {
+        final key = '${method.toUpperCase()} $path';
+        if (!seen.add(key)) {
+          issues.add({
+            'severity': 'error',
+            'path': 'server.routes',
+            'message': 'server route 重复：$key',
+          });
+        }
+      }
+    }
+  }
+
+  bool _isAllowedServerMethod(String method) {
+    return const {
+      'GET',
+      'POST',
+      'PUT',
+      'PATCH',
+      'DELETE',
+    }.contains(method.toUpperCase());
+  }
+
   bool _delimiterMatches(String open, String close) {
     return (open == '(' && close == ')') ||
         (open == '[' && close == ']') ||
@@ -1343,12 +1576,13 @@ class ProjectCapabilityHandler {
     required String summary,
     required String entryPath,
     required List<String> permissions,
+    required Map<String, Object?>? server,
     required List<String> files,
     required int version,
     required DateTime createdAt,
     required DateTime updatedAt,
   }) {
-    final manifest = {
+    final manifest = <String, Object?>{
       'schema': 'phone-agent.webapp.v1',
       'projectId': projectId,
       'artifactId': artifactId,
@@ -1362,6 +1596,9 @@ class ProjectCapabilityHandler {
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
+    if (server != null) {
+      manifest['server'] = server;
+    }
     const encoder = JsonEncoder.withIndent('  ');
     return '${encoder.convert(manifest)}\n';
   }
@@ -1372,6 +1609,13 @@ class _ProjectFile {
 
   final String path;
   final String content;
+}
+
+class _ScopedProjectFiles {
+  const _ScopedProjectFiles({required this.files, required this.entryPath});
+
+  final List<_ProjectFile> files;
+  final String entryPath;
 }
 
 class _ProjectPatch {
@@ -1412,6 +1656,7 @@ class _ProjectManifest {
     required this.entryPath,
     required this.manifestPath,
     required this.permissions,
+    required this.server,
     required this.files,
     required this.version,
     required this.createdAt,
@@ -1425,6 +1670,7 @@ class _ProjectManifest {
   final String entryPath;
   final String manifestPath;
   final List<String> permissions;
+  final Map<String, Object?>? server;
   final List<String> files;
   final int version;
   final DateTime createdAt;
@@ -1448,6 +1694,7 @@ class _ProjectManifest {
       entryPath: entryPath ?? this.entryPath,
       manifestPath: manifestPath,
       permissions: permissions,
+      server: server,
       files: files,
       version: version,
       createdAt: createdAt,

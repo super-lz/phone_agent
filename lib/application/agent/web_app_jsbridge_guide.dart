@@ -49,8 +49,17 @@ Helpers:
 - window.PhoneAgent.queryNotes(input)
 - window.PhoneAgent.readAppFile(path, options)
 - window.PhoneAgent.writeAppFile(path, content, options)
+- window.PhoneAgent.serverFetch(path, options)
+- window.PhoneAgent.serverJson(path, options)
 - window.PhoneAgent.webSearch(queryOrInput)
 - window.PhoneAgent.webFetch(urlOrInput)
+
+Local full-stack server:
+- If a Web App needs backend routes, database access, or local file access from normal fetch calls, declare project_create_web_app.server.routes or project_update_web_app.server.routes.
+- Server routes are local-only and run inside Phone Agent Runtime. Do not create Node, Express, Next.js API routes, Docker files, or Cloudflare deploy configs for the first local-only version.
+- Each route maps method + /api path to one capability id. The capability must also appear in permissions.
+- Frontend code should call await window.PhoneAgent.serverJson('/api/notes', { method: 'POST', body: { title, content } }) for JSON APIs.
+- GET routes receive query parameters as input. POST/PUT/PATCH/DELETE routes receive JSON body fields as input.
 
 Local media outputs:
 - camera.capture_photo, media.pick_image, media.pick_images, camera.capture_video, media.pick_video, audio.record_stop, and file.pick_system_file return metadata in result.output.
