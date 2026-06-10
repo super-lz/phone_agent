@@ -79,6 +79,32 @@ class NativeCapabilityAdapter {
     }
   }
 
+  Future<Map<String, Object?>> getAppInfo() async {
+    try {
+      final output = await _invokeNativeCapability('getAppInfo');
+      final appName = _stringFromObject(output['appName']) ?? 'Phone Agent';
+      final version = _stringFromObject(output['version']) ?? '';
+      final buildNumber = _stringFromObject(output['buildNumber']) ?? '';
+      final versionText = [
+        if (version.isNotEmpty) version,
+        if (buildNumber.isNotEmpty) 'build $buildNumber',
+      ].join(' ');
+      return {
+        'ok': output['ok'] != false,
+        'appName': appName,
+        'version': version,
+        'buildNumber': buildNumber,
+        'summary': versionText.isEmpty
+            ? '当前应用：$appName。'
+            : '当前应用：$appName $versionText。',
+        ...output,
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.app_info.failed', error, stackTrace);
+      return _nativeCapabilityError(error, fallbackCode: 'app_info_failed');
+    }
+  }
+
   Future<Map<String, Object?>> _readPlatformDeviceData() async {
     if (Platform.isAndroid) {
       final info = await _deviceInfo.androidInfo;
@@ -1267,6 +1293,13 @@ class NativeCapabilityAdapter {
   double? _doubleFromObject(Object? value) {
     if (value is num) {
       return value.toDouble();
+    }
+    return null;
+  }
+
+  String? _stringFromObject(Object? value) {
+    if (value is String && value.trim().isNotEmpty) {
+      return value.trim();
     }
     return null;
   }

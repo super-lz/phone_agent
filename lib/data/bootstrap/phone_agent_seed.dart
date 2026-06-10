@@ -398,6 +398,7 @@ class PhoneAgentSeed {
       CapabilityAdapter.native,
       CapabilityRisk.low,
     ),
+    _capability('app.info', CapabilityAdapter.native, CapabilityRisk.low),
     _capability('device.info', CapabilityAdapter.native, CapabilityRisk.low),
     _capability(
       'webview.call_capability',

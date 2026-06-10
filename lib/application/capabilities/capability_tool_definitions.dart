@@ -439,6 +439,15 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'app_info',
+          'description':
+              '读取当前 Phone Agent 应用本身的信息，例如应用名、包名或 Bundle ID、版本号和构建号。用于用户询问当前安装版本、排障或确认构建来源。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'device_info',
           'description': '读取当前手机或模拟器的基础设备信息，用于排障、适配判断或环境说明。',
           'parameters': {'type': 'object', 'properties': <String, Object?>{}},

@@ -179,6 +179,20 @@ class AgentToolRouter {
       '机型',
       'device info',
     ]);
+    final wantsAppInfo = _containsAny(prompt, const [
+      '应用信息',
+      'app 信息',
+      '当前版本',
+      '应用版本',
+      'app版本',
+      '版本号',
+      '构建号',
+      'build number',
+      '包名',
+      'bundle id',
+      'package name',
+      'app info',
+    ]);
     final wantsBattery = _containsAny(prompt, const [
       '电量',
       '电池',
@@ -414,6 +428,9 @@ class AgentToolRouter {
     }
     if (wantsDeviceInfo) {
       addIfAvailable('device_info');
+    }
+    if (wantsAppInfo) {
+      addIfAvailable('app_info');
     }
     if (wantsCurrentTime || wantsScheduleNotification || wantsCalendarEvent) {
       addIfAvailable('time_get_current');

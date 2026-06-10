@@ -14,6 +14,13 @@ class NativeCapabilityHandler {
     );
   }
 
+  Future<CapabilityExecutionResult> appInfo() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'app.info',
+      output: await _adapter.getAppInfo(),
+    );
+  }
+
   Future<CapabilityExecutionResult> getCurrentTime() async {
     return CapabilityExecutionResult(
       capabilityId: 'time.get_current',

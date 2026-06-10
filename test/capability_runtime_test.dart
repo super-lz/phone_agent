@@ -1031,7 +1031,7 @@ void main() {
   });
 
   test(
-    'runtime exposes native device info through the same execute path',
+    'runtime exposes native app and device info through the same execute path',
     () async {
       final runtime = CapabilityRuntime(
         nativeAdapter: _FakeNativeAdapter(
@@ -1042,6 +1042,17 @@ void main() {
         ),
       );
 
+      final appResult = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-app-info',
+          name: 'app_info',
+          arguments: {},
+        ),
+        workspaceId: 'default',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+      );
       final result = await runtime.execute(
         toolCall: const ToolCallRequest(
           id: 'call-device-info',
@@ -1054,6 +1065,9 @@ void main() {
         artifacts: const [],
       );
 
+      expect(appResult.capabilityId, 'app.info');
+      expect(appResult.output['appName'], 'Phone Agent');
+      expect(appResult.output['version'], '1.2.3');
       expect(result.capabilityId, 'device.info');
       expect(result.output['ok'], isTrue);
       expect(result.output['device'], isA<Map<String, Object?>>());
@@ -2181,6 +2195,18 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   @override
   Future<Map<String, Object?>> getDeviceInfo() async {
     return deviceInfoOutput;
+  }
+
+  @override
+  Future<Map<String, Object?>> getAppInfo() async {
+    return const {
+      'ok': true,
+      'platform': 'android',
+      'appName': 'Phone Agent',
+      'packageName': 'app.phoneagent.phone_agent',
+      'version': '1.2.3',
+      'buildNumber': '45',
+    };
   }
 
   @override

@@ -77,6 +77,11 @@ import UIKit
             "stream": "output",
             "canSet": false
           ])
+        case "getAppInfo":
+          result(self?.appInfo() ?? [
+            "ok": false,
+            "error": "app_info_unavailable"
+          ])
         default:
           result(FlutterMethodNotImplemented)
         }
@@ -167,6 +172,24 @@ import UIKit
       "level": Double(AVAudioSession.sharedInstance().outputVolume),
       "stream": "output",
       "canSet": false
+    ]
+  }
+
+  private func appInfo() -> [String: Any] {
+    let bundle = Bundle.main
+    let appName = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+      ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
+      ?? "Phone Agent"
+    let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    let buildNumber = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+    return [
+      "ok": true,
+      "platform": "ios",
+      "appName": appName,
+      "packageName": bundle.bundleIdentifier ?? "",
+      "bundleId": bundle.bundleIdentifier ?? "",
+      "version": version,
+      "buildNumber": buildNumber
     ]
   }
 }

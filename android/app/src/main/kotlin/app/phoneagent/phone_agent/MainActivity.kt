@@ -1,9 +1,11 @@
 package app.phoneagent.phone_agent
 
 import android.content.Context
-import android.media.AudioManager
+import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.media.AudioManager
+import android.os.Build
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -51,6 +53,13 @@ class MainActivity : FlutterActivity() {
                         setMediaVolume(level, result)
                     }
                     "getMediaVolume" -> result.success(mediaVolumeStatus())
+                    "getAppInfo" -> {
+                        try {
+                            result.success(appInfo())
+                        } catch (error: Exception) {
+                            result.error("app_info_failed", error.message, null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -157,6 +166,35 @@ class MainActivity : FlutterActivity() {
             "maxVolume" to maxVolume,
             "stream" to "music",
             "canSet" to true,
+        )
+    }
+
+    private fun appInfo(): Map<String, Any> {
+        val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getPackageInfo(
+                packageName,
+                PackageManager.PackageInfoFlags.of(0),
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, 0)
+        }
+        val applicationInfo = packageInfo.applicationInfo ?: this.applicationInfo
+        val appName = packageManager.getApplicationLabel(applicationInfo).toString()
+        val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageInfo.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            packageInfo.versionCode.toLong()
+        }
+        return mapOf(
+            "ok" to true,
+            "platform" to "android",
+            "appName" to appName,
+            "packageName" to packageName,
+            "version" to (packageInfo.versionName ?: ""),
+            "buildNumber" to versionCode.toString(),
+            "versionCode" to versionCode,
         )
     }
 }

@@ -205,7 +205,7 @@ void main() {
     );
 
     final route = await router.route(
-      prompt: '看一下手机信息、当前电量、网络状态和现在几点',
+      prompt: '看一下手机信息、当前应用版本、当前电量、网络状态和现在几点',
       context: '',
       allTools: tools,
       chatClient: chatClient,
@@ -216,6 +216,7 @@ void main() {
     expect(
       route.selectedToolNames,
       containsAll([
+        'app_info',
         'device_info',
         'battery_status',
         'network_status',

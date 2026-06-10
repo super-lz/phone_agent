@@ -48,6 +48,7 @@ class CapabilityRuntime {
     'project_revert_web_app': 'project.revert_web_app',
     'workspace_create': 'workspace.create',
     'workspace_switch': 'workspace.switch',
+    'app_info': 'app.info',
     'device_info': 'device.info',
     'time_get_current': 'time.get_current',
     'clipboard_read': 'clipboard.read',
@@ -345,6 +346,8 @@ class CapabilityRuntime {
           arguments: toolCall.arguments,
           workspaces: workspaces,
         );
+      case 'app_info':
+        return await _nativeHandler.appInfo();
       case 'device_info':
         return await _nativeHandler.deviceInfo();
       case 'time_get_current':

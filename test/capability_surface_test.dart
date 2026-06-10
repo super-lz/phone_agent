@@ -21,6 +21,7 @@ void main() {
     };
 
     for (final capabilityId in const [
+      'app.info',
       'device.info',
       'time.get_current',
       'battery.status',
@@ -104,6 +105,7 @@ void main() {
       toolNames,
       containsAll(const [
         'device_info',
+        'app_info',
         'time_get_current',
         'battery_status',
         'network_status',

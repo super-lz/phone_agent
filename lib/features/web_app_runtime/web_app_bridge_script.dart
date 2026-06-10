@@ -83,6 +83,9 @@ String buildWebAppBridgeHeadHtml(AgentArtifact webApp) {
         queryArtifacts: function(input) {
           return window.PhoneAgent.callCapability('artifact.query', input || {});
         },
+        getAppInfo: function() {
+          return window.PhoneAgent.callCapability('app.info', {});
+        },
         getDeviceInfo: function() {
           return window.PhoneAgent.callCapability('device.info', {});
         },

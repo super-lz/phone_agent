@@ -26,6 +26,7 @@ class WebAppRuntimeDefaults {
     'file.search_app_files',
     'artifact.create',
     'artifact.query',
+    'app.info',
     'device.info',
     'time.get_current',
     'battery.status',
@@ -319,6 +320,8 @@ class WebAppCapabilityBridge {
         return 'artifact_create';
       case 'artifact.query':
         return 'artifact_query';
+      case 'app.info':
+        return 'app_info';
       case 'device.info':
         return 'device_info';
       case 'time.get_current':

@@ -46,6 +46,16 @@ Map<String, Object?> modelObservationForCapability({
   }
 
   switch (capabilityId) {
+    case 'app.info':
+      observation.addAll({
+        'appName': output['appName'],
+        'packageName': output['packageName'],
+        'bundleId': output['bundleId'],
+        'version': output['version'],
+        'buildNumber': output['buildNumber'],
+        'platform': output['platform'],
+      });
+      return observation;
     case 'device.info':
       observation['device'] = output['device'];
       return observation;
@@ -305,6 +315,8 @@ Map<String, Object?> modelObservationForCapability({
 
 String _titleFor(String capabilityId) {
   switch (capabilityId) {
+    case 'app.info':
+      return '应用信息';
     case 'device.info':
       return '设备信息';
     case 'time.get_current':
