@@ -341,6 +341,7 @@ class PhoneAgentSeed {
       CapabilityAdapter.native,
       CapabilityRisk.low,
     ),
+    _capability('screen.metrics', CapabilityAdapter.native, CapabilityRisk.low),
     _capability(
       'screen.orientation.set',
       CapabilityAdapter.native,

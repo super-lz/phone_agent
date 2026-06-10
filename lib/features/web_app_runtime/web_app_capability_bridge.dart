@@ -59,6 +59,7 @@ class WebAppRuntimeDefaults {
     'screen.keep_awake_status',
     'screen.brightness.set',
     'screen.brightness.status',
+    'screen.metrics',
     'screen.orientation.set',
     'screen.orientation.status',
     'sensor.accelerometer.read',
@@ -378,6 +379,8 @@ class WebAppCapabilityBridge {
         return 'screen_brightness_set';
       case 'screen.brightness.status':
         return 'screen_brightness_status';
+      case 'screen.metrics':
+        return 'screen_metrics';
       case 'screen.orientation.set':
         return 'screen_orientation_set';
       case 'screen.orientation.status':

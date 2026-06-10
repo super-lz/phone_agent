@@ -1599,6 +1599,17 @@ void main() {
       notes: const [],
       artifacts: const [],
     );
+    final metricsResult = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-screen-metrics',
+        name: 'screen_metrics',
+        arguments: {},
+      ),
+      workspaceId: 'default',
+      memories: const [],
+      notes: const [],
+      artifacts: const [],
+    );
     final volumeResult = await runtime.execute(
       toolCall: const ToolCallRequest(
         id: 'call-volume-set',
@@ -1632,6 +1643,9 @@ void main() {
     expect(brightnessResult.output['level'], 0.4);
     expect(brightnessStatusResult.capabilityId, 'screen.brightness.status');
     expect(brightnessStatusResult.output['level'], 0.4);
+    expect(metricsResult.capabilityId, 'screen.metrics');
+    expect(metricsResult.output['logicalWidth'], 393.0);
+    expect(metricsResult.output['devicePixelRatio'], 3.0);
     expect(volumeResult.capabilityId, 'system.volume.set');
     expect(volumeResult.output['level'], 0.35);
     expect(volumeStatusResult.capabilityId, 'system.volume.status');
@@ -2530,6 +2544,26 @@ class _FakeNativeAdapter extends NativeCapabilityAdapter {
   @override
   Future<Map<String, Object?>> getScreenBrightness() async {
     return {'ok': true, 'level': _screenBrightness, 'usesSystemDefault': false};
+  }
+
+  @override
+  Future<Map<String, Object?>> getScreenMetrics() async {
+    return const {
+      'ok': true,
+      'logicalWidth': 393.0,
+      'logicalHeight': 852.0,
+      'physicalWidth': 1179.0,
+      'physicalHeight': 2556.0,
+      'devicePixelRatio': 3.0,
+      'orientation': 'portrait',
+      'platformBrightness': 'dark',
+      'textScaleFactor': 1.0,
+      'locale': 'zh-Hans-CN',
+      'locales': ['zh-Hans-CN'],
+      'padding': {
+        'logical': {'top': 59.0, 'bottom': 34.0, 'left': 0.0, 'right': 0.0},
+      },
+    };
   }
 
   @override

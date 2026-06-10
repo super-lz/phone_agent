@@ -208,6 +208,22 @@ Map<String, Object?> modelObservationForCapability({
     case 'screen.keep_awake_status':
       observation['enabled'] = output['enabled'];
       return observation;
+    case 'screen.metrics':
+      observation.addAll({
+        'logicalWidth': output['logicalWidth'],
+        'logicalHeight': output['logicalHeight'],
+        'physicalWidth': output['physicalWidth'],
+        'physicalHeight': output['physicalHeight'],
+        'devicePixelRatio': output['devicePixelRatio'],
+        'orientation': output['orientation'],
+        'platformBrightness': output['platformBrightness'],
+        'textScaleFactor': output['textScaleFactor'],
+        'locale': output['locale'],
+        'padding': output['padding'],
+        'viewPadding': output['viewPadding'],
+        'viewInsets': output['viewInsets'],
+      });
+      return observation;
     case 'screen.orientation.set':
     case 'screen.orientation.status':
       observation.addAll({
@@ -339,6 +355,8 @@ String _titleFor(String capabilityId) {
       return '屏幕亮度设置';
     case 'screen.brightness.status':
       return '屏幕亮度状态';
+    case 'screen.metrics':
+      return '屏幕指标';
     case 'sensor.accelerometer.read':
       return '加速度计';
     case 'sensor.gyroscope.read':
@@ -512,6 +530,8 @@ String _summaryFor(
     case 'screen.brightness.set':
     case 'screen.brightness.status':
       return _screenBrightnessSummary(output);
+    case 'screen.metrics':
+      return _screenMetricsSummary(output);
     case 'screen.orientation.set':
     case 'screen.orientation.status':
       return _screenOrientationSummary(output);
@@ -686,6 +706,16 @@ String _mediaVolumeSummary(Map<String, Object?> output) {
     return '当前媒体音量约为 $percent%$suffix。';
   }
   return '当前媒体音量状态不可用。';
+}
+
+String _screenMetricsSummary(Map<String, Object?> output) {
+  final logicalWidth = output['logicalWidth'];
+  final logicalHeight = output['logicalHeight'];
+  final ratio = output['devicePixelRatio'];
+  if (logicalWidth is num && logicalHeight is num && ratio is num) {
+    return '当前屏幕逻辑尺寸约为 ${logicalWidth.round()} x ${logicalHeight.round()}，像素比 ${ratio.toStringAsFixed(2)}。';
+  }
+  return '当前屏幕指标不可用。';
 }
 
 String _systemUiSummary(Map<String, Object?> output) {

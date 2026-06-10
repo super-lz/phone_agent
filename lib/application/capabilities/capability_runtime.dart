@@ -81,6 +81,7 @@ class CapabilityRuntime {
     'screen_keep_awake_status': 'screen.keep_awake_status',
     'screen_brightness_set': 'screen.brightness.set',
     'screen_brightness_status': 'screen.brightness.status',
+    'screen_metrics': 'screen.metrics',
     'screen_orientation_set': 'screen.orientation.set',
     'screen_orientation_status': 'screen.orientation.status',
     'sensor_accelerometer_read': 'sensor.accelerometer.read',
@@ -434,6 +435,8 @@ class CapabilityRuntime {
         );
       case 'screen_brightness_status':
         return await _nativeHandler.getScreenBrightness();
+      case 'screen_metrics':
+        return await _nativeHandler.getScreenMetrics();
       case 'screen_orientation_set':
         return await _nativeHandler.setScreenOrientation(
           arguments: toolCall.arguments,

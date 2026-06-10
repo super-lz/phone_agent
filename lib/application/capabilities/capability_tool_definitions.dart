@@ -870,6 +870,15 @@ class CapabilityToolDefinitions {
       {
         'type': 'function',
         'function': {
+          'name': 'screen_metrics',
+          'description':
+              '读取当前屏幕和 Flutter View 的尺寸、像素比、安全区、键盘 inset、亮暗模式、语言环境和文字缩放等显示指标。用于排版适配、Web App 调试或用户询问屏幕尺寸时使用。',
+          'parameters': {'type': 'object', 'properties': <String, Object?>{}},
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
           'name': 'screen_orientation_set',
           'description':
               '设置当前应用的屏幕方向偏好。适合用户明确要求横屏、竖屏、解锁自动旋转，或本地 Web App/演示需要固定方向时使用。',

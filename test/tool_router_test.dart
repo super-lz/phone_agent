@@ -237,7 +237,7 @@ void main() {
 
     final route = await router.route(
       prompt:
-          '把这段文字复制到剪贴板并调起系统分享，震动一下，播放提示音，把媒体音量调低，进入全屏沉浸模式，保持屏幕常亮，把屏幕亮度调暗，锁定横屏并查看方向状态，再打开链接 https://example.com',
+          '把这段文字复制到剪贴板并调起系统分享，震动一下，播放提示音，把媒体音量调低，进入全屏沉浸模式，保持屏幕常亮，把屏幕亮度调暗，查看屏幕尺寸和安全区，锁定横屏并查看方向状态，再打开链接 https://example.com',
       context: '',
       allTools: tools,
       chatClient: chatClient,
@@ -259,6 +259,7 @@ void main() {
         'screen_keep_awake',
         'screen_brightness_set',
         'screen_brightness_status',
+        'screen_metrics',
         'screen_orientation_set',
         'screen_orientation_status',
         'url_open_external',

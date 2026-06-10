@@ -197,6 +197,9 @@ String buildWebAppBridgeHeadHtml(AgentArtifact webApp) {
         getScreenBrightness: function() {
           return window.PhoneAgent.callCapability('screen.brightness.status', {});
         },
+        getScreenMetrics: function() {
+          return window.PhoneAgent.callCapability('screen.metrics', {});
+        },
         setScreenOrientation: function(mode) {
           return window.PhoneAgent.callCapability('screen.orientation.set', {
             mode: mode || 'unlocked'

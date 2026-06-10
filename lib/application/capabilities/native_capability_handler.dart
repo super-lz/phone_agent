@@ -351,6 +351,13 @@ class NativeCapabilityHandler {
     );
   }
 
+  Future<CapabilityExecutionResult> getScreenMetrics() async {
+    return CapabilityExecutionResult(
+      capabilityId: 'screen.metrics',
+      output: await _adapter.getScreenMetrics(),
+    );
+  }
+
   Future<CapabilityExecutionResult> setScreenOrientation({
     required Map<String, Object?> arguments,
   }) async {

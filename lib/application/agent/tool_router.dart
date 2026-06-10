@@ -344,6 +344,23 @@ class AgentToolRouter {
           '屏幕亮度',
           'brightness',
         ]);
+    final wantsScreenMetrics = _containsAny(prompt, const [
+      '屏幕尺寸',
+      '屏幕大小',
+      '屏幕分辨率',
+      '安全区',
+      '刘海',
+      '像素比',
+      '设备像素比',
+      '深色模式',
+      '暗色模式',
+      '文字缩放',
+      '字体缩放',
+      'screen metrics',
+      'screen size',
+      'device pixel ratio',
+      'safe area',
+    ]);
     final wantsOrientationStatus = _containsAny(prompt, const [
       '方向状态',
       '旋转状态',
@@ -528,6 +545,9 @@ class AgentToolRouter {
     }
     if (wantsBrightnessStatus || wantsBrightnessSet) {
       addIfAvailable('screen_brightness_status');
+    }
+    if (wantsScreenMetrics) {
+      addIfAvailable('screen_metrics');
     }
     if (wantsOrientationSet) {
       addIfAvailable('screen_orientation_set');

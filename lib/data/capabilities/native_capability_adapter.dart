@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show File, Platform;
+import 'dart:ui' as ui;
 
 import 'package:add_2_calendar/add_2_calendar.dart';
 import 'package:battery_plus/battery_plus.dart';
@@ -718,6 +719,51 @@ class NativeCapabilityAdapter {
     }
   }
 
+  Future<Map<String, Object?>> getScreenMetrics() async {
+    try {
+      final dispatcher = ui.PlatformDispatcher.instance;
+      final view = dispatcher.views.isEmpty ? null : dispatcher.views.first;
+      final devicePixelRatio = view?.devicePixelRatio ?? 1.0;
+      final physicalSize = view?.physicalSize ?? ui.Size.zero;
+      final logicalWidth = devicePixelRatio == 0
+          ? physicalSize.width
+          : physicalSize.width / devicePixelRatio;
+      final logicalHeight = devicePixelRatio == 0
+          ? physicalSize.height
+          : physicalSize.height / devicePixelRatio;
+      final orientation = logicalWidth >= logicalHeight
+          ? 'landscape'
+          : 'portrait';
+      return {
+        'ok': true,
+        'summary':
+            '当前屏幕逻辑尺寸约为 ${logicalWidth.round()} x ${logicalHeight.round()}，像素比 ${devicePixelRatio.toStringAsFixed(2)}。',
+        'viewId': view?.viewId,
+        'physicalWidth': physicalSize.width,
+        'physicalHeight': physicalSize.height,
+        'logicalWidth': logicalWidth,
+        'logicalHeight': logicalHeight,
+        'devicePixelRatio': devicePixelRatio,
+        'orientation': orientation,
+        'platformBrightness': dispatcher.platformBrightness.name,
+        'textScaleFactor': dispatcher.textScaleFactor,
+        'locale': dispatcher.locale.toLanguageTag(),
+        'locales': dispatcher.locales
+            .map((locale) => locale.toLanguageTag())
+            .toList(growable: false),
+        'accessibility': _accessibilityFeaturesOutput(
+          dispatcher.accessibilityFeatures,
+        ),
+        'padding': ?_viewPaddingOutput(view?.padding, devicePixelRatio),
+        'viewPadding': ?_viewPaddingOutput(view?.viewPadding, devicePixelRatio),
+        'viewInsets': ?_viewPaddingOutput(view?.viewInsets, devicePixelRatio),
+      };
+    } on Object catch (error, stackTrace) {
+      AppLogger.error('native.screen_metrics.failed', error, stackTrace);
+      return {'ok': false, 'error': error.toString()};
+    }
+  }
+
   Future<Map<String, Object?>> setScreenOrientation(String mode) async {
     try {
       final normalized = _normalizeScreenOrientationMode(mode);
@@ -1223,6 +1269,45 @@ class NativeCapabilityAdapter {
       return value.toDouble();
     }
     return null;
+  }
+
+  Map<String, Object?>? _viewPaddingOutput(
+    ui.ViewPadding? padding,
+    double devicePixelRatio,
+  ) {
+    if (padding == null) {
+      return null;
+    }
+    final ratio = devicePixelRatio == 0 ? 1.0 : devicePixelRatio;
+    return {
+      'physical': {
+        'left': padding.left,
+        'top': padding.top,
+        'right': padding.right,
+        'bottom': padding.bottom,
+      },
+      'logical': {
+        'left': padding.left / ratio,
+        'top': padding.top / ratio,
+        'right': padding.right / ratio,
+        'bottom': padding.bottom / ratio,
+      },
+    };
+  }
+
+  Map<String, Object?> _accessibilityFeaturesOutput(
+    ui.AccessibilityFeatures features,
+  ) {
+    return {
+      'accessibleNavigation': features.accessibleNavigation,
+      'invertColors': features.invertColors,
+      'disableAnimations': features.disableAnimations,
+      'boldText': features.boldText,
+      'reduceMotion': features.reduceMotion,
+      'highContrast': features.highContrast,
+      'onOffSwitchLabels': features.onOffSwitchLabels,
+      'supportsAnnounce': features.supportsAnnounce,
+    };
   }
 
   Map<String, Object?> _normalizedDeviceInfo(Map<String, Object?> data) {
