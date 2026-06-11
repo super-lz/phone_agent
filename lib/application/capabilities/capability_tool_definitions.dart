@@ -1141,7 +1141,7 @@ class CapabilityToolDefinitions {
     return {
       'type': 'object',
       'description':
-          '可选。本地全栈 Web App 的声明式服务端配置。运行时只在 App 内本机回环地址启动，不执行任意 Node/Dart/shell，不生成线上部署。',
+          '可选。本地全栈 Web App 的声明式服务端配置。运行时只在 App 内本机回环地址启动，不执行任意 Node/Dart/shell，不生成线上部署。需要服务端逻辑时优先把 handlerPath 指向项目内 JSON handler 文件。',
       'properties': {
         'routes': {
           'type': 'array',
@@ -1162,6 +1162,16 @@ class CapabilityToolDefinitions {
                 'type': 'string',
                 'description':
                     '该路由调用的 capability id，例如 db.note.query、db.note.create、file.read_app_file 或 file.write_app_file；必须同步声明到 permissions。',
+              },
+              'handlerPath': {
+                'type': 'string',
+                'description':
+                    '可选。项目内服务端 handler JSON 文件路径，例如 server/create-note.json；路径相对 Web App 项目根目录。',
+              },
+              'handler': {
+                'type': 'object',
+                'description':
+                    '可选。内联 server action handler。更推荐使用 handlerPath 写入独立项目文件。handler.steps 顺序调用 capability，handler.response 用 \$request.xxx 和 \$steps.stepId.output.xxx 模板生成响应。',
               },
               'input': {
                 'type': 'object',

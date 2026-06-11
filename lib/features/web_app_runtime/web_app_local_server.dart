@@ -216,10 +216,14 @@ class WebAppLocalServer {
       return;
     }
 
-    final input = await _apiInputFor(request, route);
+    final inputResult = await _apiInputFor(request, route);
+    if (inputResult.error != null) {
+      _writeJson(request.response, inputResult.statusCode, inputResult.error!);
+      return;
+    }
     final result = await _executeServerRoute(
       route: route,
-      input: input,
+      input: inputResult.input,
       caller: caller,
     );
     _writeJson(request.response, HttpStatus.ok, result);
@@ -412,26 +416,30 @@ class WebAppLocalServer {
     return parsed;
   }
 
-  Future<Map<String, Object?>> _apiInputFor(
+  Future<_ApiInputResult> _apiInputFor(
     HttpRequest request,
     _ServerRoute route,
   ) async {
     final input = <String, Object?>{...route.input};
     input.addAll(request.uri.queryParameters);
     if (request.method == 'GET' || request.method == 'HEAD') {
-      return input;
+      return _ApiInputResult(input: input);
     }
     final contentLength = request.contentLength;
     if (contentLength > 1024 * 1024) {
-      return {
-        ...input,
-        'bodyTooLarge': true,
-        'bodyError': 'request_body_too_large',
-      };
+      return const _ApiInputResult(
+        input: {},
+        statusCode: HttpStatus.requestEntityTooLarge,
+        error: {
+          'ok': false,
+          'error': 'request_body_too_large',
+          'maxBytes': 1048576,
+        },
+      );
     }
     final body = await utf8.decodeStream(request);
     if (body.trim().isEmpty) {
-      return input;
+      return _ApiInputResult(input: input);
     }
     try {
       final decoded = jsonDecode(body);
@@ -445,7 +453,7 @@ class WebAppLocalServer {
     } on Object {
       input['body'] = body;
     }
-    return input;
+    return _ApiInputResult(input: input);
   }
 
   Map<String, Object?> _stringMap(Object? value) {
@@ -887,6 +895,18 @@ class _ServerRoute {
   final String? handlerPath;
   final Map<String, Object?>? handler;
   final Map<String, Object?> input;
+}
+
+class _ApiInputResult {
+  const _ApiInputResult({
+    required this.input,
+    this.statusCode = HttpStatus.ok,
+    this.error,
+  });
+
+  final Map<String, Object?> input;
+  final int statusCode;
+  final Map<String, Object?>? error;
 }
 
 class _ByteRange {

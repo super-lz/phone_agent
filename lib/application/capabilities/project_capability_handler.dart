@@ -578,6 +578,7 @@ class ProjectCapabilityHandler {
     final issues = <Map<String, Object?>>[];
     final checkedFiles = <String>{};
     final projectFiles = manifest.files.toSet();
+    final fileContents = <String, String>{};
 
     if (!projectFiles.contains(manifest.entryPath)) {
       issues.add({
@@ -606,6 +607,7 @@ class ProjectCapabilityHandler {
         continue;
       }
       checkedFiles.add(path);
+      fileContents[path] = result.content;
       if (result.truncated) {
         issues.add({
           'severity': 'error',
@@ -631,6 +633,9 @@ class ProjectCapabilityHandler {
     _analyzeServer(
       server: manifest.server,
       permissions: manifest.permissions.toSet(),
+      projectRoot: manifest.projectRoot,
+      projectFiles: projectFiles,
+      fileContents: fileContents,
       issues: issues,
     );
 
@@ -1418,6 +1423,9 @@ class ProjectCapabilityHandler {
   void _analyzeServer({
     required Map<String, Object?>? server,
     required Set<String> permissions,
+    required String projectRoot,
+    required Set<String> projectFiles,
+    required Map<String, String> fileContents,
     required List<Map<String, Object?>> issues,
   }) {
     if (server == null) {
@@ -1445,6 +1453,8 @@ class ProjectCapabilityHandler {
       final method = route['method'];
       final path = route['path'];
       final capabilityId = route['capability'] ?? route['capabilityId'];
+      final handlerPath = route['handlerPath'] ?? route['handler_path'];
+      final handler = route['handler'];
       if (method is! String || !_isAllowedServerMethod(method)) {
         issues.add({
           'severity': 'error',
@@ -1459,19 +1469,84 @@ class ProjectCapabilityHandler {
           'message': 'server route path 必须以 /api/ 开头。',
         });
       }
-      if (capabilityId is! String || capabilityId.trim().isEmpty) {
+      final capabilityText = capabilityId is String
+          ? capabilityId.trim()
+          : null;
+      final handlerPathText = handlerPath is String ? handlerPath.trim() : null;
+      final hasCapability = capabilityText != null && capabilityText.isNotEmpty;
+      final hasHandlerPath =
+          handlerPathText != null && handlerPathText.isNotEmpty;
+      final hasInlineHandler = handler is Map<Object?, Object?>;
+      if (!hasCapability && !hasHandlerPath && !hasInlineHandler) {
         issues.add({
           'severity': 'error',
           'path': 'server.routes',
-          'message': 'server route 必须声明 capability。',
+          'message': 'server route 必须声明 capability、handler 或 handlerPath。',
         });
-      } else if (!permissions.contains(capabilityId)) {
+      } else if (hasCapability && !permissions.contains(capabilityText)) {
         issues.add({
           'severity': 'error',
           'path': 'server.routes',
           'message':
-              'server route 使用的 capability 未在 permissions 中声明：$capabilityId',
+              'server route 使用的 capability 未在 permissions 中声明：$capabilityText',
         });
+      }
+      if (hasInlineHandler) {
+        _analyzeServerHandler(
+          handler: handler,
+          permissions: permissions,
+          path: 'server.routes.handler',
+          issues: issues,
+        );
+      }
+      if (hasHandlerPath) {
+        late final String normalized;
+        try {
+          normalized = _serverHandlerProjectPath(
+            handlerPathText,
+            projectRoot: projectRoot,
+          );
+        } on AppFileStoreException catch (error) {
+          issues.add({
+            'severity': 'error',
+            'path': 'server.routes',
+            'message': error.message,
+          });
+          continue;
+        }
+        final content = fileContents[normalized];
+        if (!projectFiles.contains(normalized) || content == null) {
+          issues.add({
+            'severity': 'error',
+            'path': normalized,
+            'message':
+                'server route handlerPath 指向的服务端代码文件不存在或未包含在 manifest files 中。',
+          });
+        } else {
+          try {
+            final decoded = jsonDecode(content);
+            if (decoded is! Map<Object?, Object?>) {
+              issues.add({
+                'severity': 'error',
+                'path': normalized,
+                'message': 'server action handler 必须是 JSON 对象。',
+              });
+            } else {
+              _analyzeServerHandler(
+                handler: decoded,
+                permissions: permissions,
+                path: normalized,
+                issues: issues,
+              );
+            }
+          } on Object {
+            issues.add({
+              'severity': 'error',
+              'path': normalized,
+              'message': 'server action handler 不是有效 JSON。',
+            });
+          }
+        }
       }
       if (method is String && path is String) {
         final key = '${method.toUpperCase()} $path';
@@ -1484,6 +1559,74 @@ class ProjectCapabilityHandler {
         }
       }
     }
+  }
+
+  void _analyzeServerHandler({
+    required Map<Object?, Object?> handler,
+    required Set<String> permissions,
+    required String path,
+    required List<Map<String, Object?>> issues,
+  }) {
+    final steps = handler['steps'];
+    if (steps is! Iterable<Object?>) {
+      issues.add({
+        'severity': 'error',
+        'path': path,
+        'message': 'server action handler 必须声明 steps 数组。',
+      });
+      return;
+    }
+    final seenStepIds = <String>{};
+    for (final step in steps) {
+      if (step is! Map<Object?, Object?>) {
+        issues.add({
+          'severity': 'error',
+          'path': path,
+          'message': 'server action step 必须是对象。',
+        });
+        continue;
+      }
+      final stepId = step['id'];
+      final capabilityId = step['capability'] ?? step['capabilityId'];
+      if (stepId is! String || stepId.trim().isEmpty) {
+        issues.add({
+          'severity': 'error',
+          'path': path,
+          'message': 'server action step 必须声明 id。',
+        });
+      } else if (!seenStepIds.add(stepId.trim())) {
+        issues.add({
+          'severity': 'error',
+          'path': path,
+          'message': 'server action step id 重复：${stepId.trim()}',
+        });
+      }
+      if (capabilityId is! String || capabilityId.trim().isEmpty) {
+        issues.add({
+          'severity': 'error',
+          'path': path,
+          'message': 'server action step 必须声明 capability。',
+        });
+      } else if (!permissions.contains(capabilityId.trim())) {
+        issues.add({
+          'severity': 'error',
+          'path': path,
+          'message':
+              'server action step 使用的 capability 未在 permissions 中声明：${capabilityId.trim()}',
+        });
+      }
+    }
+  }
+
+  String _serverHandlerProjectPath(
+    String rawPath, {
+    required String projectRoot,
+  }) {
+    final normalizedPath = normalizeAppFilePath(rawPath);
+    if (projectRoot.isEmpty || normalizedPath.startsWith('$projectRoot/')) {
+      return normalizedPath;
+    }
+    return '$projectRoot/$normalizedPath';
   }
 
   bool _isAllowedServerMethod(String method) {

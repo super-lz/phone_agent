@@ -469,7 +469,7 @@ void main() {
             'title': '黄金矿工小游戏',
             'summary': '一个可维护的本地 HTML 小游戏。',
             'entry_path': 'games/gold-miner/index.html',
-            'permissions': ['db.note.query'],
+            'permissions': ['db.note.query', 'db.note.create'],
             'server': {
               'routes': [
                 {
@@ -478,12 +478,22 @@ void main() {
                   'capability': 'db.note.query',
                   'input': {'query': 'score'},
                 },
+                {
+                  'method': 'POST',
+                  'path': '/api/actions/create-score',
+                  'handlerPath': 'server/create-score.json',
+                },
               ],
             },
             'files': [
               {
                 'path': 'games/gold-miner/index.html',
                 'content': '<!doctype html><html><body>黄金矿工</body></html>',
+              },
+              {
+                'path': 'games/gold-miner/server/create-score.json',
+                'content':
+                    r'{"steps":[{"id":"create","capability":"db.note.create","input":{"title":"$request.title","content":"$request.score"}}],"response":{"ok":true,"saved":"$steps.create.ok"}}',
               },
             ],
           },
@@ -529,6 +539,10 @@ void main() {
       );
       expect(manifest.content, contains('"server": {'));
       expect(manifest.content, contains('"path": "/api/scores"'));
+      expect(
+        manifest.content,
+        contains('"handlerPath": "server/create-score.json"'),
+      );
       final artifactId = artifacts.single.id;
       final expectedDatabaseNamespace = 'work::webapp::$artifactId::db';
       final expectedFileNamespace = 'work::webapp::$artifactId::files';
@@ -552,6 +566,19 @@ void main() {
         maxChars: 12000,
       );
       expect(version.content, contains('"version": 1'));
+      final testResult = await runtime.execute(
+        toolCall: ToolCallRequest(
+          id: 'call-project-test-created',
+          name: 'project_test_web_app',
+          arguments: {'artifact_id': result.output['artifactId']},
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: artifacts,
+        fileStore: fileStore,
+      );
+      expect(testResult.output['passed'], isTrue);
     },
   );
 

@@ -88,6 +88,7 @@
 15. Web App 创建或更新后应具备项目级受控测试能力；第一阶段测试边界是读取该项目 manifest 和项目文件做本地静态检查，发现入口缺失、文件引用缺失、明显 HTML/CSS/JS 结构问题等可诊断错误，不执行任意 shell、npm、网络测试或项目目录外访问。
 16. Web App 可以声明本地全栈运行时配置：manifest 中的 `server.routes` 描述仅在当前 App 内运行的本地 API 路由；用户点击 Web App 卡片进入预览时，运行时必须同时启动前端静态资源服务和这些本地 API 路由。
 17. 本地 API 路由只能映射到已声明权限的 Capability，例如当前 Web App 独立 namespace 下的 Note 数据库和 App File 文件能力；不得启动外部 Node/Dart/shell 进程，不得生成线上部署入口，也不得允许跨 Workspace、跨 Web App 或路径穿越访问。
+18. Web App 服务端逻辑可以写成项目内 server action handler 文件，并由本地运行时解释执行；handler 只能按声明步骤调用已授权 Capability、读取请求输入并生成响应，不能执行任意本机进程。
 
 ### Skill 与 MCP
 
@@ -229,6 +230,7 @@
 - Web App JSBridge 必须提供设备信息、手电筒等常用能力的可发现调用方式；页面需要设备信息或受控硬件能力时应通过已声明权限的 JSBridge 调用，而不是依赖浏览器伪造的设备环境。
 - Web App 通过 JSBridge 获取拍照、媒体选择、录音停止或系统文件选择结果时，除保留原始文件元数据外，运行时必须提供 WebApp 可直接使用的同源本地资源 URL，使图片、音频和视频可以在页面内预览或播放。
 - Web App manifest 可以声明本地 `server.routes`。运行时必须把这些路由暴露为同源本地 API，并让前端可以通过 `window.PhoneAgent.serverFetch/serverJson` 或 `/api/...` 调用；路由执行仍必须回到 Capability Runtime，并遵守该 Web App 的 manifest 权限和独立数据 namespace。
+- Web App 本地 API 路由可以通过 `handlerPath` 指向项目内 server action handler 文件；handler 文件属于 Web App 项目代码，必须随项目文件一起保存、测试和版本化。
 - 对话中的 Web App 卡片必须能直接打开同一个 Web App 预览页面，并以清晰的本地应用入口样式展示标题、类型和打开操作。
 - Web App Artifact 必须保存可运行入口内容和可发现的工程 manifest。缺少可运行入口内容时不得展示成“已加载”的假预览，必须返回结构化错误或可诊断提示。
 - Web App 打开前必须向用户展示 manifest 声明的能力权限；用户拒绝后 Web App 仍可打开，但 JSBridge 能力调用必须返回结构化权限错误。
@@ -304,6 +306,7 @@
 - Web App 预览必须渲染 Artifact 中保存的真实 HTML/CSS/JS 内容；如果 Artifact 缺少入口 HTML，系统必须明确提示缺失内容，不能只展示标题和“已加载”占位文案。
 - Web App 预览打开时可启动仅绑定本机回环地址的临时本地服务来加载入口 HTML 和同项目相对资源；该服务只在预览页生命周期内存在，关闭预览页后必须停止，并且不得允许跨 Workspace 或路径穿越读取文件。
 - Web App 预览打开时，如果 manifest 声明了本地 API 路由，同一个本地服务必须同时提供这些 API；前端调用 `/api/...` 或运行时 helper 时，能完成本地数据库读写和本地文件读写。
+- Web App 预览打开时，如果本地 API 路由声明了 server action handler，运行时必须读取项目内 handler 文件，按步骤调用已授权 Capability，并把 handler response 返回给前端。
 - Web App 首次运行时按 manifest 请求权限，拒绝后 JSBridge 调用返回结构化错误。
 - Web App 能通过 JSBridge 调用已授权的内建 Capability；未授权 Capability 调用必须被拒绝，不能绕过 Capability Runtime。
 - 用户或已授权 Web App 可以明确打开、关闭或查询手机手电筒；无闪光灯设备、权限拒绝或平台不可用时返回结构化错误和可读处理建议。
