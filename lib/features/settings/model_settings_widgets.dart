@@ -205,12 +205,34 @@ class _ProviderSummary extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           _SummaryLine(
+            icon: Icons.donut_large_outlined,
+            text: _contextWindowText(provider),
+          ),
+          const SizedBox(height: 6),
+          _SummaryLine(
             icon: Icons.build_outlined,
             text: provider.supportsTools ? '工具调用: 支持' : '工具调用: 当前关闭',
           ),
         ],
       ),
     );
+  }
+
+  String _contextWindowText(ModelProviderConfig provider) {
+    final tokens = provider.effectiveMaxContextTokens;
+    if (tokens == null) {
+      return '上下文窗口: 未知，运行时按 32k 保守预算';
+    }
+    final source = provider.contextWindowOverrideTokens == null ? '内置' : '手动覆盖';
+    return '上下文窗口: ${_formatTokens(tokens)} · $source';
+  }
+
+  String _formatTokens(int tokens) {
+    if (tokens >= 1000) {
+      final k = tokens / 1000;
+      return '${k.toStringAsFixed(k >= 10 ? 0 : 1)}k tokens';
+    }
+    return '$tokens tokens';
   }
 }
 

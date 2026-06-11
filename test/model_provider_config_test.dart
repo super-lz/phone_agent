@@ -35,6 +35,24 @@ void main() {
     expect(provider.defaultParameters['enable_thinking'], isFalse);
   });
 
+  test('model option can expose model-level context window', () {
+    final provider = ModelProviders.moonshotKimi.copyWith(
+      model: 'moonshot-v1-128k',
+    );
+
+    expect(provider.effectiveMaxContextTokens, 131072);
+    expect(provider.hasKnownContextWindow, isTrue);
+  });
+
+  test('manual context window override wins over built-in model option', () {
+    final provider = ModelProviders.moonshotKimi.copyWith(
+      model: 'moonshot-v1-8k',
+      contextWindowOverrideTokens: 64000,
+    );
+
+    expect(provider.effectiveMaxContextTokens, 64000);
+  });
+
   test('registry includes domestic international and aggregator providers', () {
     expect(
       ModelProviders.byGroup(ModelProviderGroup.domestic),
@@ -110,6 +128,32 @@ void main() {
       expect(
         await store.readModelName(ModelProviders.miniMax.id),
         'MiniMax-M2',
+      );
+    },
+  );
+
+  test(
+    'model settings store saves context windows independently per provider',
+    () async {
+      final store = InMemoryModelSettingsStore();
+
+      await store.saveContextWindowTokens(ModelProviders.deepSeek.id, 64000);
+      await store.saveContextWindowTokens(ModelProviders.miniMax.id, 128000);
+
+      expect(
+        await store.readContextWindowTokens(ModelProviders.deepSeek.id),
+        64000,
+      );
+      expect(
+        await store.readContextWindowTokens(ModelProviders.miniMax.id),
+        128000,
+      );
+
+      await store.deleteContextWindowTokens(ModelProviders.deepSeek.id);
+
+      expect(
+        await store.readContextWindowTokens(ModelProviders.deepSeek.id),
+        isNull,
       );
     },
   );

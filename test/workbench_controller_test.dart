@@ -39,6 +39,22 @@ void main() {
     expect(chatClient.capturedTools.single, isEmpty);
   });
 
+  test('normal prompt exposes latest context budget snapshot', () async {
+    final chatClient = _FakeChatClient([
+      [const ChatStreamEvent(contentDelta: '预算已计算')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt('你好');
+
+    expect(controller.contextBudget, isNotNull);
+    expect(controller.contextBudget!.usagePercent, greaterThan(0));
+    expect(controller.contextBudget!.isConservativeFallback, isTrue);
+  });
+
   test(
     'ordinary follow-up fragment ignores capability text from prior answer',
     () async {

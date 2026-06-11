@@ -32,6 +32,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
   late final ModelSettingsStore _modelSettingsStore;
   late final OpenAiCompatibleChatClient _chatClient;
   late final TextEditingController _apiKeyController;
+  late final TextEditingController _contextWindowController;
   late final TextEditingController _customModelController;
 
   ModelProviderConfig _provider = ModelProviders.aliyunBailianQwenFlash;
@@ -52,6 +53,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
         widget.chatClient ??
         OpenAiCompatibleChatClient(requestTimeout: const Duration(seconds: 15));
     _apiKeyController = TextEditingController();
+    _contextWindowController = TextEditingController();
     _customModelController = TextEditingController();
     _loadSettings();
   }
@@ -59,6 +61,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
   @override
   void dispose() {
     _apiKeyController.dispose();
+    _contextWindowController.dispose();
     _customModelController.dispose();
     super.dispose();
   }
@@ -76,11 +79,14 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
   Future<void> _loadProviderSettings() async {
     final provider = _provider;
     final modelName = await _modelSettingsStore.readModelName(provider.id);
+    final contextWindowTokens = await _modelSettingsStore
+        .readContextWindowTokens(provider.id);
     final apiKey = await _apiKeyStore.readApiKey(provider.id);
     if (!mounted || _provider.id != provider.id) {
       return;
     }
     _apiKeyController.text = apiKey ?? '';
+    _contextWindowController.text = contextWindowTokens?.toString() ?? '';
     _setSelectedModel(modelName?.trim(), provider: provider);
     setState(() => _loading = false);
   }
@@ -111,10 +117,23 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
       setState(() => _status = 'API Key 不能为空。');
       return;
     }
+    final contextWindowTokens = _currentContextWindowOverride();
+    if (contextWindowTokens == 0) {
+      setState(() => _status = '最大上下文 token 必须是正整数，或留空使用内置/保守预算。');
+      return;
+    }
 
     await _modelSettingsStore.saveSelectedProviderId(_provider.id);
     await _apiKeyStore.saveApiKey(_provider.id, apiKey);
     await _modelSettingsStore.saveModelName(_provider.id, modelName);
+    if (contextWindowTokens == null) {
+      await _modelSettingsStore.deleteContextWindowTokens(_provider.id);
+    } else {
+      await _modelSettingsStore.saveContextWindowTokens(
+        _provider.id,
+        contextWindowTokens,
+      );
+    }
     if (!mounted) {
       return;
     }
@@ -132,10 +151,12 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
 
   Future<void> _restoreDefaultModel() async {
     await _modelSettingsStore.deleteModelName(_provider.id);
+    await _modelSettingsStore.deleteContextWindowTokens(_provider.id);
     if (!mounted) {
       return;
     }
     setState(() {
+      _contextWindowController.clear();
       _setSelectedModel(_provider.defaultModel, provider: _provider);
       _status = '已恢复默认模型：${_provider.defaultModel}';
     });
@@ -198,10 +219,25 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
 
   ModelProviderConfig _effectiveProvider() {
     final modelName = _currentModelName();
-    if (modelName.isEmpty || modelName == _provider.model) {
-      return _provider;
+    final contextWindowTokens = _currentContextWindowOverride();
+    return _provider.copyWith(
+      model: modelName.isEmpty ? _provider.model : modelName,
+      contextWindowOverrideTokens: contextWindowTokens == 0
+          ? null
+          : contextWindowTokens,
+    );
+  }
+
+  int? _currentContextWindowOverride() {
+    final raw = _contextWindowController.text.trim();
+    if (raw.isEmpty) {
+      return null;
     }
-    return _provider.copyWith(model: modelName);
+    final parsed = int.tryParse(raw);
+    if (parsed == null || parsed <= 0) {
+      return 0;
+    }
+    return parsed;
   }
 
   @override
@@ -324,6 +360,20 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
                           if (value == null) return;
                           setState(() => _selectedModelValue = value);
                         },
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _contextWindowController,
+                  enabled: !_loading,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: '最大上下文 token（可选）',
+                    hintText: '留空使用内置窗口；未知模型按保守预算',
+                    prefixIcon: Icon(Icons.donut_large_outlined),
+                  ),
+                  onChanged: (_) {
+                    setState(() {});
+                  },
                 ),
                 if (_selectedModelValue == _customModelValue) ...[
                   const SizedBox(height: 16),

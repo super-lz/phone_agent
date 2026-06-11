@@ -241,7 +241,11 @@ class WebAppLocalServer {
     if (handler == null) {
       return const {'ok': false, 'error': 'server_handler_not_found'};
     }
-    return _executeServerHandler(handler: handler, input: input, caller: caller);
+    return _executeServerHandler(
+      handler: handler,
+      input: input,
+      caller: caller,
+    );
   }
 
   Future<Map<String, Object?>?> _serverHandlerFor(_ServerRoute route) async {
@@ -377,10 +381,14 @@ class WebAppLocalServer {
       final capabilityId = route['capability'] ?? route['capabilityId'];
       final handlerPath = route['handlerPath'] ?? route['handler_path'];
       final handler = route['handler'];
-      final hasCapability =
-          capabilityId is String && capabilityId.trim().isNotEmpty;
-      final hasHandlerPath =
-          handlerPath is String && handlerPath.trim().isNotEmpty;
+      final normalizedCapabilityId = capabilityId is String
+          ? capabilityId.trim()
+          : '';
+      final normalizedHandlerPath = handlerPath is String
+          ? handlerPath.trim()
+          : '';
+      final hasCapability = normalizedCapabilityId.isNotEmpty;
+      final hasHandlerPath = normalizedHandlerPath.isNotEmpty;
       final hasInlineHandler = handler is Map<Object?, Object?>;
       if (method is! String ||
           path is! String ||
@@ -392,9 +400,11 @@ class WebAppLocalServer {
         _ServerRoute(
           method: method.trim().toUpperCase(),
           path: path.trim(),
-          capabilityId: hasCapability ? (capabilityId as String).trim() : null,
-          handlerPath: hasHandlerPath ? (handlerPath as String).trim() : null,
-          handler: handler is Map<Object?, Object?> ? _stringMap(handler) : null,
+          capabilityId: hasCapability ? normalizedCapabilityId : null,
+          handlerPath: hasHandlerPath ? normalizedHandlerPath : null,
+          handler: handler is Map<Object?, Object?>
+              ? _stringMap(handler)
+              : null,
           input: _stringMap(route['input']),
         ),
       );

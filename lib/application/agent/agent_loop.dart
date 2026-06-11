@@ -15,6 +15,7 @@ import '../capabilities/capability_runtime.dart';
 import '../capabilities/mcp_manager.dart';
 import 'agent_loop_budget.dart';
 import 'agent_run_state.dart';
+import 'context_budget.dart';
 import 'conversation_context_builder.dart';
 import 'tool_call_accumulator.dart';
 import 'tool_router.dart';
@@ -41,6 +42,8 @@ class AgentLoop {
   final CapabilityRuntime _capabilityRuntime;
   final AgentLoopBudget budget;
   final AgentToolRouter _toolRouter = const AgentToolRouter();
+  final ContextBudgetPlanner _contextBudgetPlanner =
+      const ContextBudgetPlanner();
 
   CapabilityRuntime get capabilityRuntime => _capabilityRuntime;
 
@@ -114,6 +117,7 @@ class AgentLoop {
     final startedAt = DateTime.now();
     final runState = AgentLoopRunState(budget);
     var activeWorkspaceId = workspaceId;
+    ContextBudgetSnapshot? contextBudget;
 
     void report(AgentRunPhase phase, String detail, {String? currentToolName}) {
       reportRunSnapshot?.call(
@@ -124,6 +128,7 @@ class AgentLoop {
           maxToolCalls: budget.maxToolCalls,
           startedAt: startedAt,
           currentToolName: currentToolName,
+          contextBudget: contextBudget,
         ),
       );
     }
@@ -149,7 +154,7 @@ class AgentLoop {
       apiKey: apiKey,
     );
 
-    final modelMessages = await _buildModelMessages(
+    final modelMessageResult = await _buildModelMessages(
       prompt: prompt,
       workspace: workspace,
       visibleMemories: visibleMemories,
@@ -158,6 +163,17 @@ class AgentLoop {
       chatClient: _chatClient,
       provider: provider,
       apiKey: apiKey,
+    );
+    final modelMessages = modelMessageResult.messages;
+    contextBudget = modelMessageResult.contextBudget;
+    if (contextBudget.exceedsWindow) {
+      throw ContextBudgetExceededException(contextBudget);
+    }
+    report(
+      AgentRunPhase.routing,
+      modelMessageResult.usedSummary
+          ? '已压缩早期上下文，正在准备模型请求。'
+          : '已整理上下文，正在准备模型请求。',
     );
 
     final currentTurnToolResults = <CapabilityExecutionResult>[];
@@ -485,7 +501,7 @@ class AgentLoop {
     return '';
   }
 
-  Future<List<Map<String, Object?>>> _buildModelMessages({
+  Future<_ModelMessagesBuildResult> _buildModelMessages({
     required Object prompt,
     required AgentWorkspace workspace,
     required List<AgentMemory> visibleMemories,
@@ -499,22 +515,31 @@ class AgentLoop {
         .map((memory) => '- ${memory.content}')
         .join('\n');
     final currentTime = _currentTimeContext(DateTime.now());
-    final conversationContext = await const ConversationContextBuilder().build(
-      messages: priorMessages,
-      chatClient: chatClient,
-      provider: provider,
-      apiKey: apiKey,
+    final systemPrompt = _buildSystemPrompt(
+      workspace: workspace,
+      currentTime: currentTime,
+      memories: memories,
+      toolIndex: toolIndex,
     );
+    final budgetPlan = _contextBudgetPlanner.plan(
+      provider: provider ?? ModelProviders.aliyunBailianQwenFlash,
+      systemPrompt: systemPrompt,
+      toolIndex: toolIndex,
+      prompt: prompt,
+      priorMessages: priorMessages,
+    );
+    final conversationContext =
+        await ConversationContextBuilder(
+          maxRecentChars: budgetPlan.maxRecentChars,
+          maxSummaryChars: budgetPlan.maxSummaryChars,
+        ).build(
+          messages: priorMessages,
+          chatClient: chatClient,
+          provider: provider,
+          apiKey: apiKey,
+        );
     final messages = <Map<String, Object?>>[
-      {
-        'role': 'system',
-        'content': _buildSystemPrompt(
-          workspace: workspace,
-          currentTime: currentTime,
-          memories: memories,
-          toolIndex: toolIndex,
-        ),
-      },
+      {'role': 'system', 'content': systemPrompt},
     ];
     if (conversationContext.summary.isNotEmpty) {
       messages.add({
@@ -528,7 +553,21 @@ class AgentLoop {
       messages.add({'role': _modelRole(entry.role), 'content': entry.content});
     }
     messages.add({'role': 'user', 'content': prompt});
-    return messages;
+    final contextBudget = _contextBudgetPlanner.snapshotForParts(
+      provider: provider ?? ModelProviders.aliyunBailianQwenFlash,
+      prompt: prompt,
+      systemPrompt: systemPrompt,
+      toolIndex: toolIndex,
+      summary: conversationContext.summary,
+      recentHistory: conversationContext.recentEntries
+          .map((entry) => entry.content)
+          .join('\n'),
+    );
+    return _ModelMessagesBuildResult(
+      messages: messages,
+      contextBudget: contextBudget,
+      usedSummary: conversationContext.summary.isNotEmpty,
+    );
   }
 
   String _buildSystemPrompt({
@@ -820,4 +859,16 @@ class AgentLoop {
       blocks: [MessageBlock.error('模型调用失败', detail)],
     );
   }
+}
+
+class _ModelMessagesBuildResult {
+  const _ModelMessagesBuildResult({
+    required this.messages,
+    required this.contextBudget,
+    required this.usedSummary,
+  });
+
+  final List<Map<String, Object?>> messages;
+  final ContextBudgetSnapshot contextBudget;
+  final bool usedSummary;
 }

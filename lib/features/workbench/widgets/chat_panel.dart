@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart';
 
 import '../../../app/phone_agent_colors.dart';
 import '../../../application/agent/agent_run_state.dart';
+import '../../../application/agent/context_budget.dart';
 import '../../../domain/conversation/message_block.dart';
 import '../../../domain/workspace/workspace.dart';
 import 'load_earlier_messages_button.dart';
@@ -17,6 +18,7 @@ class ChatPanel extends StatefulWidget {
     required this.composerController,
     required this.isSending,
     required this.currentRun,
+    required this.contextBudget,
     required this.onSendPrompt,
     required this.onCancelRun,
     required this.onOpenWebAppArtifact,
@@ -35,6 +37,7 @@ class ChatPanel extends StatefulWidget {
   final TextEditingController composerController;
   final bool isSending;
   final AgentRunSnapshot? currentRun;
+  final ContextBudgetSnapshot? contextBudget;
   final VoidCallback onSendPrompt;
   final VoidCallback onCancelRun;
   final ValueChanged<String> onOpenWebAppArtifact;
@@ -383,6 +386,7 @@ class _ChatPanelState extends State<ChatPanel> {
             controller: widget.composerController,
             isSending: widget.isSending,
             currentRun: widget.currentRun,
+            contextBudget: widget.contextBudget,
             onSendPrompt: widget.onSendPrompt,
             onCancelRun: widget.onCancelRun,
             pendingAttachments: widget.pendingAttachments,

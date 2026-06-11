@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../application/agent/agent_loop.dart';
 import '../../../application/agent/agent_run_state.dart';
+import '../../../application/agent/context_budget.dart';
 import '../../../application/capabilities/capability_execution_result.dart';
 import '../../../application/capabilities/capability_result_presentation.dart';
 import '../../../application/capabilities/capability_runtime.dart';
@@ -116,6 +117,7 @@ class WorkbenchController extends ChangeNotifier {
   bool _isAppInForeground = true;
   bool _isDisposed = false;
   AgentRunSnapshot? _currentRun;
+  ContextBudgetSnapshot? _contextBudget;
   AgentRunControl? _currentRunControl;
   Future<void> _stateReady = Future<void>.value();
 
@@ -158,6 +160,7 @@ class WorkbenchController extends ChangeNotifier {
   bool get isSending => _isSending;
   bool get isAppInForeground => _isAppInForeground;
   AgentRunSnapshot? get currentRun => _currentRun;
+  ContextBudgetSnapshot? get contextBudget => _contextBudget;
 
   AgentWorkspace get currentWorkspace {
     return _workspaces.firstWhere((workspace) => workspace.id == _workspaceId);
@@ -445,6 +448,7 @@ class WorkbenchController extends ChangeNotifier {
     _workspaceId = workspaceId;
     _messages.clear();
     _workspaceFiles.clear();
+    _contextBudget = null;
     unawaited(_workbenchStore.saveCurrentWorkspaceId(workspaceId));
     unawaited(_loadMessagesForWorkspace(workspaceId));
     unawaited(_refreshWorkspaceFiles());
@@ -481,6 +485,7 @@ class WorkbenchController extends ChangeNotifier {
     _workspaceId = workspace.id;
     _messages.clear();
     _workspaceFiles.clear();
+    _contextBudget = null;
     final message = AgentMessage(
       id: 'msg-workspace-$next',
       role: MessageRole.system,
@@ -743,6 +748,7 @@ class WorkbenchController extends ChangeNotifier {
       toolCallsUsed: _currentRun?.toolCallsUsed ?? 0,
       maxToolCalls: _currentRun?.maxToolCalls ?? 0,
       startedAt: _currentRun?.startedAt ?? DateTime.now(),
+      contextBudget: _contextBudget,
     );
     AppLogger.warning('workbench.agent_run.cancel_requested', {
       'workspaceId': _workspaceId,
@@ -805,6 +811,7 @@ class WorkbenchController extends ChangeNotifier {
     _artifacts.clear();
     _notes.clear();
     _workspaceFiles.clear();
+    _contextBudget = null;
     AppLogger.info('workbench.local_data.cleared', {
       'workspaceId': _workspaceId,
     });
@@ -1131,6 +1138,7 @@ class WorkbenchController extends ChangeNotifier {
       toolCallsUsed: 0,
       maxToolCalls: _agentLoop.budget.maxToolCalls,
       startedAt: DateTime.now(),
+      contextBudget: _contextBudget,
     );
     notifyListeners();
     await _startBackgroundRun(activePendingRun);
@@ -1188,12 +1196,17 @@ class WorkbenchController extends ChangeNotifier {
       return;
     }
     final previous = _currentRun;
+    if (snapshot.contextBudget != null) {
+      _contextBudget = snapshot.contextBudget;
+    }
     final isDuplicate =
         previous?.phase == snapshot.phase &&
         previous?.detail == snapshot.detail &&
         previous?.toolCallsUsed == snapshot.toolCallsUsed &&
         previous?.maxToolCalls == snapshot.maxToolCalls &&
-        previous?.currentToolName == snapshot.currentToolName;
+        previous?.currentToolName == snapshot.currentToolName &&
+        previous?.contextBudget?.usagePercent ==
+            snapshot.contextBudget?.usagePercent;
     if (isDuplicate) {
       return;
     }
@@ -1203,6 +1216,8 @@ class WorkbenchController extends ChangeNotifier {
       'detail': snapshot.detail,
       'toolCallsUsed': snapshot.toolCallsUsed,
       'maxToolCalls': snapshot.maxToolCalls,
+      if (snapshot.contextBudget != null)
+        'contextUsagePercent': snapshot.contextBudget!.usagePercent,
       if (snapshot.currentToolName != null)
         'currentToolName': snapshot.currentToolName,
     });
@@ -1234,11 +1249,15 @@ class WorkbenchController extends ChangeNotifier {
       await _modelSettingsStore.readSelectedProviderId(),
     );
     final modelName = await _modelSettingsStore.readModelName(provider.id);
+    final contextWindowTokens = await _modelSettingsStore
+        .readContextWindowTokens(provider.id);
     final normalized = modelName?.trim();
-    if (normalized == null || normalized.isEmpty) {
-      return provider;
-    }
-    return provider.copyWith(model: normalized);
+    return provider.copyWith(
+      model: normalized == null || normalized.isEmpty
+          ? provider.model
+          : normalized,
+      contextWindowOverrideTokens: contextWindowTokens,
+    );
   }
 
   AgentMessage _missingApiKeyResponse(ModelProviderConfig provider) {

@@ -1,3 +1,5 @@
+import 'context_budget.dart';
+
 enum AgentRunPhase {
   thinking,
   routing,
@@ -19,6 +21,7 @@ class AgentRunSnapshot {
     required this.maxToolCalls,
     required this.startedAt,
     this.currentToolName,
+    this.contextBudget,
   });
 
   final AgentRunPhase phase;
@@ -27,6 +30,7 @@ class AgentRunSnapshot {
   final int maxToolCalls;
   final DateTime startedAt;
   final String? currentToolName;
+  final ContextBudgetSnapshot? contextBudget;
 
   bool get isActive {
     return switch (phase) {

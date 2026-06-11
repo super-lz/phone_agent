@@ -2,13 +2,16 @@ import 'package:flutter/material.dart';
 
 import '../../../app/phone_agent_colors.dart';
 import '../../../application/agent/agent_run_state.dart';
+import '../../../application/agent/context_budget.dart';
 import '../../../domain/conversation/message_block.dart';
+import 'context_budget_ring.dart';
 
 class PromptComposer extends StatelessWidget {
   const PromptComposer({
     required this.controller,
     required this.isSending,
     required this.currentRun,
+    required this.contextBudget,
     required this.onSendPrompt,
     required this.onCancelRun,
     required this.pendingAttachments,
@@ -22,6 +25,7 @@ class PromptComposer extends StatelessWidget {
   final TextEditingController controller;
   final bool isSending;
   final AgentRunSnapshot? currentRun;
+  final ContextBudgetSnapshot? contextBudget;
   final VoidCallback onSendPrompt;
   final VoidCallback onCancelRun;
   final List<MessageBlock> pendingAttachments;
@@ -125,6 +129,10 @@ class PromptComposer extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: ContextBudgetRing(budget: contextBudget),
+                    ),
                     ValueListenableBuilder<TextEditingValue>(
                       valueListenable: controller,
                       builder: (context, value, child) {

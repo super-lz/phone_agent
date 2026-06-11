@@ -3,10 +3,15 @@ enum ModelProviderGroup { domestic, international, aggregator }
 enum ModelApiProtocol { openAiChatCompletions, anthropicMessages, unavailable }
 
 class ModelOption {
-  const ModelOption({required this.name, this.description});
+  const ModelOption({
+    required this.name,
+    this.description,
+    this.maxContextTokens,
+  });
 
   final String name;
   final String? description;
+  final int? maxContextTokens;
 }
 
 class ModelProviderConfig {
@@ -26,6 +31,7 @@ class ModelProviderConfig {
     this.apiKeyHelpUrl,
     this.documentationUrl,
     this.maxContextTokens,
+    this.contextWindowOverrideTokens,
   });
 
   final String id;
@@ -43,6 +49,7 @@ class ModelProviderConfig {
   final Uri? apiKeyHelpUrl;
   final Uri? documentationUrl;
   final int? maxContextTokens;
+  final int? contextWindowOverrideTokens;
 
   bool get requiresApiKey => true;
 
@@ -60,7 +67,27 @@ class ModelProviderConfig {
 
   Uri get anthropicMessagesEndpoint => baseUrl.resolve('v1/messages');
 
-  ModelProviderConfig copyWith({String? model}) {
+  int? get selectedModelMaxContextTokens {
+    for (final option in modelOptions) {
+      if (option.name == model) {
+        return option.maxContextTokens;
+      }
+    }
+    return null;
+  }
+
+  int? get effectiveMaxContextTokens {
+    return contextWindowOverrideTokens ??
+        selectedModelMaxContextTokens ??
+        maxContextTokens;
+  }
+
+  bool get hasKnownContextWindow => effectiveMaxContextTokens != null;
+
+  ModelProviderConfig copyWith({
+    String? model,
+    int? contextWindowOverrideTokens,
+  }) {
     return ModelProviderConfig(
       id: id,
       vendorName: vendorName,
@@ -77,6 +104,8 @@ class ModelProviderConfig {
       apiKeyHelpUrl: apiKeyHelpUrl,
       documentationUrl: documentationUrl,
       maxContextTokens: maxContextTokens,
+      contextWindowOverrideTokens:
+          contextWindowOverrideTokens ?? this.contextWindowOverrideTokens,
     );
   }
 }
@@ -155,9 +184,9 @@ class ModelProviders {
     modelOptions: const [
       ModelOption(name: 'kimi-k2.6'),
       ModelOption(name: 'kimi-k2.6-turbo'),
-      ModelOption(name: 'moonshot-v1-8k'),
-      ModelOption(name: 'moonshot-v1-32k'),
-      ModelOption(name: 'moonshot-v1-128k'),
+      ModelOption(name: 'moonshot-v1-8k', maxContextTokens: 8192),
+      ModelOption(name: 'moonshot-v1-32k', maxContextTokens: 32768),
+      ModelOption(name: 'moonshot-v1-128k', maxContextTokens: 131072),
     ],
     supportsTools: true,
     model: 'kimi-k2.6',

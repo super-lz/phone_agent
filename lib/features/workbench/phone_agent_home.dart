@@ -613,6 +613,7 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
               composerController: _composerController,
               isSending: _controller.isSending,
               currentRun: _controller.currentRun,
+              contextBudget: _controller.contextBudget,
               onSendPrompt: _sendPrompt,
               onCancelRun: _controller.cancelCurrentRun,
               onOpenWebAppArtifact: _openWebAppArtifact,

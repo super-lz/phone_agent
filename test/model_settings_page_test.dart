@@ -25,6 +25,7 @@ void main() {
     await tester.tap(find.text('MiniMax').first);
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'minimax-key');
+    await tester.ensureVisible(find.text('保存配置'));
     await tester.tap(find.text('保存配置'));
     await tester.pumpAndSettle();
 
@@ -64,6 +65,8 @@ void main() {
     await tester.tap(find.text('自定义模型名称').last);
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'deepseek-custom');
+    await tester.drag(find.byType(ListView), const Offset(0, -260));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('保存配置'));
     await tester.pumpAndSettle();
 
@@ -74,6 +77,39 @@ void main() {
     expect(
       await settingsStore.readModelName(ModelProviders.deepSeek.id),
       'deepseek-custom',
+    );
+  });
+
+  testWidgets('settings page saves manual context window per provider', (
+    tester,
+  ) async {
+    final apiKeyStore = _FakeApiKeyStore();
+    final settingsStore = InMemoryModelSettingsStore();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ModelSettingsPage(
+          apiKeyStore: apiKeyStore,
+          modelSettingsStore: settingsStore,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('MiniMax').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'minimax-key');
+    await tester.enterText(
+      find.widgetWithText(TextField, '最大上下文 token（可选）'),
+      '128000',
+    );
+    await tester.ensureVisible(find.text('保存配置'));
+    await tester.tap(find.text('保存配置'));
+    await tester.pumpAndSettle();
+
+    expect(
+      await settingsStore.readContextWindowTokens(ModelProviders.miniMax.id),
+      128000,
     );
   });
 }
