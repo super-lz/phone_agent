@@ -154,4 +154,34 @@ void main() {
       ]),
     );
   });
+
+  test('web app server route schema allows handler-only routes', () {
+    final tool = CapabilityRuntime().toolDefinitions.firstWhere((candidate) {
+      final function = candidate['function'];
+      return function is Map<String, Object?> &&
+          function['name'] == 'project_create_web_app';
+    });
+    final function = tool['function']! as Map<String, Object?>;
+    final parameters = function['parameters']! as Map<String, Object?>;
+    final properties = parameters['properties']! as Map<String, Object?>;
+    final server = properties['server']! as Map<String, Object?>;
+    final serverProperties = server['properties']! as Map<String, Object?>;
+    final routes = serverProperties['routes']! as Map<String, Object?>;
+    final items = routes['items']! as Map<String, Object?>;
+    final routeProperties = items['properties']! as Map<String, Object?>;
+
+    expect(items['required'], ['method', 'path']);
+    expect(
+      routeProperties,
+      containsPair('capability', isA<Map<String, Object?>>()),
+    );
+    expect(
+      routeProperties,
+      containsPair('handlerPath', isA<Map<String, Object?>>()),
+    );
+    expect(
+      routeProperties,
+      containsPair('handler', isA<Map<String, Object?>>()),
+    );
+  });
 }

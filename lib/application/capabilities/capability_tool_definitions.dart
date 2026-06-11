@@ -1178,7 +1178,7 @@ class CapabilityToolDefinitions {
                 'description': '可选固定输入，会与 query 参数或 JSON body 合并；请求输入优先级更高。',
               },
             },
-            'required': ['method', 'path', 'capability'],
+            'required': ['method', 'path'],
           },
         },
       },
