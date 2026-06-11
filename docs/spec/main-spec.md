@@ -90,6 +90,7 @@
 17. Web App 可以声明本地全栈运行时配置：manifest 中的 `server.routes` 描述仅在当前 App 内运行的本地 API 路由；用户点击 Web App 卡片进入预览时，运行时必须同时启动前端静态资源服务和这些本地 API 路由。
 18. 本地 API 路由只能映射到已声明权限的 Capability，例如当前 Web App 独立 namespace 下的 Note 数据库和 App File 文件能力；不得启动外部 Node/Dart/shell 进程，不得生成线上部署入口，也不得允许跨 Workspace、跨 Web App 或路径穿越访问。
 19. Web App 服务端逻辑可以写成项目内 server action handler 文件，并由本地运行时解释执行；handler 只能按声明步骤调用已授权 Capability、读取请求输入并生成响应，不能执行任意本机进程。
+20. Web App server action handler 默认按步骤顺序执行；任一步骤返回失败时必须停止后续步骤，并向前端返回包含失败 step、capability 和原始结果的结构化错误，避免数据库或文件操作在失败后继续产生半成品状态。
 
 ### Skill 与 MCP
 
@@ -232,6 +233,8 @@
 - Web App 通过 JSBridge 获取拍照、媒体选择、录音停止或系统文件选择结果时，除保留原始文件元数据外，运行时必须提供 WebApp 可直接使用的同源本地资源 URL，使图片、音频和视频可以在页面内预览或播放。
 - Web App manifest 可以声明本地 `server.routes`。运行时必须把这些路由暴露为同源本地 API，并让前端可以通过 `window.PhoneAgent.serverFetch/serverJson` 或 `/api/...` 调用；路由执行仍必须回到 Capability Runtime，并遵守该 Web App 的 manifest 权限和独立数据 namespace。
 - Web App 本地 API 路由可以通过 `handlerPath` 指向项目内 server action handler 文件；handler 文件属于 Web App 项目代码，必须随项目文件一起保存、测试和版本化。
+- Web App server action handler 中的步骤失败时，运行时必须停止后续步骤并返回结构化错误；第一版不承诺跨步骤事务回滚，但不能静默吞掉失败后继续执行。
+- Web App 本地 API 请求体必须有明确大小上限；超过上限的请求必须返回结构化错误且不得执行任何 Capability，避免大请求绕过本地运行时边界或触发半成品写入。
 - 对话中的 Web App 卡片必须能直接打开同一个 Web App 预览页面，并以清晰的本地应用入口样式展示标题、类型和打开操作。
 - Web App Artifact 必须保存可运行入口内容和可发现的工程 manifest。缺少可运行入口内容时不得展示成“已加载”的假预览，必须返回结构化错误或可诊断提示。
 - Web App 打开前必须向用户展示 manifest 声明的能力权限；用户拒绝后 Web App 仍可打开，但 JSBridge 能力调用必须返回结构化权限错误。

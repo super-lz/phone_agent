@@ -47,7 +47,28 @@ void main() {
       }),
       overwrite: true,
     );
+    await fileStore.writeText(
+      workspaceId: 'work',
+      path: 'apps/demo/server/fail-then-write.json',
+      content: jsonEncode({
+        'steps': [
+          {
+            'id': 'read',
+            'capability': 'file.read_app_file',
+            'input': {'path': 'missing.txt'},
+          },
+          {
+            'id': 'write',
+            'capability': 'file.write_app_file',
+            'input': {'path': 'should-not-write.txt', 'content': 'bad'},
+          },
+        ],
+        'response': {'ok': true},
+      }),
+      overwrite: true,
+    );
 
+    final calledCapabilities = <String>[];
     final server = WebAppLocalServer(
       webApp: AgentArtifact(
         id: 'artifact-demo',
@@ -77,6 +98,11 @@ void main() {
                 'path': '/api/actions/create-note',
                 'handlerPath': 'server/create-note.json',
               },
+              {
+                'method': 'POST',
+                'path': '/api/actions/fail-then-write',
+                'handlerPath': 'server/fail-then-write.json',
+              },
             ],
           },
         },
@@ -100,6 +126,14 @@ void main() {
             required String capabilityId,
             required Map<String, Object?> input,
           }) async {
+            calledCapabilities.add(capabilityId);
+            if (capabilityId == 'file.read_app_file') {
+              return {
+                'ok': false,
+                'capabilityId': capabilityId,
+                'output': {'ok': false, 'error': 'not_found'},
+              };
+            }
             return {
               'ok': true,
               'capabilityId': capabilityId,
@@ -161,6 +195,41 @@ void main() {
     expect(actionBody['capabilityId'], 'db.note.create');
     expect(actionBody['title'], 'Handler API');
     expect(actionBody['tag'], 'handler');
+
+    calledCapabilities.clear();
+    final failedAction = await _postJson(
+      Uri(
+        scheme: url.scheme,
+        host: url.host,
+        port: url.port,
+        path: '/api/actions/fail-then-write',
+      ),
+      const {},
+    );
+    expect(failedAction.statusCode, HttpStatus.ok);
+    final failedActionBody =
+        jsonDecode(failedAction.body) as Map<String, Object?>;
+    expect(failedActionBody['ok'], isFalse);
+    expect(failedActionBody['error'], 'server_step_failed');
+    expect(failedActionBody['stepId'], 'read');
+    expect(failedActionBody['capabilityId'], 'file.read_app_file');
+    expect(calledCapabilities, ['file.read_app_file']);
+
+    calledCapabilities.clear();
+    final oversized = await _postRaw(
+      Uri(
+        scheme: url.scheme,
+        host: url.host,
+        port: url.port,
+        path: '/api/actions/create-note',
+      ),
+      'x' * (1024 * 1024 + 1),
+    );
+    expect(oversized.statusCode, HttpStatus.requestEntityTooLarge);
+    final oversizedBody = jsonDecode(oversized.body) as Map<String, Object?>;
+    expect(oversizedBody['ok'], isFalse);
+    expect(oversizedBody['error'], 'request_body_too_large');
+    expect(calledCapabilities, isEmpty);
 
     final mediaDir = await Directory.systemTemp.createTemp(
       'phone-agent-webapp-media-',
@@ -242,6 +311,26 @@ Future<_HttpTextResponse> _postJson(Uri uri, Map<String, Object?> body) async {
     final request = await client.postUrl(uri);
     final bytes = utf8.encode(jsonEncode(body));
     request.headers.contentType = ContentType.json;
+    request.contentLength = bytes.length;
+    request.add(bytes);
+    final response = await request.close();
+    final responseBody = await utf8.decodeStream(response);
+    return _HttpTextResponse(
+      statusCode: response.statusCode,
+      contentType: response.headers.contentType.toString(),
+      body: responseBody,
+    );
+  } finally {
+    client.close(force: true);
+  }
+}
+
+Future<_HttpTextResponse> _postRaw(Uri uri, String body) async {
+  final client = HttpClient();
+  try {
+    final request = await client.postUrl(uri);
+    final bytes = utf8.encode(body);
+    request.headers.contentType = ContentType.text;
     request.contentLength = bytes.length;
     request.add(bytes);
     final response = await request.close();

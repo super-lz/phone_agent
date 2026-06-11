@@ -308,7 +308,18 @@ class WebAppLocalServer {
         final result = attachLocalFileUrls(
           await caller(capabilityId: capabilityId.trim(), input: stepInput),
         );
-        steps[stepId.trim()] = result;
+        final normalizedStepId = stepId.trim();
+        final normalizedCapabilityId = capabilityId.trim();
+        steps[normalizedStepId] = result;
+        if (result['ok'] == false) {
+          return {
+            'ok': false,
+            'error': 'server_step_failed',
+            'stepId': normalizedStepId,
+            'capabilityId': normalizedCapabilityId,
+            'step': result,
+          };
+        }
       }
     }
 
