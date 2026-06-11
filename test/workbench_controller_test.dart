@@ -17,6 +17,7 @@ import 'package:phone_agent/domain/models/model_provider_config.dart';
 import 'package:phone_agent/domain/notes/note_store.dart';
 import 'package:phone_agent/domain/workbench/pending_agent_run.dart';
 import 'package:phone_agent/domain/workbench/workbench_store.dart';
+import 'package:phone_agent/features/web_app_runtime/web_app_local_server.dart';
 import 'package:phone_agent/features/workbench/controllers/workbench_controller.dart';
 
 void main() {
@@ -1299,6 +1300,161 @@ void main() {
     expect(output['error'], 'not_found');
   });
 
+  test(
+    'web app local api server actions use isolated file namespace',
+    () async {
+      final fileStore = InMemoryAppFileStore();
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        fileStore: fileStore,
+        chatClient: _FakeChatClient([
+          [
+            ChatStreamEvent(
+              toolCallDeltas: [
+                ToolCallDelta(
+                  index: 0,
+                  id: 'call-webapp-file-api',
+                  name: 'project_create_web_app',
+                  argumentsDelta: jsonEncode({
+                    'title': '文件 API Web App',
+                    'summary': '验证本地服务端文件读写。',
+                    'entry_path': 'apps/file-api/index.html',
+                    'permissions': [
+                      'file.write_app_file',
+                      'file.read_app_file',
+                    ],
+                    'server': {
+                      'routes': [
+                        {
+                          'method': 'POST',
+                          'path': '/api/files/write',
+                          'handlerPath': 'server/write-file.json',
+                        },
+                        {
+                          'method': 'GET',
+                          'path': '/api/files/read',
+                          'handlerPath': 'server/read-file.json',
+                        },
+                      ],
+                    },
+                    'files': [
+                      {
+                        'path': 'apps/file-api/index.html',
+                        'content':
+                            '<!doctype html><html><body>File API</body></html>',
+                      },
+                      {
+                        'path': 'apps/file-api/server/write-file.json',
+                        'content': jsonEncode({
+                          'steps': [
+                            {
+                              'id': 'write',
+                              'capability': 'file.write_app_file',
+                              'input': {
+                                'path': r'$request.path',
+                                'content': r'$request.content',
+                                'overwrite': true,
+                              },
+                            },
+                          ],
+                          'response': {
+                            'ok': r'$steps.write.ok',
+                            'path': r'$steps.write.output.path',
+                          },
+                        }),
+                      },
+                      {
+                        'path': 'apps/file-api/server/read-file.json',
+                        'content': jsonEncode({
+                          'steps': [
+                            {
+                              'id': 'read',
+                              'capability': 'file.read_app_file',
+                              'input': {'path': r'$request.path'},
+                            },
+                          ],
+                          'response': {
+                            'ok': r'$steps.read.ok',
+                            'content': r'$steps.read.output.content',
+                          },
+                        }),
+                      },
+                    ],
+                  }),
+                ),
+              ],
+            ),
+          ],
+          [const ChatStreamEvent(contentDelta: '已生成 Web App。')],
+        ]),
+      );
+      final webApp = await _createWebApp(controller);
+      final server = WebAppLocalServer(
+        webApp: webApp,
+        resourceReader: controller.readWebAppResource,
+        htmlHeadInjection: '',
+        fallbackHtml: '<main>Fallback</main>',
+        apiRouteCaller:
+            ({
+              required String capabilityId,
+              required Map<String, Object?> input,
+            }) {
+              return controller.callCapabilityFromWebApp(
+                webApp: webApp,
+                capabilityId: capabilityId,
+                input: input,
+              );
+            },
+      );
+      final url = await server.start();
+      addTearDown(server.close);
+
+      final write = await _postJson(
+        Uri(
+          scheme: url.scheme,
+          host: url.host,
+          port: url.port,
+          path: '/api/files/write',
+        ),
+        const {'path': 'data/profile.json', 'content': '{"name":"local"}'},
+      );
+      expect(write.statusCode, HttpStatus.ok);
+      final writeBody = jsonDecode(write.body) as Map<String, Object?>;
+      expect(writeBody['ok'], isTrue);
+      expect(writeBody['path'], 'data/profile.json');
+
+      final read = await _get(
+        Uri(
+          scheme: url.scheme,
+          host: url.host,
+          port: url.port,
+          path: '/api/files/read',
+          queryParameters: {'path': 'data/profile.json'},
+        ),
+      );
+      expect(read.statusCode, HttpStatus.ok);
+      final readBody = jsonDecode(read.body) as Map<String, Object?>;
+      expect(readBody['ok'], isTrue);
+      expect(readBody['content'], '{"name":"local"}');
+
+      await expectLater(
+        fileStore.readText(
+          workspaceId: controller.workspaceId,
+          path: 'data/profile.json',
+          maxChars: 12000,
+        ),
+        throwsA(isA<AppFileStoreException>()),
+      );
+      final fileNamespace = webApp.metadata['fileNamespace']! as String;
+      final stored = await fileStore.readText(
+        workspaceId: fileNamespace,
+        path: 'data/profile.json',
+        maxChars: 12000,
+      );
+      expect(stored.content, '{"name":"local"}');
+    },
+  );
+
   test('web app runtime logs are written to project folder', () async {
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),
@@ -1645,6 +1801,44 @@ Future<AgentArtifact> _createWebApp(WorkbenchController controller) async {
   return controller.workspaceArtifacts.lastWhere(
     (artifact) => artifact.type == ArtifactType.webApp,
   );
+}
+
+Future<_HttpTextResponse> _get(Uri uri) async {
+  final client = HttpClient();
+  try {
+    final request = await client.getUrl(uri);
+    final response = await request.close();
+    final body = await utf8.decodeStream(response);
+    return _HttpTextResponse(statusCode: response.statusCode, body: body);
+  } finally {
+    client.close(force: true);
+  }
+}
+
+Future<_HttpTextResponse> _postJson(Uri uri, Map<String, Object?> body) async {
+  final client = HttpClient();
+  try {
+    final request = await client.postUrl(uri);
+    final bytes = utf8.encode(jsonEncode(body));
+    request.headers.contentType = ContentType.json;
+    request.contentLength = bytes.length;
+    request.add(bytes);
+    final response = await request.close();
+    final responseBody = await utf8.decodeStream(response);
+    return _HttpTextResponse(
+      statusCode: response.statusCode,
+      body: responseBody,
+    );
+  } finally {
+    client.close(force: true);
+  }
+}
+
+class _HttpTextResponse {
+  const _HttpTextResponse({required this.statusCode, required this.body});
+
+  final int statusCode;
+  final String body;
 }
 
 class _FakeApiKeyStore extends ModelApiKeyStore {
