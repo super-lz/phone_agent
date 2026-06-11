@@ -142,11 +142,55 @@ class MessageView extends StatelessWidget {
         type: MessageBlockType.taskProgress,
         data: {
           'blocks': processBlocks,
-          'status': visibleBlocks.isEmpty ? 'processing' : 'completed',
+          'status': _processStatus(processBlocks, visibleBlocks),
         },
       ),
       ...visibleBlocks,
     ];
+  }
+
+  String _processStatus(
+    List<MessageBlock> processBlocks,
+    List<MessageBlock> visibleBlocks,
+  ) {
+    if (visibleBlocks.isNotEmpty) {
+      return 'completed';
+    }
+    final toolCalls = processBlocks
+        .where((block) => block.type == MessageBlockType.toolCall)
+        .map((block) => block.data['capabilityId'] as String?)
+        .whereType<String>()
+        .toList(growable: false);
+    if (toolCalls.isEmpty) {
+      return 'processing';
+    }
+    final resultIds = processBlocks
+        .where((block) => block.type == MessageBlockType.toolResult)
+        .map((block) => block.data['capabilityId'] as String?)
+        .whereType<String>()
+        .toList(growable: false);
+    final allCallsHaveResults = toolCalls.every((name) {
+      final expectedCapabilityId = _capabilityIdForToolName(name);
+      return resultIds.contains(name) ||
+          resultIds.contains(expectedCapabilityId);
+    });
+    return allCallsHaveResults ? 'completed' : 'processing';
+  }
+
+  String _capabilityIdForToolName(String toolName) {
+    return switch (toolName) {
+      'project_create_web_app' => 'project.create_web_app',
+      'project_update_web_app' => 'project.update_web_app',
+      'project_test_web_app' => 'project.test_web_app',
+      'artifact_create' => 'artifact.create',
+      'artifact_query' => 'artifact.query',
+      'file_write_app_file' => 'file.write_app_file',
+      'file_read_app_file' => 'file.read_app_file',
+      'file_search_app_files' => 'file.search_app_files',
+      'web_search' => 'web.search',
+      'web_fetch' => 'web.fetch',
+      _ => toolName.replaceAll('_', '.'),
+    };
   }
 
   bool _isProcessBlock(MessageBlock block) {

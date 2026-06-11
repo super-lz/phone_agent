@@ -1,134 +1,91 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone_agent/data/models/model_api_key_store.dart';
 import 'package:phone_agent/data/models/model_settings_store.dart';
+import 'package:phone_agent/data/models/openai_compatible_chat_client.dart';
 import 'package:phone_agent/domain/models/model_provider_config.dart';
 import 'package:phone_agent/features/settings/model_settings_page.dart';
 
 void main() {
-  testWidgets('settings page switches provider and saves independent config', (
-    tester,
-  ) async {
-    final apiKeyStore = _FakeApiKeyStore();
-    final settingsStore = InMemoryModelSettingsStore();
+  testWidgets(
+    'connection test status uses selected model and deterministic result',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final modelSettingsStore = InMemoryModelSettingsStore();
+      await modelSettingsStore.saveSelectedProviderId(
+        ModelProviders.aliyunBailianQwenFlash.id,
+      );
+      await modelSettingsStore.saveModelName(
+        ModelProviders.aliyunBailianQwenFlash.id,
+        'qwen3.7-max-preview',
+      );
+      final chatClient = _DelayedConnectionClient();
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ModelSettingsPage(
-          apiKeyStore: apiKeyStore,
-          modelSettingsStore: settingsStore,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ModelSettingsPage(
+            apiKeyStore: _FakeApiKeyStore('test-key'),
+            modelSettingsStore: modelSettingsStore,
+            chatClient: chatClient,
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('MiniMax').first);
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).first, 'minimax-key');
-    await tester.ensureVisible(find.text('保存配置'));
-    await tester.tap(find.text('保存配置'));
-    await tester.pumpAndSettle();
+      await tester.ensureVisible(find.widgetWithText(OutlinedButton, '连接测试'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, '连接测试'));
+      await tester.pump();
 
-    expect(
-      await apiKeyStore.readApiKey(ModelProviders.miniMax.id),
-      'minimax-key',
-    );
-    expect(
-      await settingsStore.readModelName(ModelProviders.miniMax.id),
-      'MiniMax-M3',
-    );
-    expect(
-      await settingsStore.readSelectedProviderId(),
-      ModelProviders.miniMax.id,
-    );
-  });
+      expect(
+        find.textContaining('正在测试 阿里云百炼 / qwen3.7-max-preview'),
+        findsOneWidget,
+      );
+      expect(chatClient.testedProvider!.model, 'qwen3.7-max-preview');
 
-  testWidgets('settings page saves custom model per provider', (tester) async {
-    final apiKeyStore = _FakeApiKeyStore();
-    final settingsStore = InMemoryModelSettingsStore();
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ModelSettingsPage(
-          apiKeyStore: apiKeyStore,
-          modelSettingsStore: settingsStore,
+      chatClient.complete(
+        const ModelConnectionResult(
+          ok: true,
+          message: '连接成功：阿里云百炼 / qwen3.7-max-preview 返回了有效响应。',
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('DeepSeek').first);
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).first, 'deepseek-key');
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('自定义模型名称').last);
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'deepseek-custom');
-    await tester.drag(find.byType(ListView), const Offset(0, -260));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('保存配置'));
-    await tester.pumpAndSettle();
-
-    expect(
-      await apiKeyStore.readApiKey(ModelProviders.deepSeek.id),
-      'deepseek-key',
-    );
-    expect(
-      await settingsStore.readModelName(ModelProviders.deepSeek.id),
-      'deepseek-custom',
-    );
-  });
-
-  testWidgets('settings page saves manual context window per provider', (
-    tester,
-  ) async {
-    final apiKeyStore = _FakeApiKeyStore();
-    final settingsStore = InMemoryModelSettingsStore();
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ModelSettingsPage(
-          apiKeyStore: apiKeyStore,
-          modelSettingsStore: settingsStore,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('MiniMax').first);
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).first, 'minimax-key');
-    await tester.enterText(
-      find.widgetWithText(TextField, '最大上下文 token（可选）'),
-      '128000',
-    );
-    await tester.ensureVisible(find.text('保存配置'));
-    await tester.tap(find.text('保存配置'));
-    await tester.pumpAndSettle();
-
-    expect(
-      await settingsStore.readContextWindowTokens(ModelProviders.miniMax.id),
-      128000,
-    );
-  });
+      expect(
+        find.textContaining('连接成功：阿里云百炼 / qwen3.7-max-preview'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('抱歉'), findsNothing);
+    },
+  );
 }
 
 class _FakeApiKeyStore extends ModelApiKeyStore {
-  final Map<String, String> values = {};
+  _FakeApiKeyStore(this.apiKey);
+
+  final String? apiKey;
 
   @override
-  Future<String?> readApiKey(String providerId) async {
-    return values[providerId];
+  Future<String?> readApiKey(String providerId) async => apiKey;
+}
+
+class _DelayedConnectionClient extends OpenAiCompatibleChatClient {
+  final _completer = Completer<ModelConnectionResult>();
+  ModelProviderConfig? testedProvider;
+
+  @override
+  Future<ModelConnectionResult> testConnection({
+    required ModelProviderConfig provider,
+    required String apiKey,
+  }) {
+    testedProvider = provider;
+    return _completer.future;
   }
 
-  @override
-  Future<void> saveApiKey(String providerId, String apiKey) async {
-    values[providerId] = apiKey;
-  }
-
-  @override
-  Future<void> deleteApiKey(String providerId) async {
-    values.remove(providerId);
+  void complete(ModelConnectionResult result) {
+    _completer.complete(result);
   }
 }

@@ -67,6 +67,18 @@ void main() {
     expect(find.textContaining('本地工作区内容已清理'), findsWidgets);
   });
 
+  testWidgets('opens token usage page from the app bar', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 900));
+    await tester.pumpWidget(const PhoneAgentApp());
+
+    await tester.tap(find.byTooltip('Token 用量'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Token 用量'), findsWidgets);
+    expect(find.text('Token 活动'), findsOneWidget);
+    expect(find.text('本机估算'), findsOneWidget);
+  });
+
   testWidgets('prompt can create a web app artifact', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 900));
     await tester.pumpWidget(_appWithWebAppModel());

@@ -27,6 +27,7 @@ import '../../../domain/models/model_provider_config.dart';
 import '../../../domain/notes/note.dart';
 import '../../../domain/notes/note_store.dart';
 import '../../../domain/permissions/permission_policy.dart';
+import '../../../domain/usage/token_usage.dart';
 import '../../../domain/workbench/pending_agent_run.dart';
 import '../../../domain/workbench/workbench_store.dart';
 import '../../../domain/workspace/workspace.dart';
@@ -161,6 +162,7 @@ class WorkbenchController extends ChangeNotifier {
   bool get isAppInForeground => _isAppInForeground;
   AgentRunSnapshot? get currentRun => _currentRun;
   ContextBudgetSnapshot? get contextBudget => _contextBudget;
+  WorkbenchStore get workbenchStore => _workbenchStore;
 
   AgentWorkspace get currentWorkspace {
     return _workspaces.firstWhere((workspace) => workspace.id == _workspaceId);
@@ -254,6 +256,9 @@ class WorkbenchController extends ChangeNotifier {
       _messages
         ..clear()
         ..addAll(loadedMessages);
+      _contextBudget = _contextBudgetFromJson(
+        await _workbenchStore.loadContextBudgetSnapshot(_workspaceId),
+      );
       if (_messages.isEmpty && _workspaceId == defaultWorkspaceId) {
         _messages.addAll(PhoneAgentSeed.messages());
         await _persistCurrentMessages();
@@ -319,6 +324,9 @@ class WorkbenchController extends ChangeNotifier {
       _messages
         ..clear()
         ..addAll(await _workbenchStore.loadMessages(_workspaceId));
+      _contextBudget = _contextBudgetFromJson(
+        await _workbenchStore.loadContextBudgetSnapshot(_workspaceId),
+      );
       await _workbenchStore.saveCurrentWorkspaceId(_workspaceId);
     }
     AppLogger.warning('workbench.agent_run.resume_pending', {
@@ -450,9 +458,28 @@ class WorkbenchController extends ChangeNotifier {
     _workspaceFiles.clear();
     _contextBudget = null;
     unawaited(_workbenchStore.saveCurrentWorkspaceId(workspaceId));
+    unawaited(_loadContextBudgetForWorkspace(workspaceId));
     unawaited(_loadMessagesForWorkspace(workspaceId));
     unawaited(_refreshWorkspaceFiles());
     notifyListeners();
+  }
+
+  Future<void> _loadContextBudgetForWorkspace(String workspaceId) async {
+    try {
+      final snapshot = _contextBudgetFromJson(
+        await _workbenchStore.loadContextBudgetSnapshot(workspaceId),
+      );
+      if (_isDisposed || workspaceId != _workspaceId) {
+        return;
+      }
+      _contextBudget = snapshot;
+      notifyListeners();
+    } on Object catch (error) {
+      AppLogger.warning('workbench.context_budget.load_failed', {
+        'workspaceId': workspaceId,
+        'error': error.toString(),
+      });
+    }
   }
 
   Future<void> _loadMessagesForWorkspace(String workspaceId) async {
@@ -1180,6 +1207,7 @@ class WorkbenchController extends ChangeNotifier {
     } on Object catch (error) {
       _addMessage(_modelErrorResponse(error.toString()));
     } finally {
+      await _recordTokenUsage(activePendingRun);
       _persistCollections();
       await _workbenchStore.clearPendingAgentRun(activePendingRun.id);
       await _stopBackgroundRun(activePendingRun.id);
@@ -1191,37 +1219,158 @@ class WorkbenchController extends ChangeNotifier {
     }
   }
 
+  Future<void> _recordTokenUsage(PendingAgentRun run) async {
+    final snapshot = _contextBudget;
+    if (snapshot == null) {
+      return;
+    }
+    final endedAt = DateTime.now();
+    try {
+      await _workbenchStore.upsertTokenUsageRecord(
+        TokenUsageRecord(
+          id: 'token-usage-${run.id}',
+          workspaceId: run.workspaceId,
+          runId: run.id,
+          providerId: snapshot.providerId,
+          modelName: snapshot.modelName,
+          inputTokens: snapshot.inputTokens,
+          reservedOutputTokens: snapshot.reservedOutputTokens,
+          maxContextTokens: snapshot.maxContextTokens,
+          isConservativeEstimate: snapshot.isConservativeFallback,
+          startedAt: run.startedAt,
+          endedAt: endedAt,
+        ),
+      );
+      AppLogger.info('workbench.token_usage.recorded', {
+        'runId': run.id,
+        'workspaceId': run.workspaceId,
+        'providerId': snapshot.providerId,
+        'modelName': snapshot.modelName,
+        'totalTokens': snapshot.totalTokens,
+      });
+    } on Object catch (error) {
+      AppLogger.warning('workbench.token_usage.record_failed', {
+        'runId': run.id,
+        'error': error.toString(),
+      });
+    }
+  }
+
   void _setCurrentRun(AgentRunSnapshot snapshot) {
     if (_isDisposed) {
       return;
     }
     final previous = _currentRun;
+    final effectiveSnapshot = snapshot.contextBudget == null
+        ? AgentRunSnapshot(
+            phase: snapshot.phase,
+            detail: snapshot.detail,
+            toolCallsUsed: snapshot.toolCallsUsed,
+            maxToolCalls: snapshot.maxToolCalls,
+            startedAt: snapshot.startedAt,
+            currentToolName: snapshot.currentToolName,
+            contextBudget: _contextBudget,
+          )
+        : snapshot;
     if (snapshot.contextBudget != null) {
-      _contextBudget = snapshot.contextBudget;
+      _contextBudget = effectiveSnapshot.contextBudget;
+      unawaited(
+        _saveContextBudgetSnapshot(
+          _workspaceId,
+          effectiveSnapshot.contextBudget!,
+        ),
+      );
     }
     final isDuplicate =
-        previous?.phase == snapshot.phase &&
-        previous?.detail == snapshot.detail &&
-        previous?.toolCallsUsed == snapshot.toolCallsUsed &&
-        previous?.maxToolCalls == snapshot.maxToolCalls &&
-        previous?.currentToolName == snapshot.currentToolName &&
+        previous?.phase == effectiveSnapshot.phase &&
+        previous?.detail == effectiveSnapshot.detail &&
+        previous?.toolCallsUsed == effectiveSnapshot.toolCallsUsed &&
+        previous?.maxToolCalls == effectiveSnapshot.maxToolCalls &&
+        previous?.currentToolName == effectiveSnapshot.currentToolName &&
         previous?.contextBudget?.usagePercent ==
-            snapshot.contextBudget?.usagePercent;
+            effectiveSnapshot.contextBudget?.usagePercent;
     if (isDuplicate) {
       return;
     }
-    _currentRun = snapshot;
+    _currentRun = effectiveSnapshot;
     AppLogger.info('workbench.agent_run.status', {
-      'phase': snapshot.phase.name,
-      'detail': snapshot.detail,
-      'toolCallsUsed': snapshot.toolCallsUsed,
-      'maxToolCalls': snapshot.maxToolCalls,
-      if (snapshot.contextBudget != null)
-        'contextUsagePercent': snapshot.contextBudget!.usagePercent,
-      if (snapshot.currentToolName != null)
-        'currentToolName': snapshot.currentToolName,
+      'phase': effectiveSnapshot.phase.name,
+      'detail': effectiveSnapshot.detail,
+      'toolCallsUsed': effectiveSnapshot.toolCallsUsed,
+      'maxToolCalls': effectiveSnapshot.maxToolCalls,
+      if (effectiveSnapshot.contextBudget != null)
+        'contextUsagePercent': effectiveSnapshot.contextBudget!.usagePercent,
+      if (effectiveSnapshot.currentToolName != null)
+        'currentToolName': effectiveSnapshot.currentToolName,
     });
     notifyListeners();
+  }
+
+  Future<void> _saveContextBudgetSnapshot(
+    String workspaceId,
+    ContextBudgetSnapshot snapshot,
+  ) async {
+    try {
+      await _workbenchStore.saveContextBudgetSnapshot(
+        workspaceId: workspaceId,
+        snapshot: _contextBudgetToJson(snapshot),
+      );
+    } on Object catch (error) {
+      AppLogger.warning('workbench.context_budget.save_failed', {
+        'workspaceId': workspaceId,
+        'error': error.toString(),
+      });
+    }
+  }
+
+  Map<String, Object?> _contextBudgetToJson(ContextBudgetSnapshot snapshot) => {
+    'providerId': snapshot.providerId,
+    'modelName': snapshot.modelName,
+    'maxContextTokens': snapshot.maxContextTokens,
+    'isConservativeFallback': snapshot.isConservativeFallback,
+    'reservedOutputTokens': snapshot.reservedOutputTokens,
+    'systemTokens': snapshot.systemTokens,
+    'toolTokens': snapshot.toolTokens,
+    'summaryTokens': snapshot.summaryTokens,
+    'recentHistoryTokens': snapshot.recentHistoryTokens,
+    'promptTokens': snapshot.promptTokens,
+    'inputTokens': snapshot.inputTokens,
+  };
+
+  ContextBudgetSnapshot? _contextBudgetFromJson(Map<String, Object?>? json) {
+    if (json == null) {
+      return null;
+    }
+    try {
+      return ContextBudgetSnapshot(
+        providerId: json['providerId']! as String,
+        modelName: json['modelName']! as String,
+        maxContextTokens: _jsonInt(json['maxContextTokens']),
+        isConservativeFallback: json['isConservativeFallback'] == true,
+        reservedOutputTokens: _jsonInt(json['reservedOutputTokens']),
+        systemTokens: _jsonInt(json['systemTokens']),
+        toolTokens: _jsonInt(json['toolTokens']),
+        summaryTokens: _jsonInt(json['summaryTokens']),
+        recentHistoryTokens: _jsonInt(json['recentHistoryTokens']),
+        promptTokens: _jsonInt(json['promptTokens']),
+        inputTokens: _jsonInt(json['inputTokens']),
+      );
+    } on Object catch (error) {
+      AppLogger.warning('workbench.context_budget.restore_failed', {
+        'error': error.toString(),
+      });
+      return null;
+    }
+  }
+
+  int _jsonInt(Object? value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.round();
+    }
+    return int.parse(value.toString());
   }
 
   Future<void> _refreshWorkspaceFiles({bool notify = true}) async {

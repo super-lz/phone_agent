@@ -2,6 +2,7 @@ import '../artifacts/artifact.dart';
 import '../capabilities/capability.dart';
 import '../conversation/message_block.dart';
 import '../memory/memory.dart';
+import '../usage/token_usage.dart';
 import '../workspace/workspace.dart';
 import 'pending_agent_run.dart';
 
@@ -49,6 +50,17 @@ abstract class WorkbenchStore {
 
   Future<List<CapabilityInvocation>> loadInvocations();
 
+  Future<void> upsertTokenUsageRecord(TokenUsageRecord record);
+
+  Future<List<TokenUsageRecord>> loadTokenUsageRecords();
+
+  Future<void> saveContextBudgetSnapshot({
+    required String workspaceId,
+    required Map<String, Object?> snapshot,
+  });
+
+  Future<Map<String, Object?>?> loadContextBudgetSnapshot(String workspaceId);
+
   Future<List<McpConnection>> loadMcpConnections();
 
   Future<void> upsertMcpConnection(McpConnection connection);
@@ -75,6 +87,8 @@ class InMemoryWorkbenchStore implements WorkbenchStore {
   final _artifacts = <String, AgentArtifact>{};
   final _messagesByWorkspace = <String, Map<String, AgentMessage>>{};
   final _invocations = <CapabilityInvocation>[];
+  final _tokenUsageRecords = <String, TokenUsageRecord>{};
+  final _contextBudgetSnapshots = <String, Map<String, Object?>>{};
   final _mcpConnections = <String, McpConnection>{};
   final _skills = <String, AgentSkill>{};
   PendingAgentRun? _pendingAgentRun;
@@ -193,6 +207,36 @@ class InMemoryWorkbenchStore implements WorkbenchStore {
   }
 
   @override
+  Future<void> upsertTokenUsageRecord(TokenUsageRecord record) async {
+    _tokenUsageRecords[record.id] = record;
+  }
+
+  @override
+  Future<List<TokenUsageRecord>> loadTokenUsageRecords() async {
+    return _tokenUsageRecords.values.toList(growable: false)
+      ..sort((a, b) => a.startedAt.compareTo(b.startedAt));
+  }
+
+  @override
+  Future<void> saveContextBudgetSnapshot({
+    required String workspaceId,
+    required Map<String, Object?> snapshot,
+  }) async {
+    _contextBudgetSnapshots[workspaceId] = Map<String, Object?>.of(snapshot);
+  }
+
+  @override
+  Future<Map<String, Object?>?> loadContextBudgetSnapshot(
+    String workspaceId,
+  ) async {
+    final snapshot = _contextBudgetSnapshots[workspaceId];
+    if (snapshot == null) {
+      return null;
+    }
+    return Map<String, Object?>.of(snapshot);
+  }
+
+  @override
   Future<List<McpConnection>> loadMcpConnections() async {
     return _mcpConnections.values.toList()
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -238,6 +282,8 @@ class InMemoryWorkbenchStore implements WorkbenchStore {
       for (final message in defaultMessages) message.id: message,
     };
     _invocations.clear();
+    _tokenUsageRecords.clear();
+    _contextBudgetSnapshots.clear();
     _pendingAgentRun = null;
     _currentWorkspaceId = defaultWorkspace.id;
   }

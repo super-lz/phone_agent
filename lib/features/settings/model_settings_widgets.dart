@@ -1,5 +1,23 @@
 part of 'model_settings_page.dart';
 
+enum _SettingsStatusKind { info, success, error }
+
+class _SettingsStatus {
+  const _SettingsStatus._(this.kind, this.message);
+
+  factory _SettingsStatus.info(String message) =>
+      _SettingsStatus._(_SettingsStatusKind.info, message);
+
+  factory _SettingsStatus.success(String message) =>
+      _SettingsStatus._(_SettingsStatusKind.success, message);
+
+  factory _SettingsStatus.error(String message) =>
+      _SettingsStatus._(_SettingsStatusKind.error, message);
+
+  final _SettingsStatusKind kind;
+  final String message;
+}
+
 class _ProviderGroupSection extends StatelessWidget {
   const _ProviderGroupSection({
     required this.title,
@@ -265,29 +283,28 @@ class _SummaryLine extends StatelessWidget {
 }
 
 class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.message});
+  const _StatusCard({required this.status});
 
-  final String message;
+  final _SettingsStatus status;
 
   @override
   Widget build(BuildContext context) {
-    final isError = message.contains('失败') || message.contains('不能为空');
+    final color = switch (status.kind) {
+      _SettingsStatusKind.success => Colors.green,
+      _SettingsStatusKind.error => Colors.red,
+      _SettingsStatusKind.info => Colors.blue,
+    };
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isError ? Colors.red.shade50 : Colors.green.shade50,
+        color: color.shade50,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isError ? Colors.red.shade100 : Colors.green.shade100,
-        ),
+        border: Border.all(color: color.shade100),
       ),
       child: Text(
-        message,
-        style: TextStyle(
-          fontSize: 13,
-          color: isError ? Colors.red.shade700 : Colors.green.shade700,
-        ),
+        status.message,
+        style: TextStyle(fontSize: 13, color: color.shade700),
       ),
     );
   }

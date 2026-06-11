@@ -127,14 +127,12 @@ class OpenAiCompatibleChatClient {
       );
       return;
     }
-    final requestBody = {
-      'model': provider.model,
-      'messages': messages,
-      ...provider.defaultParameters,
-      'stream': true,
-      if (tools.isNotEmpty) 'tools': tools,
-      if (tools.isNotEmpty) 'tool_choice': 'auto',
-    };
+    final requestBody = _openAiChatRequestBody(
+      provider: provider,
+      messages: messages,
+      stream: true,
+      tools: tools,
+    );
     AppLogger.info('model.stream_chat.start', {
       'provider': provider.id,
       'model': provider.model,
@@ -275,12 +273,11 @@ class OpenAiCompatibleChatClient {
       final response = await _postChatCompletion(
         provider: provider,
         apiKey: apiKey,
-        body: {
-          'model': provider.model,
-          'messages': messages,
-          ...provider.defaultParameters,
-          'stream': false,
-        },
+        body: _openAiChatRequestBody(
+          provider: provider,
+          messages: messages,
+          stream: false,
+        ),
       );
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -318,7 +315,12 @@ class OpenAiCompatibleChatClient {
           {'role': 'user', 'content': '请用一句话回答：Phone Agent 模型连接正常吗？'},
         ],
       );
-      return ModelConnectionResult(ok: result.ok, message: result.content);
+      return ModelConnectionResult(
+        ok: result.ok,
+        message: result.ok
+            ? _connectionSuccessMessage(provider)
+            : result.content,
+      );
     }
     AppLogger.info('model.test_connection.start', {
       'provider': provider.id,
@@ -328,15 +330,14 @@ class OpenAiCompatibleChatClient {
       final response = await _postChatCompletion(
         provider: provider,
         apiKey: apiKey,
-        body: {
-          'model': provider.model,
-          'messages': [
+        body: _openAiChatRequestBody(
+          provider: provider,
+          messages: const [
             {'role': 'user', 'content': '请用一句话回答：Phone Agent 模型连接正常吗？'},
           ],
-          ...provider.defaultParameters,
-          'stream': false,
-          'max_tokens': 128,
-        },
+          stream: false,
+          overrides: const {'max_tokens': 128},
+        ),
       );
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -356,7 +357,9 @@ class OpenAiCompatibleChatClient {
       });
       return ModelConnectionResult(
         ok: text.isNotEmpty,
-        message: text.isEmpty ? '连接成功，但响应中没有文本内容。' : text,
+        message: text.isEmpty
+            ? 'HTTP 200，但模型响应中没有可用文本内容。'
+            : _connectionSuccessMessage(provider),
       );
     } on Object catch (error) {
       AppLogger.error('model.test_connection.exception', error);
@@ -587,6 +590,10 @@ class OpenAiCompatibleChatClient {
         '当前版本可以保存配置，暂不发起连接测试或普通对话调用。';
   }
 
+  String _connectionSuccessMessage(ModelProviderConfig provider) {
+    return '连接成功：${provider.vendorName} / ${provider.model} 返回了有效响应。';
+  }
+
   String? _parseSseDataLine(String line) {
     final trimmed = line.trim();
     if (trimmed.isEmpty || !trimmed.startsWith('data:')) {
@@ -680,6 +687,59 @@ class OpenAiCompatibleChatClient {
           body: jsonEncode(body),
         )
         .timeout(requestTimeout);
+  }
+
+  Map<String, Object?> _openAiChatRequestBody({
+    required ModelProviderConfig provider,
+    required List<Map<String, Object?>> messages,
+    required bool stream,
+    List<Map<String, Object?>> tools = const [],
+    Map<String, Object?> overrides = const {},
+  }) {
+    return {
+      'model': provider.model,
+      'messages': messages,
+      ..._resolvedOpenAiParameters(
+        provider,
+        stream: stream,
+        hasTools: tools.isNotEmpty,
+      ),
+      'stream': stream,
+      if (tools.isNotEmpty) 'tools': tools,
+      if (tools.isNotEmpty) 'tool_choice': 'auto',
+      ...overrides,
+    };
+  }
+
+  Map<String, Object?> _resolvedOpenAiParameters(
+    ModelProviderConfig provider, {
+    required bool stream,
+    required bool hasTools,
+  }) {
+    final parameters = Map<String, Object?>.of(provider.defaultParameters);
+    if (provider.id == ModelProviders.aliyunBailianQwenFlash.id &&
+        _requiresQwenThinking(provider.model)) {
+      parameters['enable_thinking'] = true;
+    }
+    if (stream && hasTools && _supportsBailianToolStream(provider)) {
+      parameters['tool_stream'] = true;
+    }
+    return parameters;
+  }
+
+  bool _supportsBailianToolStream(ModelProviderConfig provider) {
+    if (provider.id != ModelProviders.aliyunBailianQwenFlash.id) {
+      return false;
+    }
+    final normalized = provider.model.toLowerCase();
+    return normalized.contains('qwen') || normalized.contains('glm');
+  }
+
+  bool _requiresQwenThinking(String modelName) {
+    final normalized = modelName.toLowerCase();
+    return normalized.contains('qwen3.7-max') ||
+        normalized.contains('qwen3-max-preview') ||
+        normalized.contains('qwen-max-preview');
   }
 
   ModelRequestException _modelRequestExceptionFor(

@@ -44,9 +44,9 @@ class AgentRunSnapshot {
   String get phaseLabel {
     return switch (phase) {
       AgentRunPhase.thinking => '正在思考',
-      AgentRunPhase.routing => '准备工具',
+      AgentRunPhase.routing => '正在思考',
       AgentRunPhase.modelStreaming => '正在思考',
-      AgentRunPhase.waitingForToolCall => '调用工具',
+      AgentRunPhase.waitingForToolCall => '生成参数',
       AgentRunPhase.executingTool => '执行工具',
       AgentRunPhase.waitingForeground => '等待前台',
       AgentRunPhase.finalizing => '整理回答',

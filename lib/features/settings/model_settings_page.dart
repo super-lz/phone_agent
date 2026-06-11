@@ -41,7 +41,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
   bool _obscureApiKey = true;
   bool _loading = true;
   bool _testing = false;
-  String? _status;
+  _SettingsStatus? _status;
 
   @override
   void initState() {
@@ -108,18 +108,21 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
   Future<void> _saveSettings() async {
     final modelName = _currentModelName();
     if (modelName.isEmpty) {
-      setState(() => _status = '模型名称不能为空。');
+      setState(() => _status = _SettingsStatus.error('模型名称不能为空。'));
       return;
     }
 
     final apiKey = _apiKeyController.text.trim();
     if (apiKey.isEmpty) {
-      setState(() => _status = 'API Key 不能为空。');
+      setState(() => _status = _SettingsStatus.error('API Key 不能为空。'));
       return;
     }
     final contextWindowTokens = _currentContextWindowOverride();
     if (contextWindowTokens == 0) {
-      setState(() => _status = '最大上下文 token 必须是正整数，或留空使用内置/保守预算。');
+      setState(
+        () =>
+            _status = _SettingsStatus.error('最大上下文 token 必须是正整数，或留空使用内置/保守预算。'),
+      );
       return;
     }
 
@@ -137,7 +140,11 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
     if (!mounted) {
       return;
     }
-    setState(() => _status = '已保存 ${_provider.vendorName} API Key 和模型配置。');
+    setState(
+      () => _status = _SettingsStatus.success(
+        '已保存 ${_provider.vendorName} / $modelName 的模型配置。',
+      ),
+    );
   }
 
   Future<void> _clearApiKey() async {
@@ -146,7 +153,11 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
       return;
     }
     _apiKeyController.clear();
-    setState(() => _status = '已清除 ${_provider.vendorName} API Key。');
+    setState(
+      () => _status = _SettingsStatus.info(
+        '已清除 ${_provider.vendorName} API Key。',
+      ),
+    );
   }
 
   Future<void> _restoreDefaultModel() async {
@@ -158,24 +169,27 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
     setState(() {
       _contextWindowController.clear();
       _setSelectedModel(_provider.defaultModel, provider: _provider);
-      _status = '已恢复默认模型：${_provider.defaultModel}';
+      _status = _SettingsStatus.info('已恢复默认模型：${_provider.defaultModel}');
     });
   }
 
   Future<void> _testConnection() async {
     final apiKey = _apiKeyController.text.trim();
     if (apiKey.isEmpty) {
-      setState(() => _status = '请先填写 API Key。');
+      setState(() => _status = _SettingsStatus.error('请先填写 API Key。'));
       return;
     }
+    final provider = _effectiveProvider();
 
     setState(() {
       _testing = true;
-      _status = '正在测试 ${_provider.displayName}，最多等待 15 秒...';
+      _status = _SettingsStatus.info(
+        '正在测试 ${provider.vendorName} / ${provider.model}，最多等待 15 秒...',
+      );
     });
 
     final result = await _chatClient.testConnection(
-      provider: _effectiveProvider(),
+      provider: provider,
       apiKey: apiKey,
     );
     if (!mounted) {
@@ -183,7 +197,9 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
     }
     setState(() {
       _testing = false;
-      _status = result.ok ? '测试成功：${result.message}' : '测试失败：${result.message}';
+      _status = result.ok
+          ? _SettingsStatus.success(result.message)
+          : _SettingsStatus.error('连接失败：${result.message}');
     });
   }
 
@@ -194,7 +210,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
     setState(() {
       _provider = provider;
       _loading = true;
-      _status = '已选择${provider.vendorName}。';
+      _status = _SettingsStatus.info('已选择 ${provider.vendorName}。');
     });
     await _modelSettingsStore.saveSelectedProviderId(provider.id);
     await _loadProviderSettings();
@@ -206,7 +222,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
     }
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
-      setState(() => _status = '无法打开链接：$uri');
+      setState(() => _status = _SettingsStatus.error('无法打开链接：$uri'));
     }
   }
 
@@ -443,7 +459,7 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
                 ),
                 if (_status != null) ...[
                   const SizedBox(height: 16),
-                  _StatusCard(message: _status!),
+                  _StatusCard(status: _status!),
                 ],
               ],
             ),

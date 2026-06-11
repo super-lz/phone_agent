@@ -55,6 +55,152 @@ void main() {
     expect(find.byTooltip('停止本轮任务'), findsNothing);
     expect(find.textContaining('3/48'), findsNothing);
     expect(find.textContaining('执行工具'), findsOneWidget);
+    expect(find.textContaining('web_search'), findsOneWidget);
+  });
+
+  testWidgets('routing state is presented as thinking instead of tool prep', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(420, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatPanel(
+            workspace: AgentWorkspace(
+              id: 'default',
+              name: '默认',
+              description: '测试工作区',
+              createdAt: DateTime(2026),
+            ),
+            messages: const [],
+            composerController: controller,
+            isSending: true,
+            currentRun: AgentRunSnapshot(
+              phase: AgentRunPhase.routing,
+              detail: '正在分析这次请求。',
+              toolCallsUsed: 0,
+              maxToolCalls: 48,
+              startedAt: DateTime(2026),
+            ),
+            contextBudget: null,
+            onCancelRun: () {},
+            onSendPrompt: () {},
+            onOpenWebAppArtifact: (_) {},
+            onApproveCapability: (_) {},
+            onDenyCapability: (_) {},
+            pendingAttachments: const [],
+            onAddFile: () {},
+            onAddImage: () {},
+            onTakePhoto: () {},
+            onRemovePendingAttachment: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('正在思考'), findsOneWidget);
+    expect(find.textContaining('准备工具'), findsNothing);
+  });
+
+  testWidgets('tool argument streaming explains parameter generation', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(420, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatPanel(
+            workspace: AgentWorkspace(
+              id: 'default',
+              name: '默认',
+              description: '测试工作区',
+              createdAt: DateTime(2026),
+            ),
+            messages: const [],
+            composerController: controller,
+            isSending: true,
+            currentRun: AgentRunSnapshot(
+              phase: AgentRunPhase.waitingForToolCall,
+              detail: '正在生成 Web App 文件内容，已接收约 4.2K 字符；参数完整后会立即创建。',
+              toolCallsUsed: 0,
+              maxToolCalls: 48,
+              startedAt: DateTime(2026),
+              currentToolName: 'project_create_web_app',
+            ),
+            contextBudget: null,
+            onCancelRun: () {},
+            onSendPrompt: () {},
+            onOpenWebAppArtifact: (_) {},
+            onApproveCapability: (_) {},
+            onDenyCapability: (_) {},
+            pendingAttachments: const [],
+            onAddFile: () {},
+            onAddImage: () {},
+            onTakePhoto: () {},
+            onRemovePendingAttachment: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('生成参数'), findsOneWidget);
+    expect(find.textContaining('正在生成 Web App 文件内容'), findsOneWidget);
+    expect(find.textContaining('调用工具'), findsNothing);
+  });
+
+  testWidgets('idle composer suggestions copy text into the input', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(420, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatPanel(
+            workspace: AgentWorkspace(
+              id: 'default',
+              name: '默认',
+              description: '测试工作区',
+              createdAt: DateTime(2026),
+            ),
+            messages: const [],
+            composerController: controller,
+            isSending: false,
+            currentRun: null,
+            contextBudget: null,
+            onCancelRun: () {},
+            onSendPrompt: () {},
+            onOpenWebAppArtifact: (_) {},
+            onApproveCapability: (_) {},
+            onDenyCapability: (_) {},
+            pendingAttachments: const [],
+            onAddFile: () {},
+            onAddImage: () {},
+            onTakePhoto: () {},
+            onRemovePendingAttachment: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('帮我创建一个待办 Web App'));
+    await tester.pump();
+
+    expect(controller.text, '帮我创建一个待办 Web App');
   });
 
   testWidgets('shows jump to bottom button when user leaves bottom', (
@@ -372,7 +518,7 @@ void main() {
     );
 
     expect(find.byTooltip('Agent'), findsOneWidget);
-    expect(find.textContaining('已处理'), findsOneWidget);
+    expect(find.text('已完成 联网搜索'), findsOneWidget);
     expect(find.text('今天适合出门。'), findsOneWidget);
     expect(find.text('联网搜索结果'), findsNothing);
   });

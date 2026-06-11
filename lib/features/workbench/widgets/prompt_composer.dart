@@ -4,7 +4,7 @@ import '../../../app/phone_agent_colors.dart';
 import '../../../application/agent/agent_run_state.dart';
 import '../../../application/agent/context_budget.dart';
 import '../../../domain/conversation/message_block.dart';
-import 'context_budget_ring.dart';
+import 'composer_status_strip.dart';
 
 class PromptComposer extends StatelessWidget {
   const PromptComposer({
@@ -44,7 +44,7 @@ class PromptComposer extends StatelessWidget {
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.only(bottom: keyboardBottom),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 10),
         decoration: BoxDecoration(
           color: colors.composerSurface,
           border: Border(top: BorderSide(color: colors.border)),
@@ -54,137 +54,142 @@ class PromptComposer extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (isSending && currentRun != null) ...[
-                _AgentRunStatusBar(run: currentRun),
-                const SizedBox(height: 8),
-              ],
+              ComposerStatusStrip(
+                controller: controller,
+                isSending: isSending,
+                currentRun: currentRun,
+                contextBudget: contextBudget,
+              ),
+              const SizedBox(height: 8),
               if (pendingAttachments.isNotEmpty) ...[
-                _PendingAttachmentStrip(
-                  attachments: pendingAttachments,
-                  onRemove: onRemovePendingAttachment,
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: _PendingAttachmentStrip(
+                    attachments: pendingAttachments,
+                    onRemove: onRemovePendingAttachment,
+                  ),
                 ),
                 const SizedBox(height: 10),
               ],
-              Container(
-                padding: const EdgeInsets.fromLTRB(0, 2, 0, 2),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      tooltip: '添加附件',
-                      icon: Icon(
-                        Icons.add_rounded,
-                        color: colors.primaryAction,
-                        size: 24,
-                      ),
-                      style: IconButton.styleFrom(
-                        fixedSize: const Size(40, 40),
-                        minimumSize: const Size(40, 40),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      onPressed: isSending
-                          ? null
-                          : () {
-                              _showAttachmentMenu(context);
-                            },
-                    ),
-                    Expanded(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: colors.inputBackground,
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(color: colors.border),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(0, 2, 0, 2),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        tooltip: '添加附件',
+                        icon: Icon(
+                          Icons.add_rounded,
+                          color: colors.primaryAction,
+                          size: 24,
                         ),
-                        child: TextField(
-                          controller: controller,
-                          minLines: 1,
-                          maxLines: 5,
-                          textInputAction: TextInputAction.send,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            height: 1.4,
-                            letterSpacing: 0,
+                        style: IconButton.styleFrom(
+                          fixedSize: const Size(40, 40),
+                          minimumSize: const Size(40, 40),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: isSending
+                            ? null
+                            : () {
+                                _showAttachmentMenu(context);
+                              },
+                      ),
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: colors.inputBackground,
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(color: colors.border),
                           ),
-                          decoration: InputDecoration(
-                            hintText: '问我任何问题...',
-                            hintStyle: TextStyle(color: colors.inputHint),
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
+                          child: TextField(
+                            controller: controller,
+                            minLines: 1,
+                            maxLines: 5,
+                            textInputAction: TextInputAction.send,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              height: 1.4,
+                              letterSpacing: 0,
                             ),
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            filled: false,
+                            decoration: InputDecoration(
+                              hintText: '问我任何问题...',
+                              hintStyle: TextStyle(color: colors.inputHint),
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              filled: false,
+                            ),
+                            onSubmitted: (_) {
+                              if (!isSending &&
+                                  controller.text.trim().isNotEmpty) {
+                                onSendPrompt();
+                              }
+                            },
                           ),
-                          onSubmitted: (_) {
-                            if (!isSending &&
-                                controller.text.trim().isNotEmpty) {
-                              onSendPrompt();
-                            }
-                          },
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 4),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: ContextBudgetRing(budget: contextBudget),
-                    ),
-                    ValueListenableBuilder<TextEditingValue>(
-                      valueListenable: controller,
-                      builder: (context, value, child) {
-                        final canSend =
-                            !isSending &&
-                            (value.text.trim().isNotEmpty ||
-                                pendingAttachments.isNotEmpty);
+                      const SizedBox(width: 4),
+                      ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: controller,
+                        builder: (context, value, child) {
+                          final canSend =
+                              !isSending &&
+                              (value.text.trim().isNotEmpty ||
+                                  pendingAttachments.isNotEmpty);
 
-                        if (isSending) {
+                          if (isSending) {
+                            return Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: IconButton.filled(
+                                onPressed: onCancelRun,
+                                tooltip: '停止',
+                                icon: const Icon(Icons.stop_rounded, size: 20),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: colors.primaryAction,
+                                  foregroundColor: Colors.white,
+                                  fixedSize: const Size(48, 48),
+                                  minimumSize: const Size(48, 48),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
+                            );
+                          }
+
                           return Padding(
                             padding: const EdgeInsets.only(left: 8),
                             child: IconButton.filled(
-                              onPressed: onCancelRun,
-                              tooltip: '停止',
-                              icon: const Icon(Icons.stop_rounded, size: 20),
+                              onPressed: canSend ? onSendPrompt : null,
+                              tooltip: '发送',
+                              icon: const Icon(
+                                Icons.arrow_upward_rounded,
+                                size: 20,
+                              ),
                               style: IconButton.styleFrom(
                                 backgroundColor: colors.primaryAction,
                                 foregroundColor: Colors.white,
+                                disabledBackgroundColor:
+                                    colors.primaryActionDisabled,
+                                disabledForegroundColor: Colors.white
+                                    .withValues(alpha: 0.72),
                                 fixedSize: const Size(48, 48),
                                 minimumSize: const Size(48, 48),
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               ),
                             ),
                           );
-                        }
-
-                        return Padding(
-                          padding: const EdgeInsets.only(left: 8),
-                          child: IconButton.filled(
-                            onPressed: canSend ? onSendPrompt : null,
-                            tooltip: '发送',
-                            icon: const Icon(
-                              Icons.arrow_upward_rounded,
-                              size: 20,
-                            ),
-                            style: IconButton.styleFrom(
-                              backgroundColor: colors.primaryAction,
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor:
-                                  colors.primaryActionDisabled,
-                              disabledForegroundColor: Colors.white.withValues(
-                                alpha: 0.72,
-                              ),
-                              fixedSize: const Size(48, 48),
-                              minimumSize: const Size(48, 48),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -249,47 +254,6 @@ class PromptComposer extends StatelessWidget {
 }
 
 enum _AttachmentAction { camera, image, file }
-
-class _AgentRunStatusBar extends StatelessWidget {
-  const _AgentRunStatusBar({required this.run});
-
-  final AgentRunSnapshot? run;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.phoneAgentColors;
-    final phase = run?.phaseLabel ?? '启动中';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: colors.cardSelectedBackground,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 12,
-            height: 12,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation(colors.primaryAction),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            phase,
-            style: TextStyle(
-              fontSize: 12,
-              color: colors.primaryAction,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _PendingAttachmentStrip extends StatelessWidget {
   const _PendingAttachmentStrip({

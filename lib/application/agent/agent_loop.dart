@@ -137,14 +137,31 @@ class AgentLoop {
       runControl?.throwIfCancelled();
     }
 
+    final firstAssistantMessageId =
+        'msg-model-${DateTime.now().microsecondsSinceEpoch}-0';
+
+    void publishInitialProcess() {
+      replaceMessage(
+        firstAssistantMessageId,
+        AgentMessage(
+          id: firstAssistantMessageId,
+          role: MessageRole.assistant,
+          createdAt: DateTime.now(),
+          blocks: [MessageBlock.intermediateMarkdown('正在分析请求并规划下一步。')],
+        ),
+      );
+      notifyChange();
+    }
+
     report(AgentRunPhase.thinking, '正在处理您的请求...');
+    publishInitialProcess();
     final latestRoutingPrompt = _extractTextForRouting(prompt);
     final routingContext = _routingContextText(
       priorMessages: priorMessages,
       allSkills: allSkills,
     );
 
-    report(AgentRunPhase.routing, '正在选择本轮需要暴露的工具集合。');
+    report(AgentRunPhase.routing, '正在分析这次请求。');
     final toolRoute = await _toolRouter.route(
       prompt: latestRoutingPrompt,
       context: routingContext,
@@ -160,6 +177,7 @@ class AgentLoop {
       visibleMemories: visibleMemories,
       priorMessages: priorMessages,
       toolIndex: toolRoute.index,
+      toolSchema: toolRoute.tools,
       chatClient: _chatClient,
       provider: provider,
       apiKey: apiKey,
@@ -171,9 +189,7 @@ class AgentLoop {
     }
     report(
       AgentRunPhase.routing,
-      modelMessageResult.usedSummary
-          ? '已压缩早期上下文，正在准备模型请求。'
-          : '已整理上下文，正在准备模型请求。',
+      modelMessageResult.usedSummary ? '已压缩早期上下文，正在组织回答。' : '已整理上下文，正在组织回答。',
     );
 
     final currentTurnToolResults = <CapabilityExecutionResult>[];
@@ -184,13 +200,46 @@ class AgentLoop {
       throwIfCancelled();
 
       // Turn message IDs
-      final assistantMessageId =
-          'msg-model-${DateTime.now().microsecondsSinceEpoch}-$round';
+      final assistantMessageId = round == 0
+          ? firstAssistantMessageId
+          : 'msg-model-${DateTime.now().microsecondsSinceEpoch}-$round';
       final contentBuffer = StringBuffer();
       final toolCalls = ToolCallAccumulator();
+      final processBlocks = <MessageBlock>[
+        MessageBlock.intermediateMarkdown(
+          round == 0 ? '正在分析请求并规划下一步。' : '正在根据工具结果继续处理。',
+        ),
+      ];
       var isPreparingToolCall = false;
+      var preparingToolName = '';
+      var toolArgumentChars = 0;
       var retryAttempts = 0;
       var hasReceivedModelDelta = false;
+
+      void publishProcessBlocks() {
+        replaceMessage(
+          assistantMessageId,
+          AgentMessage(
+            id: assistantMessageId,
+            role: MessageRole.assistant,
+            createdAt: DateTime.now(),
+            blocks: List<MessageBlock>.of(processBlocks),
+          ),
+        );
+        notifyChange();
+      }
+
+      void publishToolPreparation(String detail) {
+        processBlocks.clear();
+        final content = contentBuffer.toString().trim();
+        if (content.isNotEmpty) {
+          processBlocks.add(MessageBlock.intermediateMarkdown(content));
+        }
+        processBlocks.add(MessageBlock.intermediateMarkdown(detail));
+        publishProcessBlocks();
+      }
+
+      publishProcessBlocks();
 
       // START MODEL STREAMING
       while (true) {
@@ -211,8 +260,26 @@ class AgentLoop {
             if (event.toolCallDeltas.isNotEmpty) {
               hasReceivedModelDelta = true;
               isPreparingToolCall = true;
-              report(AgentRunPhase.waitingForToolCall, '准备调用工具...');
+              for (final delta in event.toolCallDeltas) {
+                final name = delta.name;
+                if (name != null && name.trim().isNotEmpty) {
+                  preparingToolName = name.trim();
+                }
+                toolArgumentChars += delta.argumentsDelta?.length ?? 0;
+              }
+              final detail = _toolPreparationDetail(
+                preparingToolName,
+                toolArgumentChars,
+              );
+              report(
+                AgentRunPhase.waitingForToolCall,
+                detail,
+                currentToolName: preparingToolName.isEmpty
+                    ? null
+                    : preparingToolName,
+              );
               toolCalls.applyAll(event.toolCallDeltas);
+              publishToolPreparation(detail);
             }
 
             if (event.contentDelta.isNotEmpty) {
@@ -351,10 +418,28 @@ class AgentLoop {
             .toList(growable: false),
       });
 
-      final turnBlocks = <MessageBlock>[
-        if (contentBuffer.isNotEmpty)
-          MessageBlock.markdown(contentBuffer.toString()),
-      ];
+      processBlocks.clear();
+      if (contentBuffer.toString().trim().isNotEmpty) {
+        processBlocks.add(
+          MessageBlock.intermediateMarkdown(contentBuffer.toString()),
+        );
+      } else {
+        processBlocks.add(MessageBlock.intermediateMarkdown('已确定执行步骤，开始调用工具。'));
+      }
+      publishProcessBlocks();
+
+      void publishToolProcess() {
+        replaceMessage(
+          assistantMessageId,
+          AgentMessage(
+            id: assistantMessageId,
+            role: MessageRole.assistant,
+            createdAt: DateTime.now(),
+            blocks: List<MessageBlock>.of(processBlocks),
+          ),
+        );
+        notifyChange();
+      }
 
       for (final request in requests) {
         throwIfCancelled();
@@ -364,7 +449,10 @@ class AgentLoop {
           currentToolName: request.name,
         );
 
-        turnBlocks.add(MessageBlock.toolCall(request.name, request.arguments));
+        processBlocks.add(
+          MessageBlock.toolCall(request.name, request.arguments),
+        );
+        publishToolProcess();
 
         final result = await _capabilityRuntime.execute(
           toolCall: request,
@@ -391,12 +479,12 @@ class AgentLoop {
           switchWorkspace: switchWorkspace,
         );
 
-        turnBlocks.add(
+        processBlocks.add(
           MessageBlock.toolResult(result.capabilityId, result.output),
         );
 
         if (result.output['error'] == 'permission_confirmation_required') {
-          turnBlocks.add(
+          processBlocks.add(
             MessageBlock.approvalRequest(
               requestId: '$assistantMessageId-${request.id}',
               toolName: request.name,
@@ -408,7 +496,8 @@ class AgentLoop {
           );
         }
 
-        turnBlocks.addAll(_artifactBlocksFor(result));
+        processBlocks.addAll(_artifactBlocksFor(result));
+        publishToolProcess();
 
         modelMessages.add({
           'role': 'tool',
@@ -417,18 +506,6 @@ class AgentLoop {
           'content': result.encodedModelObservation,
         });
       }
-
-      final processMessageId = '$assistantMessageId-process';
-      replaceMessage(
-        processMessageId,
-        AgentMessage(
-          id: processMessageId,
-          role: MessageRole.assistant,
-          createdAt: DateTime.now(),
-          blocks: turnBlocks,
-        ),
-      );
-      notifyChange();
     }
 
     report(AgentRunPhase.completed, '已完成');
@@ -507,6 +584,7 @@ class AgentLoop {
     required List<AgentMemory> visibleMemories,
     required List<AgentMessage> priorMessages,
     required String toolIndex,
+    required List<Map<String, Object?>> toolSchema,
     OpenAiCompatibleChatClient? chatClient,
     ModelProviderConfig? provider,
     String? apiKey,
@@ -525,6 +603,7 @@ class AgentLoop {
       provider: provider ?? ModelProviders.aliyunBailianQwenFlash,
       systemPrompt: systemPrompt,
       toolIndex: toolIndex,
+      toolSchema: toolSchema,
       prompt: prompt,
       priorMessages: priorMessages,
     );
@@ -558,6 +637,7 @@ class AgentLoop {
       prompt: prompt,
       systemPrompt: systemPrompt,
       toolIndex: toolIndex,
+      toolSchema: toolSchema,
       summary: conversationContext.summary,
       recentHistory: conversationContext.recentEntries
           .map((entry) => entry.content)
@@ -756,6 +836,44 @@ class AgentLoop {
             'webapp';
   }
 
+  String _toolPreparationDetail(String toolName, int argumentChars) {
+    final size = _compactCharCount(argumentChars);
+    return switch (toolName) {
+      'project_create_web_app' => '正在生成 Web App 文件内容，已接收约 $size；参数完整后会立即创建。',
+      'project_update_web_app' => '正在生成 Web App 修改内容，已接收约 $size；参数完整后会立即更新。',
+      'file_write_app_file' => '正在生成文件写入内容，已接收约 $size；参数完整后会立即写入。',
+      '' => '正在接收工具参数，已接收约 $size；参数完整后会立即执行。',
+      _ => '正在生成 ${_toolDisplayName(toolName)} 的调用参数，已接收约 $size。',
+    };
+  }
+
+  String _compactCharCount(int count) {
+    if (count < 1024) {
+      return '$count 字符';
+    }
+    final value = count / 1024;
+    if (value < 10) {
+      return '${value.toStringAsFixed(1)}K 字符';
+    }
+    return '${value.round()}K 字符';
+  }
+
+  String _toolDisplayName(String name) {
+    return switch (name) {
+      'project_create_web_app' => '创建 Web App',
+      'project_update_web_app' => '更新 Web App',
+      'project_test_web_app' => '检查 Web App',
+      'artifact_create' => '创建 Artifact',
+      'artifact_query' => '查询 Artifact',
+      'file_write_app_file' => '写入文件',
+      'file_read_app_file' => '读取文件',
+      'file_search_app_files' => '搜索文件',
+      'web_search' => '联网搜索',
+      'web_fetch' => '读取网页',
+      _ => name.replaceAll('_', ' '),
+    };
+  }
+
   bool _requiredToolsSatisfied(
     ToolRoute toolRoute,
     List<CapabilityExecutionResult> results,
@@ -808,7 +926,7 @@ class AgentLoop {
   }
 
   AgentMessage _assistantIntermediateMessage(String id, String text) {
-    final content = text.trim().isEmpty ? '正在准备工具调用。' : text;
+    final content = text.trim().isEmpty ? '正在继续处理。' : text;
     return AgentMessage(
       id: id,
       role: MessageRole.assistant,

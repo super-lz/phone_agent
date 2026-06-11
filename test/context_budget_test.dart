@@ -47,4 +47,47 @@ void main() {
     expect(longPlan.maxRecentChars, lessThan(shortPlan.maxRecentChars));
     expect(longPlan.maxRecentChars, greaterThanOrEqualTo(1200));
   });
+
+  test('counts selected tool schema in context usage', () {
+    final planner = ContextBudgetPlanner();
+    final withoutTools = planner.snapshotForParts(
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      prompt: '创建 Web App',
+      systemPrompt: '<capability_index></capability_index>',
+      toolIndex: '',
+      summary: '',
+      recentHistory: '',
+    );
+    final withTools = planner.snapshotForParts(
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      prompt: '创建 Web App',
+      systemPrompt:
+          '<capability_index>project_create_web_app</capability_index>',
+      toolIndex: 'project_create_web_app',
+      toolSchema: [
+        {
+          'type': 'function',
+          'function': {
+            'name': 'project_create_web_app',
+            'description': '创建本地 Web App 工程',
+            'parameters': {
+              'type': 'object',
+              'properties': {
+                'title': {'type': 'string'},
+                'files': {
+                  'type': 'array',
+                  'items': {'type': 'object'},
+                },
+              },
+            },
+          },
+        },
+      ],
+      summary: '',
+      recentHistory: '',
+    );
+
+    expect(withTools.toolTokens, greaterThan(0));
+    expect(withTools.inputTokens, greaterThan(withoutTools.inputTokens));
+  });
 }

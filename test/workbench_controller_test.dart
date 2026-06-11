@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:phone_agent/application/agent/agent_run_state.dart';
 import 'package:phone_agent/application/capabilities/capability_runtime.dart';
 import 'package:phone_agent/data/background/agent_run_background_service.dart';
 import 'package:phone_agent/data/capabilities/native_capability_adapter.dart';
@@ -55,6 +57,83 @@ void main() {
     expect(controller.contextBudget!.usagePercent, greaterThan(0));
     expect(controller.contextBudget!.isConservativeFallback, isTrue);
   });
+
+  test('normal prompt records estimated token usage', () async {
+    final store = InMemoryWorkbenchStore();
+    final chatClient = _FakeChatClient([
+      [const ChatStreamEvent(contentDelta: 'Token 已记录')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+      workbenchStore: store,
+    );
+
+    await controller.sendPrompt('你好');
+
+    final records = await store.loadTokenUsageRecords();
+    expect(records, hasLength(1));
+    expect(records.single.workspaceId, 'default');
+    expect(records.single.inputTokens, greaterThan(0));
+    expect(records.single.reservedOutputTokens, greaterThan(0));
+    expect(records.single.modelName, isNotEmpty);
+  });
+
+  test('last context budget is restored after controller restart', () async {
+    final store = InMemoryWorkbenchStore();
+    final chatClient = _FakeChatClient([
+      [const ChatStreamEvent(contentDelta: '预算已保存')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+      workbenchStore: store,
+    );
+
+    await controller.sendPrompt('你好');
+    final savedPercent = controller.contextBudget!.usagePercent;
+    controller.dispose();
+
+    final restoredController = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: _FakeChatClient([]),
+      workbenchStore: store,
+    );
+    await _waitFor(() => restoredController.contextBudget != null);
+
+    expect(restoredController.contextBudget!.usagePercent, savedPercent);
+    restoredController.dispose();
+  });
+
+  test(
+    'running prompt keeps previous context budget until recalculated',
+    () async {
+      final chatClient = _BlockingSecondRouteChatClient([
+        [const ChatStreamEvent(contentDelta: '第一轮')],
+        [const ChatStreamEvent(contentDelta: '第二轮')],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+      );
+
+      await controller.sendPrompt('你好');
+      final firstUsagePercent = controller.contextBudget!.usagePercent;
+
+      final secondRun = controller.sendPrompt('你好');
+      await chatClient.secondRouteStarted.future;
+
+      expect(controller.isSending, isTrue);
+      expect(controller.contextBudget!.usagePercent, firstUsagePercent);
+      expect(
+        controller.currentRun!.contextBudget!.usagePercent,
+        firstUsagePercent,
+      );
+
+      chatClient.releaseSecondRoute.complete();
+      await secondRun;
+    },
+  );
 
   test(
     'ordinary follow-up fragment ignores capability text from prior answer',
@@ -207,6 +286,89 @@ void main() {
       text,
       contains('permissions: [\'device.info\', \'time.get_current\']'),
     );
+  });
+
+  test('web app creation shows live process before final answer', () async {
+    final chatClient = _BlockingWebAppToolChatClient();
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    final sendFuture = controller.sendPrompt('创建一个本地 Web App');
+    await chatClient.firstStreamStarted.future;
+
+    expect(controller.isSending, isTrue);
+    expect(
+      controller.messages
+          .expand((message) => message.blocks)
+          .where(
+            (block) =>
+                block.type == MessageBlockType.markdownText &&
+                block.data['intermediate'] == true &&
+                (block.data['text'] as String).contains('正在分析请求'),
+          ),
+      isNotEmpty,
+    );
+
+    chatClient.releaseToolCall.complete();
+    await chatClient.secondStreamStarted.future;
+
+    final blocksBeforeFinal = controller.messages.expand(
+      (message) => message.blocks,
+    );
+    expect(
+      blocksBeforeFinal.any(
+        (block) =>
+            block.type == MessageBlockType.toolCall &&
+            block.data['capabilityId'] == 'project_create_web_app',
+      ),
+      isTrue,
+    );
+    expect(
+      blocksBeforeFinal.any(
+        (block) =>
+            block.type == MessageBlockType.toolResult &&
+            block.data['capabilityId'] == 'project.create_web_app',
+      ),
+      isTrue,
+    );
+
+    chatClient.releaseFinalAnswer.complete();
+    await sendFuture;
+
+    expect(controller.messages.last.blocks.first.data['text'], '已创建。');
+  });
+
+  test('slow web app tool arguments explain generation status', () async {
+    final chatClient = _SlowWebAppArgumentsChatClient();
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    final sendFuture = controller.sendPrompt('创建一个慢速 Web App');
+    await chatClient.firstDeltaApplied.future;
+
+    expect(controller.currentRun!.phase, AgentRunPhase.waitingForToolCall);
+    expect(controller.currentRun!.detail, contains('正在生成 Web App 文件内容'));
+    expect(controller.currentRun!.detail, contains('已接收约'));
+    expect(
+      controller.messages
+          .expand((message) => message.blocks)
+          .where(
+            (block) =>
+                block.type == MessageBlockType.markdownText &&
+                block.data['intermediate'] == true &&
+                (block.data['text'] as String).contains('正在生成 Web App 文件内容'),
+          ),
+      isNotEmpty,
+    );
+
+    chatClient.releaseRemainingArguments.complete();
+    await sendFuture;
+
+    expect(controller.messages.last.blocks.first.data['text'], '已创建。');
   });
 
   test(
@@ -2048,6 +2210,138 @@ class _FakeChatClient extends OpenAiCompatibleChatClient {
     for (final event in events) {
       yield event;
     }
+  }
+}
+
+class _BlockingWebAppToolChatClient extends OpenAiCompatibleChatClient {
+  final firstStreamStarted = Completer<void>();
+  final secondStreamStarted = Completer<void>();
+  final releaseToolCall = Completer<void>();
+  final releaseFinalAnswer = Completer<void>();
+  int callCount = 0;
+
+  @override
+  Future<ChatCompletionResult> completeText({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    return ChatCompletionResult(
+      ok: true,
+      content: jsonEncode(
+        _routeDecision(
+          {'project_create_web_app', 'artifact_query', 'file_write_app_file'},
+          {'project_create_web_app'},
+        ),
+      ),
+    );
+  }
+
+  @override
+  Stream<ChatStreamEvent> streamChat({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+    List<Map<String, Object?>> tools = const [],
+  }) async* {
+    final index = callCount;
+    callCount += 1;
+    if (index == 0) {
+      firstStreamStarted.complete();
+      await releaseToolCall.future;
+      yield _webAppToolCallRound(0);
+      return;
+    }
+    secondStreamStarted.complete();
+    await releaseFinalAnswer.future;
+    yield const ChatStreamEvent(contentDelta: '已创建。');
+  }
+}
+
+class _SlowWebAppArgumentsChatClient extends OpenAiCompatibleChatClient {
+  final firstDeltaApplied = Completer<void>();
+  final releaseRemainingArguments = Completer<void>();
+  int callCount = 0;
+
+  @override
+  Future<ChatCompletionResult> completeText({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    return ChatCompletionResult(
+      ok: true,
+      content: jsonEncode(
+        _routeDecision(
+          {'project_create_web_app', 'artifact_query', 'file_write_app_file'},
+          {'project_create_web_app'},
+        ),
+      ),
+    );
+  }
+
+  @override
+  Stream<ChatStreamEvent> streamChat({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+    List<Map<String, Object?>> tools = const [],
+  }) async* {
+    final index = callCount;
+    callCount += 1;
+    if (index == 0) {
+      yield const ChatStreamEvent(
+        toolCallDeltas: [
+          ToolCallDelta(
+            index: 0,
+            id: 'call-slow-webapp',
+            name: 'project_create_web_app',
+            argumentsDelta: '{"title":"慢速 Web App","summary":"',
+          ),
+        ],
+      );
+      firstDeltaApplied.complete();
+      await releaseRemainingArguments.future;
+      yield ChatStreamEvent(
+        toolCallDeltas: [
+          const ToolCallDelta(
+            index: 0,
+            argumentsDelta:
+                '用于验证慢速工具参数状态。","entry_path":"apps/slow/index.html",'
+                '"files":[{"path":"apps/slow/index.html",'
+                '"content":"<!doctype html><html><body>Slow</body></html>"}]}',
+          ),
+        ],
+      );
+      return;
+    }
+    yield const ChatStreamEvent(contentDelta: '已创建。');
+  }
+}
+
+class _BlockingSecondRouteChatClient extends _FakeChatClient {
+  _BlockingSecondRouteChatClient(super.rounds);
+
+  final secondRouteStarted = Completer<void>();
+  final releaseSecondRoute = Completer<void>();
+  int _routeCallCount = 0;
+
+  @override
+  Future<ChatCompletionResult> completeText({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    _routeCallCount += 1;
+    if (_routeCallCount == 2) {
+      secondRouteStarted.complete();
+      await releaseSecondRoute.future;
+    }
+    return super.completeText(
+      provider: provider,
+      apiKey: apiKey,
+      messages: messages,
+    );
   }
 }
 

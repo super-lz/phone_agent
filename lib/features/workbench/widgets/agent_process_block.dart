@@ -22,7 +22,16 @@ class AgentProcessBlock extends StatefulWidget {
 }
 
 class _AgentProcessBlockState extends State<AgentProcessBlock> {
-  bool _expanded = false;
+  late bool _expanded = widget.status == 'processing';
+
+  @override
+  void didUpdateWidget(AgentProcessBlock oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.status == widget.status) {
+      return;
+    }
+    _expanded = widget.status == 'processing';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -95,12 +104,48 @@ class _AgentProcessBlockState extends State<AgentProcessBlock> {
   }
 
   String _statusTitle() {
-    final toolCalls = widget.blocks
+    final toolCallBlocks = widget.blocks
         .where((block) => block.type == MessageBlockType.toolCall)
+        .toList(growable: false);
+    final toolCalls = toolCallBlocks.length;
+    final toolResults = widget.blocks
+        .where((block) => block.type == MessageBlockType.toolResult)
         .length;
     if (widget.status == 'processing') {
-      return toolCalls > 0 ? '正在处理 ($toolCalls 个工具)...' : '正在思考...';
+      if (toolCalls == 0) {
+        return '正在思考...';
+      }
+      if (toolResults < toolCalls) {
+        return '正在执行 ${_toolLabel(_toolName(toolCallBlocks.last))}';
+      }
+      return '正在整理工具结果';
     }
-    return toolCalls > 0 ? '已处理 ($toolCalls 个工具)' : '已处理';
+    if (toolCalls == 0) {
+      return '已处理';
+    }
+    if (toolCalls == 1) {
+      return '已完成 ${_toolLabel(_toolName(toolCallBlocks.single))}';
+    }
+    return '已完成 $toolCalls 个步骤';
+  }
+
+  String _toolName(MessageBlock block) {
+    return block.data['capabilityId'] as String? ?? 'tool';
+  }
+
+  String _toolLabel(String name) {
+    return switch (name) {
+      'project_create_web_app' => '创建 Web App',
+      'project_update_web_app' => '更新 Web App',
+      'project_test_web_app' => '检查 Web App',
+      'artifact_create' => '创建 Artifact',
+      'artifact_query' => '查询 Artifact',
+      'file_write_app_file' => '写入文件',
+      'file_read_app_file' => '读取文件',
+      'file_search_app_files' => '搜索文件',
+      'web_search' => '联网搜索',
+      'web_fetch' => '读取网页',
+      _ => name.replaceAll('_', ' '),
+    };
   }
 }

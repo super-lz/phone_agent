@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../application/agent/context_budget.dart';
@@ -7,46 +9,65 @@ class ContextBudgetRing extends StatelessWidget {
 
   final ContextBudgetSnapshot? budget;
 
+  static const _tapSize = 40.0;
+  static const _ringSize = 30.0;
+  static const _idleIconSize = 22.0;
+  static const _labelWidth = 22.0;
+  static const _labelHeight = 12.0;
+
   @override
   Widget build(BuildContext context) {
     final snapshot = budget;
     final color = _ringColor(snapshot);
+    final usageLabel = _usageLabel(snapshot);
     final value = snapshot == null
         ? 0.0
         : snapshot.usageRatio.clamp(0.0, 1.0).toDouble();
     return Tooltip(
-      message: snapshot == null
-          ? '上下文用量将在发送后显示'
-          : '上下文 ${snapshot.usagePercent}%',
+      message: snapshot == null ? '上下文用量待计算' : '上下文 $usageLabel',
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
         onTap: snapshot == null ? null : () => _showDetails(context, snapshot),
         child: SizedBox(
-          width: 40,
-          height: 40,
+          width: _tapSize,
+          height: _tapSize,
           child: Stack(
             alignment: Alignment.center,
             children: [
               SizedBox(
-                width: 30,
-                height: 30,
-                child: CircularProgressIndicator(
-                  value: value,
-                  strokeWidth: 3,
-                  backgroundColor: Theme.of(
-                    context,
-                  ).colorScheme.surfaceContainerHighest,
-                  valueColor: AlwaysStoppedAnimation(color),
+                width: _ringSize,
+                height: _ringSize,
+                child: CustomPaint(
+                  painter: _ContextBudgetRingPainter(
+                    value: value,
+                    color: color,
+                    trackColor: _trackColor(context),
+                    strokeWidth: 3,
+                  ),
                 ),
               ),
-              Text(
-                snapshot == null ? '--' : '${snapshot.usagePercent}',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: color,
+              if (snapshot == null)
+                Icon(
+                  Icons.donut_large_outlined,
+                  size: _idleIconSize,
+                  color: color.withValues(alpha: 0.72),
+                )
+              else
+                SizedBox(
+                  width: _labelWidth,
+                  height: _labelHeight,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      usageLabel,
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: color,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -60,8 +81,24 @@ class ContextBudgetRing extends StatelessWidget {
       ContextBudgetLevel.high => Colors.deepOrange,
       ContextBudgetLevel.warning => Colors.amber.shade700,
       ContextBudgetLevel.normal => Colors.green,
-      null => Colors.grey,
+      null => const Color(0xFF9AA6B2),
     };
+  }
+
+  Color _trackColor(BuildContext context) {
+    return Theme.of(
+      context,
+    ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.85);
+  }
+
+  String _usageLabel(ContextBudgetSnapshot? snapshot) {
+    if (snapshot == null) {
+      return '';
+    }
+    if (snapshot.usagePercent <= 0) {
+      return '<1%';
+    }
+    return '${snapshot.usagePercent}%';
   }
 
   void _showDetails(BuildContext context, ContextBudgetSnapshot snapshot) {
@@ -112,6 +149,57 @@ class ContextBudgetRing extends StatelessWidget {
       return '${k.toStringAsFixed(k >= 10 ? 0 : 1)}k tokens';
     }
     return '$value tokens';
+  }
+}
+
+class _ContextBudgetRingPainter extends CustomPainter {
+  const _ContextBudgetRingPainter({
+    required this.value,
+    required this.color,
+    required this.trackColor,
+    required this.strokeWidth,
+  });
+
+  final double value;
+  final Color color;
+  final Color trackColor;
+  final double strokeWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = (math.min(size.width, size.height) - strokeWidth) / 2;
+    final rect = Rect.fromCircle(center: center, radius: radius);
+    final trackPaint = Paint()
+      ..color = trackColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+    final progressPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawCircle(center, radius, trackPaint);
+    if (value <= 0) {
+      return;
+    }
+    canvas.drawArc(
+      rect,
+      -math.pi / 2,
+      math.pi * 2 * value.clamp(0.0, 1.0),
+      false,
+      progressPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ContextBudgetRingPainter oldDelegate) {
+    return value != oldDelegate.value ||
+        color != oldDelegate.color ||
+        trackColor != oldDelegate.trackColor ||
+        strokeWidth != oldDelegate.strokeWidth;
   }
 }
 

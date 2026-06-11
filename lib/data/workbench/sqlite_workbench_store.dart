@@ -9,6 +9,7 @@ import '../../domain/artifacts/artifact.dart';
 import '../../domain/capabilities/capability.dart';
 import '../../domain/conversation/message_block.dart';
 import '../../domain/memory/memory.dart';
+import '../../domain/usage/token_usage.dart';
 import '../../domain/workbench/pending_agent_run.dart';
 import '../../domain/workbench/workbench_store.dart';
 import '../../domain/workspace/workspace.dart';
@@ -22,6 +23,7 @@ class SqliteWorkbenchStore implements WorkbenchStore {
   Database? _database;
   static const _resetMarkerKey = 'local_data_reset_at';
   static const _pendingAgentRunKey = 'pending_agent_run';
+  static const _contextBudgetSnapshotPrefix = 'context_budget_snapshot:';
 
   @override
   Future<void> initialize({
@@ -220,6 +222,65 @@ class SqliteWorkbenchStore implements WorkbenchStore {
   }
 
   @override
+  Future<void> upsertTokenUsageRecord(TokenUsageRecord record) async {
+    await (await _open()).insert(
+      'token_usage_records',
+      _tokenUsageRecordToRow(record),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<List<TokenUsageRecord>> loadTokenUsageRecords() async {
+    final rows = await (await _open()).query(
+      'token_usage_records',
+      orderBy: 'started_at ASC',
+    );
+    return rows.map(_tokenUsageRecordFromRow).toList(growable: false);
+  }
+
+  @override
+  Future<void> saveContextBudgetSnapshot({
+    required String workspaceId,
+    required Map<String, Object?> snapshot,
+  }) async {
+    await (await _open()).insert('app_state', {
+      'key': '$_contextBudgetSnapshotPrefix$workspaceId',
+      'value': jsonEncode(snapshot),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  @override
+  Future<Map<String, Object?>?> loadContextBudgetSnapshot(
+    String workspaceId,
+  ) async {
+    final rows = await (await _open()).query(
+      'app_state',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: ['$_contextBudgetSnapshotPrefix$workspaceId'],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    try {
+      return _decodeMap(rows.first['value']! as String);
+    } on Object catch (error) {
+      AppLogger.warning('workbench.context_budget.decode_failed', {
+        'workspaceId': workspaceId,
+        'error': error.toString(),
+      });
+      await (await _open()).delete(
+        'app_state',
+        where: 'key = ?',
+        whereArgs: ['$_contextBudgetSnapshotPrefix$workspaceId'],
+      );
+      return null;
+    }
+  }
+
+  @override
   Future<List<McpConnection>> loadMcpConnections() async {
     final rows = await (await _open()).query(
       'mcp_connections',
@@ -280,6 +341,7 @@ class SqliteWorkbenchStore implements WorkbenchStore {
   }) async {
     final db = await _open();
     await db.transaction((transaction) async {
+      await transaction.delete('token_usage_records');
       await transaction.delete('capability_invocations');
       await transaction.delete('messages');
       await transaction.delete('artifacts');
@@ -391,6 +453,21 @@ class SqliteWorkbenchStore implements WorkbenchStore {
       )
     ''');
     await db.execute('''
+      CREATE TABLE IF NOT EXISTS token_usage_records (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        provider_id TEXT NOT NULL,
+        model_name TEXT NOT NULL,
+        input_tokens INTEGER NOT NULL,
+        reserved_output_tokens INTEGER NOT NULL,
+        max_context_tokens INTEGER NOT NULL,
+        is_conservative_estimate INTEGER NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
       CREATE TABLE IF NOT EXISTS mcp_connections (
         url TEXT PRIMARY KEY,
         transport TEXT NOT NULL,
@@ -418,6 +495,14 @@ class SqliteWorkbenchStore implements WorkbenchStore {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_invocations_workspace '
       'ON capability_invocations(workspace_id, created_at)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_token_usage_run '
+      'ON token_usage_records(run_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_token_usage_workspace '
+      'ON token_usage_records(workspace_id, started_at)',
     );
   }
 
@@ -622,6 +707,35 @@ class SqliteWorkbenchStore implements WorkbenchStore {
             : _decodeMap(row['output_json']! as String),
         error: row['error'] as String?,
         createdAt: DateTime.parse(row['created_at']! as String),
+      );
+
+  Map<String, Object?> _tokenUsageRecordToRow(TokenUsageRecord record) => {
+    'id': record.id,
+    'workspace_id': record.workspaceId,
+    'run_id': record.runId,
+    'provider_id': record.providerId,
+    'model_name': record.modelName,
+    'input_tokens': record.inputTokens,
+    'reserved_output_tokens': record.reservedOutputTokens,
+    'max_context_tokens': record.maxContextTokens,
+    'is_conservative_estimate': record.isConservativeEstimate ? 1 : 0,
+    'started_at': record.startedAt.toIso8601String(),
+    'ended_at': record.endedAt.toIso8601String(),
+  };
+
+  TokenUsageRecord _tokenUsageRecordFromRow(Map<String, Object?> row) =>
+      TokenUsageRecord(
+        id: row['id']! as String,
+        workspaceId: row['workspace_id']! as String,
+        runId: row['run_id']! as String,
+        providerId: row['provider_id']! as String,
+        modelName: row['model_name']! as String,
+        inputTokens: row['input_tokens']! as int,
+        reservedOutputTokens: row['reserved_output_tokens']! as int,
+        maxContextTokens: row['max_context_tokens']! as int,
+        isConservativeEstimate: (row['is_conservative_estimate']! as int) == 1,
+        startedAt: DateTime.parse(row['started_at']! as String),
+        endedAt: DateTime.parse(row['ended_at']! as String),
       );
 
   Map<String, Object?> _mcpConnectionToRow(McpConnection connection) => {

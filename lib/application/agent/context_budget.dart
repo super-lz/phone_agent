@@ -18,6 +18,7 @@ class ContextBudgetPlanner {
     required ModelProviderConfig provider,
     required String systemPrompt,
     required String toolIndex,
+    List<Map<String, Object?>> toolSchema = const [],
     required Object prompt,
     required List<AgentMessage> priorMessages,
   }) {
@@ -28,7 +29,9 @@ class ContextBudgetPlanner {
       maxContextTokens,
     );
     final fixedTokens =
-        estimator.estimateText(systemPrompt) + estimator.estimateObject(prompt);
+        estimator.estimateText(systemPrompt) +
+        estimator.estimateObject(toolSchema) +
+        estimator.estimateObject(prompt);
     final maxSummaryTokens = _maxSummaryTokens(maxContextTokens);
     final availableForRecent =
         maxContextTokens -
@@ -43,6 +46,7 @@ class ContextBudgetPlanner {
       prompt: prompt,
       systemPrompt: systemPrompt,
       toolIndex: toolIndex,
+      toolSchema: toolSchema,
       summary: '',
       recentHistory: priorMessages
           .map((message) => _messageText(message))
@@ -63,6 +67,7 @@ class ContextBudgetPlanner {
   ContextBudgetSnapshot snapshotForModelMessages({
     required ModelProviderConfig provider,
     required List<Map<String, Object?>> messages,
+    List<Map<String, Object?>> tools = const [],
   }) {
     final maxContextTokens =
         provider.effectiveMaxContextTokens ?? conservativeMaxContextTokens;
@@ -70,7 +75,8 @@ class ContextBudgetPlanner {
       provider,
       maxContextTokens,
     );
-    final inputTokens = estimator.estimateObject(messages);
+    final toolTokens = estimator.estimateObject(tools);
+    final inputTokens = estimator.estimateObject(messages) + toolTokens;
     return ContextBudgetSnapshot(
       providerId: provider.id,
       modelName: provider.model,
@@ -78,7 +84,7 @@ class ContextBudgetPlanner {
       isConservativeFallback: provider.effectiveMaxContextTokens == null,
       reservedOutputTokens: reservedOutputTokens,
       systemTokens: 0,
-      toolTokens: 0,
+      toolTokens: toolTokens,
       summaryTokens: 0,
       recentHistoryTokens: 0,
       promptTokens: inputTokens,
@@ -91,6 +97,7 @@ class ContextBudgetPlanner {
     required Object prompt,
     required String systemPrompt,
     required String toolIndex,
+    List<Map<String, Object?>> toolSchema = const [],
     required String summary,
     required String recentHistory,
   }) {
@@ -100,16 +107,21 @@ class ContextBudgetPlanner {
       provider,
       maxContextTokens,
     );
-    final toolTokens = estimator.estimateText(toolIndex);
+    final toolIndexTokens = estimator.estimateText(toolIndex);
+    final toolTokens = toolIndexTokens + estimator.estimateObject(toolSchema);
     final systemTokens = math.max(
       0,
-      estimator.estimateText(systemPrompt) - toolTokens,
+      estimator.estimateText(systemPrompt) - toolIndexTokens,
     );
     final summaryTokens = estimator.estimateText(summary);
     final recentHistoryTokens = estimator.estimateText(recentHistory);
     final promptTokens = estimator.estimateObject(prompt);
     final inputTokens =
-        systemTokens + summaryTokens + recentHistoryTokens + promptTokens;
+        systemTokens +
+        toolTokens +
+        summaryTokens +
+        recentHistoryTokens +
+        promptTokens;
     return ContextBudgetSnapshot(
       providerId: provider.id,
       modelName: provider.model,

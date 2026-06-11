@@ -55,14 +55,16 @@ class MobileDrawerFooter extends StatelessWidget {
     required this.permissionService,
     required this.apiKeyStore,
     required this.modelSettingsStore,
+    required this.onOpenTokenUsage,
     required this.onClearLocalData,
     super.key,
   });
 
-  final WorkbenchStore? workbenchStore;
+  final WorkbenchStore workbenchStore;
   final AppPermissionService permissionService;
   final ModelApiKeyStore apiKeyStore;
   final ModelSettingsStore modelSettingsStore;
+  final Future<void> Function() onOpenTokenUsage;
   final VoidCallback onClearLocalData;
 
   @override
@@ -74,6 +76,14 @@ class MobileDrawerFooter extends StatelessWidget {
         child: Column(
           children: [
             DrawerActionTile(
+              icon: Icons.data_usage_outlined,
+              label: 'Token 用量',
+              onTap: () {
+                Navigator.pop(context);
+                onOpenTokenUsage();
+              },
+            ),
+            DrawerActionTile(
               icon: Icons.history_outlined,
               label: '操作审计日志',
               onTap: () {
@@ -81,7 +91,7 @@ class MobileDrawerFooter extends StatelessWidget {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (context) =>
-                        AuditLogPage(workbenchStore: workbenchStore!),
+                        AuditLogPage(workbenchStore: workbenchStore),
                   ),
                 );
               },

@@ -96,6 +96,157 @@ void main() {
   );
 
   test(
+    'qwen max preview connection test enables required thinking mode',
+    () async {
+      final httpClient = _CapturingHttpClient(
+        http.Response(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {'content': 'ok'},
+              },
+            ],
+          }),
+          200,
+        ),
+      );
+      final client = OpenAiCompatibleChatClient(httpClient: httpClient);
+      final provider = ModelProviders.aliyunBailianQwenFlash.copyWith(
+        model: 'qwen3.7-max-preview',
+      );
+
+      final result = await client.testConnection(
+        provider: provider,
+        apiKey: 'bailian-key',
+      );
+
+      expect(result.ok, isTrue);
+      expect(result.message, contains('连接成功'));
+      expect(result.message, contains('qwen3.7-max-preview'));
+      expect(result.message, isNot(contains('ok')));
+      final body = jsonDecode(httpClient.lastBody) as Map<String, Object?>;
+      expect(body['model'], 'qwen3.7-max-preview');
+      expect(body['enable_thinking'], isTrue);
+      expect(body['stream'], isFalse);
+      expect(body['max_tokens'], 128);
+    },
+  );
+
+  test('qwen flash keeps non-thinking default request mode', () async {
+    final httpClient = _CapturingHttpClient(
+      http.Response(
+        jsonEncode({
+          'choices': [
+            {
+              'message': {'content': 'ok'},
+            },
+          ],
+        }),
+        200,
+      ),
+    );
+    final client = OpenAiCompatibleChatClient(httpClient: httpClient);
+
+    await client.completeText(
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'bailian-key',
+      messages: const [
+        {'role': 'user', 'content': 'hello'},
+      ],
+    );
+
+    final body = jsonDecode(httpClient.lastBody) as Map<String, Object?>;
+    expect(body['model'], 'qwen3.6-flash-2026-04-16');
+    expect(body['enable_thinking'], isFalse);
+  });
+
+  test('qwen tool streaming is enabled for streamed tool calls', () async {
+    final httpClient = _CapturingHttpClient(
+      http.Response(
+        'data: [DONE]\n\n',
+        200,
+        headers: const {'content-type': 'text/event-stream'},
+      ),
+    );
+    final client = OpenAiCompatibleChatClient(httpClient: httpClient);
+    final provider = ModelProviders.aliyunBailianQwenFlash.copyWith(
+      model: 'qwen3.7-plus',
+    );
+
+    await client
+        .streamChat(
+          provider: provider,
+          apiKey: 'bailian-key',
+          messages: const [
+            {'role': 'user', 'content': '创建一个 Web App'},
+          ],
+          tools: const [
+            {
+              'type': 'function',
+              'function': {
+                'name': 'project_create_web_app',
+                'description': 'Create a local web app project.',
+                'parameters': {
+                  'type': 'object',
+                  'properties': {
+                    'files': {
+                      'type': 'array',
+                      'items': {'type': 'object'},
+                    },
+                  },
+                  'required': ['files'],
+                },
+              },
+            },
+          ],
+        )
+        .drain<void>();
+
+    final body = jsonDecode(httpClient.lastBody) as Map<String, Object?>;
+    expect(body['model'], 'qwen3.7-plus');
+    expect(body['stream'], isTrue);
+    expect(body['tool_stream'], isTrue);
+    expect(body['tool_choice'], 'auto');
+    expect(body['tools'], isA<List<Object?>>());
+    expect(body['enable_thinking'], isFalse);
+  });
+
+  test(
+    'connection success message is based on API result not assistant prose',
+    () async {
+      final httpClient = _CapturingHttpClient(
+        http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'choices': [
+                {
+                  'message': {'content': '抱歉，我无法直接检测 Phone Agent 的连接状态。'},
+                },
+              ],
+            }),
+          ),
+          200,
+          headers: const {'content-type': 'application/json; charset=utf-8'},
+        ),
+      );
+      final client = OpenAiCompatibleChatClient(httpClient: httpClient);
+
+      final result = await client.testConnection(
+        provider: ModelProviders.aliyunBailianQwenFlash,
+        apiKey: 'bailian-key',
+      );
+
+      expect(result.ok, isTrue);
+      expect(result.message, contains('连接成功'));
+      expect(result.message, isNot(contains('抱歉')));
+      expect(
+        result.message,
+        contains(ModelProviders.aliyunBailianQwenFlash.model),
+      );
+    },
+  );
+
+  test(
     'anthropic provider posts messages request with version header',
     () async {
       final httpClient = _CapturingHttpClient(

@@ -182,20 +182,19 @@ void main() {
       ),
     );
 
-    expect(find.textContaining('已处理'), findsOneWidget);
-    expect(find.textContaining('1 个工具'), findsOneWidget);
+    expect(find.text('已完成 联网搜索'), findsOneWidget);
     expect(find.text('最终回答。'), findsOneWidget);
     expect(find.text('我先查询一下。'), findsNothing);
     expect(find.text('联网搜索结果'), findsNothing);
 
-    await tester.tap(find.textContaining('已处理'));
+    await tester.tap(find.text('已完成 联网搜索'));
     await tester.pumpAndSettle();
 
     expect(find.text('我先查询一下。'), findsOneWidget);
     expect(find.text('联网搜索结果'), findsOneWidget);
   });
 
-  testWidgets('shows streaming tool preparation as collapsed process', (
+  testWidgets('shows streaming tool preparation as expanded process', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -226,11 +225,56 @@ void main() {
 
     expect(find.text('正在思考...'), findsOneWidget);
     expect(find.textContaining('正在生成的网页代码'), findsNothing);
-
-    await tester.tap(find.text('正在思考...'));
-    await tester.pump();
-
     expect(find.text('代码已折叠，点击展开查看。'), findsOneWidget);
+  });
+
+  testWidgets('tool process expands while running and collapses after result', (
+    tester,
+  ) async {
+    final message = AgentMessage(
+      id: 'assistant-tool-process',
+      role: MessageRole.assistant,
+      createdAt: DateTime(2026),
+      blocks: [
+        MessageBlock.toolCall('project_create_web_app', const {'title': '待办'}),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessageView(onOpenWebAppArtifact: (_) {}, message: message),
+        ),
+      ),
+    );
+
+    expect(find.text('正在执行 创建 Web App'), findsOneWidget);
+    expect(find.textContaining('Tool Call'), findsOneWidget);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessageView(
+            onOpenWebAppArtifact: (_) {},
+            message: AgentMessage(
+              id: message.id,
+              role: MessageRole.assistant,
+              createdAt: message.createdAt,
+              blocks: [
+                ...message.blocks,
+                MessageBlock.toolResult('project.create_web_app', const {
+                  'ok': true,
+                  'summary': '已创建待办 Web App',
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('已完成 创建 Web App'), findsOneWidget);
+    expect(find.textContaining('Tool Call'), findsNothing);
   });
 
   testWidgets('collapses long code blocks until expanded', (tester) async {

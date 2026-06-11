@@ -22,6 +22,7 @@ import '../settings/permission_settings_page.dart';
 import '../web_app_runtime/web_app_runtime_page.dart';
 import 'audit_log_page.dart';
 import 'controllers/workbench_controller.dart';
+import 'token_usage_page.dart';
 import 'widgets/chat_panel.dart';
 import 'widgets/file_preview_page.dart';
 import 'widgets/local_data_clear_dialog.dart';
@@ -421,6 +422,15 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
     }
   }
 
+  Future<void> _openTokenUsagePage() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) =>
+            TokenUsagePage(workbenchStore: _controller.workbenchStore),
+      ),
+    );
+  }
+
   Future<void> _confirmClearLocalData() async {
     if (_controller.isSending) {
       ScaffoldMessenger.of(
@@ -502,13 +512,20 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
                   onPressed: _confirmClearLocalData,
                 ),
                 IconButton(
+                  tooltip: 'Token 用量',
+                  icon: const Icon(Icons.data_usage_outlined),
+                  onPressed: () {
+                    unawaited(_openTokenUsagePage());
+                  },
+                ),
+                IconButton(
                   tooltip: '审计日志',
                   icon: const Icon(Icons.history_outlined),
                   onPressed: () {
                     Navigator.of(context).push(
                       MaterialPageRoute<void>(
                         builder: (context) => AuditLogPage(
-                          workbenchStore: widget.workbenchStore!,
+                          workbenchStore: _controller.workbenchStore,
                         ),
                       ),
                     );
@@ -567,7 +584,8 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
                       ),
                       const Divider(),
                       MobileDrawerFooter(
-                        workbenchStore: widget.workbenchStore,
+                        workbenchStore: _controller.workbenchStore,
+                        onOpenTokenUsage: _openTokenUsagePage,
                         permissionService: _permissionService,
                         apiKeyStore: _apiKeyStore,
                         modelSettingsStore: _modelSettingsStore,
