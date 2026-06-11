@@ -261,6 +261,27 @@ class ProjectCapabilityHandler {
       metadata: metadata,
     );
     artifacts.add(artifact);
+    final test = await _testProject(
+      store: store,
+      workspaceId: workspaceId,
+      artifact: artifact,
+      manifest: _ProjectManifest(
+        projectId: projectId,
+        artifactId: artifact.id,
+        workspaceId: workspaceId,
+        title: title,
+        summary: summary,
+        entryPath: entryPath,
+        manifestPath: manifestPath,
+        permissions: permissions,
+        databaseNamespace: databaseNamespace,
+        fileNamespace: fileNamespace,
+        server: server,
+        files: files.map((file) => file.path).toList(growable: false),
+        version: 1,
+        createdAt: createdAt,
+      ),
+    );
 
     final output = <String, Object?>{
       'ok': true,
@@ -275,6 +296,7 @@ class ProjectCapabilityHandler {
       'files': metadata['files'],
       'databaseNamespace': databaseNamespace,
       'fileNamespace': fileNamespace,
+      'test': test,
     };
     if (server != null) {
       output['server'] = server;
@@ -456,6 +478,27 @@ class ProjectCapabilityHandler {
         updatedAt: updatedAt,
       );
       _replaceArtifact(artifacts, updatedArtifact);
+      final test = await _testProject(
+        store: store,
+        workspaceId: workspaceId,
+        artifact: updatedArtifact,
+        manifest: _ProjectManifest(
+          projectId: manifest.projectId,
+          artifactId: manifest.artifactId,
+          workspaceId: manifest.workspaceId,
+          title: manifest.title,
+          summary: manifest.summary,
+          entryPath: manifest.entryPath,
+          manifestPath: manifest.manifestPath,
+          permissions: permissions,
+          databaseNamespace: manifest.databaseNamespace,
+          fileNamespace: manifest.fileNamespace,
+          server: server,
+          files: sortedFiles,
+          version: version,
+          createdAt: manifest.createdAt,
+        ),
+      );
       final output = <String, Object?>{
         'ok': true,
         'workspaceId': workspaceId,
@@ -470,6 +513,7 @@ class ProjectCapabilityHandler {
           manifest.manifestPath,
           version,
         ),
+        'test': test,
       };
       if (server != null) {
         output['server'] = server;
@@ -575,6 +619,24 @@ class ProjectCapabilityHandler {
       return manifestLookup.error!;
     }
     final manifest = manifestLookup.manifest!;
+    final test = await _testProject(
+      store: store,
+      workspaceId: workspaceId,
+      artifact: artifact,
+      manifest: manifest,
+    );
+    return CapabilityExecutionResult(
+      capabilityId: 'project.test_web_app',
+      output: test,
+    );
+  }
+
+  Future<Map<String, Object?>> _testProject({
+    required AppFileStore store,
+    required String workspaceId,
+    required AgentArtifact artifact,
+    required _ProjectManifest manifest,
+  }) async {
     final issues = <Map<String, Object?>>[];
     final checkedFiles = <String>{};
     final projectFiles = manifest.files.toSet();
@@ -640,20 +702,17 @@ class ProjectCapabilityHandler {
     );
 
     final passed = !issues.any((issue) => issue['severity'] == 'error');
-    return CapabilityExecutionResult(
-      capabilityId: 'project.test_web_app',
-      output: {
-        'ok': true,
-        'passed': passed,
-        'artifactId': artifact.id,
-        'projectId': manifest.projectId,
-        'version': manifest.version,
-        'entryPath': manifest.entryPath,
-        'checkedFiles': checkedFiles.toList(growable: false)..sort(),
-        'issues': issues,
-        'summary': passed ? 'Web App 项目静态检查通过。' : 'Web App 项目静态检查发现问题。',
-      },
-    );
+    return {
+      'ok': true,
+      'passed': passed,
+      'artifactId': artifact.id,
+      'projectId': manifest.projectId,
+      'version': manifest.version,
+      'entryPath': manifest.entryPath,
+      'checkedFiles': checkedFiles.toList(growable: false)..sort(),
+      'issues': issues,
+      'summary': passed ? 'Web App 项目静态检查通过。' : 'Web App 项目静态检查发现问题。',
+    };
   }
 
   Future<CapabilityExecutionResult> revertWebApp({

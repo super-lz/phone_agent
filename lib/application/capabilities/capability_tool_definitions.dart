@@ -187,7 +187,7 @@ class CapabilityToolDefinitions {
         'function': {
           'name': 'project_create_web_app',
           'description':
-              '创建一个可维护的本地 Web 工程并生成可预览 Web App 卡片。用户要求创建小游戏、交互网页、Web App、原型、HTML 页面或“下面给我卡片/能打开体验”时优先使用本工具；必须写入真实项目文件，不能只在正文中说已创建。除极小页面外，默认拆成 index.html、styles.css、app.js 等文件；应优先提供带项目目录的 entry_path，例如 apps/my-game/index.html。若模型只传 index.html 等根路径，系统会自动套入独立项目目录，避免多个 Web App 互相覆盖。需要服务端、数据库或本地文件操作时，使用 server.routes 声明本地 API 路由，前端通过 window.PhoneAgent.serverJson/serverFetch 或 /api 路径调用；当前只在本机 App 内运行，不生成线上部署配置。后续维护时先用 file_search_app_files/file_read_app_file 定位，再用 file_apply_text_patch 修改。默认按手机竖屏设计，适配 360-430px 宽度、触摸操作和安全区域，避免桌面优先布局。需要手机能力时必须遵循 <jsbridge_skill>：声明 permissions，使用 window.PhoneAgent，不要自建或引用 JSBridge SDK。',
+              '创建一个可维护的本地 Web 工程并生成可预览 Web App 卡片。用户要求创建小游戏、交互网页、Web App、原型、HTML 页面或“下面给我卡片/能打开体验”时优先使用本工具；必须写入真实项目文件，不能只在正文中说已创建。除极小页面外，默认拆成 index.html、styles.css、app.js 等文件；应优先提供带项目目录的 entry_path，例如 apps/my-game/index.html。若模型只传 index.html 等根路径，系统会自动套入独立项目目录，避免多个 Web App 互相覆盖。需要服务端、数据库或本地文件操作时，使用 server.routes 声明本地 API 路由，前端通过 window.PhoneAgent.serverJson/serverFetch 或 /api 路径调用；当前只在本机 App 内运行，不生成线上部署配置。本工具写入后会自动执行受控静态测试并在输出 test 字段返回结论；test.passed=false 时必须继续修复或向用户说明问题。后续维护时先用 file_search_app_files/file_read_app_file 定位，再用 file_apply_text_patch 修改。默认按手机竖屏设计，适配 360-430px 宽度、触摸操作和安全区域，避免桌面优先布局。需要手机能力时必须遵循 <jsbridge_skill>：声明 permissions，使用 window.PhoneAgent，不要自建或引用 JSBridge SDK。',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -247,7 +247,7 @@ class CapabilityToolDefinitions {
         'function': {
           'name': 'project_update_web_app',
           'description':
-              '维护已有本地 Web App 项目，只更新原项目文件和原 Artifact，不创建新项目或新卡片。用于用户反馈已有网页、小游戏、Web App 的 bug、样式或功能迭代；调用前应先 artifact_query 定位，再读运行日志和项目文件。patches/files 的 path 可以传项目根相对路径（如 index.html、assets/photo.svg），也可以传当前 Workspace 中包含项目根的完整相对路径（如 apps/demo/index.html）；允许新增项目目录内的资源文件，禁止写到项目目录外。',
+              '维护已有本地 Web App 项目，只更新原项目文件和原 Artifact，不创建新项目或新卡片。用于用户反馈已有网页、小游戏、Web App 的 bug、样式或功能迭代；调用前应先 artifact_query 定位，再读运行日志和项目文件。patches/files 的 path 可以传项目根相对路径（如 index.html、assets/photo.svg），也可以传当前 Workspace 中包含项目根的完整相对路径（如 apps/demo/index.html）；允许新增项目目录内的资源文件，禁止写到项目目录外。本工具写入后会自动执行受控静态测试并在输出 test 字段返回结论；test.passed=false 时必须继续修复或向用户说明问题。',
           'parameters': {
             'type': 'object',
             'properties': {

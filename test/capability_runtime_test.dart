@@ -513,6 +513,9 @@ void main() {
       expect(result.capabilityId, 'project.create_web_app');
       expect(result.output['ok'], isTrue);
       expect(result.output['artifactId'], artifacts.single.id);
+      final createTest = result.output['test']! as Map<Object?, Object?>;
+      expect(createTest['passed'], isTrue);
+      expect(createTest['version'], 1);
       expect(artifacts.single.type, ArtifactType.webApp);
       expect(artifacts.single.metadata['entry'], 'games/gold-miner/index.html');
       expect(artifacts.single.metadata['html'], contains('黄金矿工'));
@@ -704,6 +707,9 @@ void main() {
       expect(updateResult.output['type'], 'webApp');
       expect(updateResult.output['title'], '备忘录应用');
       expect(updateResult.output['version'], 2);
+      final updateTest = updateResult.output['test']! as Map<Object?, Object?>;
+      expect(updateTest['passed'], isTrue);
+      expect(updateTest['version'], 2);
       expect(artifacts, hasLength(1));
       expect(artifacts.single.id, artifactId);
       expect(artifacts.single.metadata['currentVersion'], 2);
