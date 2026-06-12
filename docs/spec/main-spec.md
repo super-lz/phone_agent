@@ -168,7 +168,7 @@
 - 用户必须能在统一权限列表页查看当前系统权限状态；当权限可在 App 内申请时可以直接申请，当权限被永久拒绝、受系统限制、服务关闭或无法在 App 内恢复时，必须提供跳转系统设置的入口。
 - 当前默认模型提供方为阿里云百炼，默认模型为 `qwen3.6-flash-2026-04-16`，默认 OpenAI 兼容 Base URL 为 `https://dashscope.aliyuncs.com/compatible-mode/v1/`。
 - MiniMax 作为首版内置接入方，默认 Base URL 为 `https://api.minimaxi.com/v1/`，默认模型为 `MiniMax-M3`，并提供 M3、M2.7、M2.5、M2.1、M2 系列内置模型选项。
-- 小米 MiMo 作为首版可配置接入方展示并保存配置；在官方 API endpoint 尚未确认前，不得发起真实连接测试或普通对话调用。
+- 小米 MiMo 作为首版内置接入方，默认 Base URL 为 `https://api.xiaomimimo.com/v1/`，默认模型为 `mimo-v2.5-pro`；连接测试和普通对话调用按 OpenAI 兼容 Chat Completions 协议发起，接口失败时必须展示真实 HTTP 或接口错误原因。
 - `qwen3.6-flash-2026-04-16` 当前推荐默认参数为普通模式、不启用思考、`temperature=1.0`、`top_p=0.95`、`top_k=20`；正式对话默认 `stream=true`，连接测试可以使用非流式请求；第一版本不在普通设置页暴露这些参数。
 - 模型请求参数必须按当前选中的具体模型约束生成；用户输入自定义模型名称时，系统不能把某个默认模型的不兼容参数盲目套用到该模型，例如强制思考模型不得发送禁用思考参数。
 - API Key 是用户敏感凭证，必须保存在安全存储中。

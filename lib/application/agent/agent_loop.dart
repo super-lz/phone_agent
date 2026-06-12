@@ -277,7 +277,7 @@ class AgentLoop {
           await for (final event in _chatClient.streamChat(
             provider: provider,
             apiKey: apiKey,
-            messages: modelMessages,
+            messages: _snapshotModelMessages(modelMessages),
             tools: provider.supportsTools && runState.canUseTools
                 ? toolRoute.tools
                 : const [],
@@ -1131,6 +1131,14 @@ class AgentLoop {
       return capabilityId != null &&
           successfulCapabilityIds.contains(capabilityId);
     });
+  }
+
+  List<Map<String, Object?>> _snapshotModelMessages(
+    List<Map<String, Object?>> messages,
+  ) {
+    return List<Map<String, Object?>>.unmodifiable(
+      messages.map((message) => Map<String, Object?>.unmodifiable(message)),
+    );
   }
 
   AgentMessage _assistantFinalMessage(

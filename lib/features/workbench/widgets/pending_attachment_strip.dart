@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/phone_agent_colors.dart';
 import '../../../domain/conversation/message_block.dart';
+import 'file_size_format.dart';
 
 class PendingAttachmentStrip extends StatelessWidget {
   const PendingAttachmentStrip({
@@ -97,7 +98,7 @@ class _PendingAttachmentCard extends StatelessWidget {
                       if (bytes is int) ...[
                         const SizedBox(height: 3),
                         Text(
-                          _formatBytes(bytes),
+                          formatFileSize(bytes),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -134,18 +135,6 @@ class _PendingAttachmentCard extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) {
-      return '$bytes B';
-    }
-    final kb = bytes / 1024;
-    if (kb < 1024) {
-      return '${kb.toStringAsFixed(kb < 10 ? 1 : 0)} KB';
-    }
-    final mb = kb / 1024;
-    return '${mb.toStringAsFixed(mb < 10 ? 1 : 0)} MB';
   }
 }
 

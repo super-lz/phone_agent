@@ -140,6 +140,53 @@ void main() {
   );
 
   test(
+    'all openai-compatible built-in providers post to their configured endpoint',
+    () async {
+      for (final provider in ModelProviders.all.where(
+        (provider) =>
+            provider.apiProtocol == ModelApiProtocol.openAiChatCompletions,
+      )) {
+        final httpClient = _CapturingHttpClient(
+          http.Response(
+            jsonEncode({
+              'choices': [
+                {
+                  'message': {'content': 'ok'},
+                },
+              ],
+            }),
+            200,
+          ),
+        );
+        final client = OpenAiCompatibleChatClient(httpClient: httpClient);
+
+        final result = await client.completeText(
+          provider: provider,
+          apiKey: 'provider-key',
+          messages: const [
+            {'role': 'user', 'content': 'hello'},
+          ],
+        );
+
+        expect(result.ok, isTrue, reason: provider.id);
+        expect(
+          httpClient.lastUrl,
+          provider.chatCompletionsEndpoint,
+          reason: provider.id,
+        );
+        expect(
+          httpClient.lastHeaders['Authorization'],
+          'Bearer provider-key',
+          reason: provider.id,
+        );
+        final body = jsonDecode(httpClient.lastBody) as Map<String, Object?>;
+        expect(body['model'], provider.model, reason: provider.id);
+        expect(body['stream'], isFalse, reason: provider.id);
+      }
+    },
+  );
+
+  test(
     'qwen max preview connection test enables required thinking mode',
     () async {
       final httpClient = _CapturingHttpClient(

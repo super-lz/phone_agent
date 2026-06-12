@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../domain/conversation/message_block.dart';
 import 'agent_process_block.dart';
 import 'approval_block.dart';
+import 'file_size_format.dart';
 import 'markdown_block_view.dart';
 import 'message_block_cards.dart';
 import 'todo_block.dart';
@@ -131,7 +132,7 @@ class MessageBlockView extends StatelessWidget {
     final extension = data['extension'];
     final uri = data['uri'];
     if (bytes is int) {
-      parts.add(_formatBytes(bytes));
+      parts.add(formatFileSize(bytes));
     }
     if (mimeType is String && mimeType.isNotEmpty) {
       parts.add(mimeType);
@@ -143,18 +144,6 @@ class MessageBlockView extends StatelessWidget {
       parts.add(uri);
     }
     return parts.isEmpty ? '本地附件' : parts.join(' · ');
-  }
-
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) {
-      return '$bytes B';
-    }
-    final kb = bytes / 1024;
-    if (kb < 1024) {
-      return '${kb.toStringAsFixed(kb < 10 ? 1 : 0)} KB';
-    }
-    final mb = kb / 1024;
-    return '${mb.toStringAsFixed(mb < 10 ? 1 : 0)} MB';
   }
 }
 

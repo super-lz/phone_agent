@@ -6,6 +6,7 @@ import '../../../domain/capabilities/capability.dart';
 import '../../../domain/files/app_file_store.dart';
 import '../../../domain/notes/note.dart';
 import '../../../domain/permissions/permission_policy.dart';
+import 'file_size_format.dart';
 
 class RuntimePanel extends StatelessWidget {
   const RuntimePanel({
@@ -294,16 +295,7 @@ class RuntimePanel extends StatelessWidget {
     );
   }
 
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) {
-      return '$bytes B';
-    }
-    final kib = bytes / 1024;
-    if (kib < 1024) {
-      return '${kib.toStringAsFixed(1)} KB';
-    }
-    return '${(kib / 1024).toStringAsFixed(1)} MB';
-  }
+  String _formatBytes(int bytes) => formatFileSize(bytes);
 }
 
 class _CapabilityRow extends StatelessWidget {

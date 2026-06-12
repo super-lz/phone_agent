@@ -44,6 +44,60 @@ void main() {
     expect(provider.hasKnownContextWindow, isTrue);
   });
 
+  test('every built-in provider has a callable protocol and default model', () {
+    for (final provider in ModelProviders.all) {
+      expect(provider.canRunConnectionTest, isTrue, reason: provider.id);
+      expect(
+        provider.apiProtocol,
+        isNot(ModelApiProtocol.unavailable),
+        reason: provider.id,
+      );
+      expect(provider.model, isNotEmpty, reason: provider.id);
+      expect(provider.defaultModel, provider.model, reason: provider.id);
+      expect(
+        provider.modelOptions.map((option) => option.name),
+        contains(provider.defaultModel),
+        reason: provider.id,
+      );
+    }
+  });
+
+  test('every built-in provider resolves to a concrete request endpoint', () {
+    final expectedEndpoints = <String, String>{
+      ModelProviders.aliyunBailianQwenFlash.id:
+          'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+      ModelProviders.deepSeek.id: 'https://api.deepseek.com/chat/completions',
+      ModelProviders.moonshotKimi.id:
+          'https://api.moonshot.cn/v1/chat/completions',
+      ModelProviders.zhipuGlm.id:
+          'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+      ModelProviders.tencentHunyuan.id:
+          'https://api.hunyuan.cloud.tencent.com/v1/chat/completions',
+      ModelProviders.miniMax.id: 'https://api.minimaxi.com/v1/chat/completions',
+      ModelProviders.xiaomiMimo.id:
+          'https://api.xiaomimimo.com/v1/chat/completions',
+      ModelProviders.siliconFlow.id:
+          'https://api.siliconflow.cn/v1/chat/completions',
+      ModelProviders.openAi.id: 'https://api.openai.com/v1/chat/completions',
+      ModelProviders.googleGemini.id:
+          'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+      ModelProviders.xAi.id: 'https://api.x.ai/v1/chat/completions',
+      ModelProviders.mistral.id: 'https://api.mistral.ai/v1/chat/completions',
+      ModelProviders.anthropicClaude.id:
+          'https://api.anthropic.com/v1/messages',
+      ModelProviders.openRouter.id:
+          'https://openrouter.ai/api/v1/chat/completions',
+    };
+
+    for (final provider in ModelProviders.all) {
+      final endpoint =
+          provider.apiProtocol == ModelApiProtocol.anthropicMessages
+          ? provider.anthropicMessagesEndpoint
+          : provider.chatCompletionsEndpoint;
+      expect(endpoint.toString(), expectedEndpoints[provider.id]);
+    }
+  });
+
   test('manual context window override wins over built-in model option', () {
     final provider = ModelProviders.moonshotKimi.copyWith(
       model: 'moonshot-v1-8k',
@@ -79,6 +133,7 @@ void main() {
       );
       expect(provider.defaultModel, 'MiniMax-M3');
       expect(provider.supportsTools, isTrue);
+      expect(provider.effectiveMaxContextTokens, 1000000);
       expect(
         provider.modelOptions.map((option) => option.name),
         contains('MiniMax-M2.7-highspeed'),
@@ -95,6 +150,12 @@ void main() {
       'https://api.anthropic.com/v1/messages',
     );
     expect(provider.defaultHeaders['anthropic-version'], '2023-06-01');
+    expect(provider.defaultModel, 'claude-opus-4-8');
+    expect(provider.effectiveMaxContextTokens, 1000000);
+    expect(
+      provider.modelOptions.map((option) => option.name),
+      containsAll(['claude-sonnet-4-6', 'claude-haiku-4-5']),
+    );
     expect(provider.supportsTools, isFalse);
   });
 
