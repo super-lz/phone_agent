@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import '../../domain/conversation/message_block.dart';
 import '../../domain/models/model_provider_config.dart';
+import 'final_response_guard.dart';
 
 const int conservativeContextWindowTokens = 32768;
 
@@ -155,15 +156,21 @@ class ContextBudgetPlanner {
 
   String _messageText(AgentMessage message) {
     return message.blocks
-        .map(_blockText)
+        .map((block) => _blockText(message.role, block))
         .where((text) => text.trim().isNotEmpty)
         .join('\n')
         .trim();
   }
 
-  String _blockText(MessageBlock block) {
+  String _blockText(MessageRole role, MessageBlock block) {
     return switch (block.type) {
-      MessageBlockType.markdownText => block.data['text'] as String? ?? '',
+      MessageBlockType.markdownText =>
+        block.data['intermediate'] == true
+            ? ''
+            : _assistantMarkdownHistoryText(
+                role,
+                block.data['text'] as String? ?? '',
+              ),
       MessageBlockType.codeBlock => block.data['code'] as String? ?? '',
       MessageBlockType.image ||
       MessageBlockType.fileAttachment => block.data.toString(),
@@ -173,12 +180,92 @@ class ContextBudgetPlanner {
       MessageBlockType.artifactCard ||
       MessageBlockType.webAppCard ||
       MessageBlockType.errorCard => block.data.toString(),
+      MessageBlockType.toolResult => _toolResultText(block),
+      MessageBlockType.taskProgress => _taskProgressText(block),
       MessageBlockType.toolCall ||
-      MessageBlockType.toolResult ||
       MessageBlockType.approvalRequest ||
-      MessageBlockType.taskProgress ||
       MessageBlockType.citation => '',
     };
+  }
+
+  String _assistantMarkdownHistoryText(MessageRole role, String text) {
+    if (role == MessageRole.assistant && looksLikeRawToolProcess(text)) {
+      return '';
+    }
+    return text;
+  }
+
+  String _toolResultText(MessageBlock block) {
+    final capabilityId = block.data['capabilityId'] as String? ?? 'unknown';
+    final output = block.data['output'];
+    if (output is! Map<Object?, Object?>) {
+      return '工具结果 $capabilityId';
+    }
+    final parts = <String>['工具结果 $capabilityId'];
+    final ok = output['ok'];
+    if (ok is bool) {
+      parts.add(ok ? '成功' : '失败');
+    }
+    for (final key in const [
+      'summary',
+      'userMessage',
+      'detail',
+      'error',
+      'title',
+      'type',
+      'artifactId',
+      'workspaceId',
+      'activeWorkspaceId',
+      'path',
+      'workspacePath',
+      'entryPath',
+      'manifestPath',
+      'projectId',
+      'versionPath',
+      'runtimeLogPath',
+      'notificationId',
+      'eventId',
+    ]) {
+      final value = _safeScalar(output[key]);
+      if (value != null) {
+        parts.add('$key=$value');
+      }
+    }
+    return parts.join(' · ');
+  }
+
+  String _taskProgressText(MessageBlock block) {
+    final nestedBlocks = block.data['blocks'];
+    if (nestedBlocks is! Iterable<Object?>) {
+      return '';
+    }
+    return nestedBlocks
+        .map(MessageBlock.tryFromJson)
+        .whereType<MessageBlock>()
+        .map((nested) {
+          return switch (nested.type) {
+            MessageBlockType.toolResult => _toolResultText(nested),
+            MessageBlockType.artifactCard ||
+            MessageBlockType.webAppCard => nested.data.toString(),
+            MessageBlockType.errorCard => nested.data.toString(),
+            _ => '',
+          };
+        })
+        .where((text) => text.trim().isNotEmpty)
+        .join('\n');
+  }
+
+  String? _safeScalar(Object? value) {
+    if (value is String && value.trim().isNotEmpty) {
+      final singleLine = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+      return singleLine.length <= 240
+          ? singleLine
+          : '${singleLine.substring(0, 240)}...';
+    }
+    if (value is num || value is bool) {
+      return value.toString();
+    }
+    return null;
   }
 }
 

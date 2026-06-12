@@ -1,7 +1,7 @@
 class AgentLoopBudget {
   const AgentLoopBudget({
-    this.maxModelRounds = 16,
-    this.maxToolCalls = 48,
+    this.maxModelRounds = 32,
+    this.maxToolCalls = 96,
     this.maxConsecutiveToolFailures = 4,
   });
 

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../app/phone_agent_colors.dart';
 import '../../../application/agent/context_budget.dart';
 
 class ContextBudgetRing extends StatelessWidget {
@@ -86,9 +87,7 @@ class ContextBudgetRing extends StatelessWidget {
   }
 
   Color _trackColor(BuildContext context) {
-    return Theme.of(
-      context,
-    ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.85);
+    return context.phoneAgentColors.textTertiary.withValues(alpha: 0.48);
   }
 
   String _usageLabel(ContextBudgetSnapshot? snapshot) {

@@ -9,6 +9,30 @@ import 'package:phone_agent/domain/models/model_provider_config.dart';
 import 'package:phone_agent/features/settings/model_settings_page.dart';
 
 void main() {
+  testWidgets('switching provider keeps model dropdown value valid', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ModelSettingsPage(
+          apiKeyStore: _FakeApiKeyStore('test-key'),
+          modelSettingsStore: InMemoryModelSettingsStore(),
+          chatClient: _ImmediateConnectionClient(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('小米 MiMo'));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('MiMo V2.5 Pro'), findsWidgets);
+  });
+
   testWidgets(
     'connection test status uses selected model and deterministic result',
     (tester) async {
@@ -87,5 +111,18 @@ class _DelayedConnectionClient extends OpenAiCompatibleChatClient {
 
   void complete(ModelConnectionResult result) {
     _completer.complete(result);
+  }
+}
+
+class _ImmediateConnectionClient extends OpenAiCompatibleChatClient {
+  @override
+  Future<ModelConnectionResult> testConnection({
+    required ModelProviderConfig provider,
+    required String apiKey,
+  }) async {
+    return ModelConnectionResult(
+      ok: true,
+      message: '连接成功：${provider.vendorName} / ${provider.model}',
+    );
   }
 }

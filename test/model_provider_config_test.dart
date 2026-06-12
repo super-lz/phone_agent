@@ -98,15 +98,25 @@ void main() {
     expect(provider.supportsTools, isFalse);
   });
 
-  test('mimo is configurable but not runnable until endpoint is confirmed', () {
+  test('mimo uses real openai-compatible api endpoint', () {
     final provider = ModelProviders.xiaomiMimo;
 
-    expect(provider.apiProtocol, ModelApiProtocol.unavailable);
-    expect(provider.canRunConnectionTest, isFalse);
+    expect(provider.apiProtocol, ModelApiProtocol.openAiChatCompletions);
+    expect(provider.canRunConnectionTest, isTrue);
     expect(provider.requiresApiKey, isTrue);
+    expect(provider.supportsTools, isTrue);
+    expect(
+      provider.chatCompletionsEndpoint.toString(),
+      'https://api.xiaomimimo.com/v1/chat/completions',
+    );
+    expect(provider.effectiveMaxContextTokens, 1000000);
     expect(
       provider.modelOptions.map((option) => option.name),
       contains('mimo-v2.5-pro'),
+    );
+    expect(
+      provider.modelOptions.map((option) => option.name),
+      isNot(contains('mimo-v2.5-tts')),
     );
   });
 

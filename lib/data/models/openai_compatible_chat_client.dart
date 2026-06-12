@@ -84,6 +84,7 @@ class OpenAiCompatibleChatClient {
     http.Client? httpClient,
     this.requestTimeout = const Duration(seconds: 30),
     this.streamIdleTimeout = const Duration(seconds: 45),
+    this.toolStreamIdleTimeout = const Duration(minutes: 5),
   }) : _httpClient = httpClient ?? http.Client();
 
   static Object? diagnosticPayloadForLog(Object? value) {
@@ -93,6 +94,7 @@ class OpenAiCompatibleChatClient {
   final http.Client _httpClient;
   final Duration requestTimeout;
   final Duration streamIdleTimeout;
+  final Duration toolStreamIdleTimeout;
 
   Stream<String> streamText({
     required ModelProviderConfig provider,
@@ -155,10 +157,24 @@ class OpenAiCompatibleChatClient {
       })
       ..body = jsonEncode(requestBody);
 
+    final stopwatch = Stopwatch()..start();
     late final http.StreamedResponse response;
     try {
       response = await _httpClient.send(request).timeout(requestTimeout);
+      stopwatch.stop();
+      AppLogger.info('model.stream_chat.connect_completed', {
+        'provider': provider.id,
+        'model': provider.model,
+        'durationMs': stopwatch.elapsedMilliseconds,
+        'statusCode': response.statusCode,
+      });
     } on Object catch (error, stackTrace) {
+      stopwatch.stop();
+      AppLogger.error('model.stream_chat.connect_failed', error, stackTrace, {
+        'provider': provider.id,
+        'model': provider.model,
+        'durationMs': stopwatch.elapsedMilliseconds,
+      });
       throw _modelRequestExceptionFor(
         error,
         stackTrace,
@@ -176,16 +192,17 @@ class OpenAiCompatibleChatClient {
     }
 
     var eventCount = 0;
+    final idleTimeout = _streamIdleTimeout(hasTools: tools.isNotEmpty);
     try {
       await for (final line
           in response.stream
               .timeout(
-                streamIdleTimeout,
+                idleTimeout,
                 onTimeout: (sink) {
                   sink.addError(
                     TimeoutException(
-                      '模型流式响应 ${_formatDuration(streamIdleTimeout)} 没有新数据。',
-                      streamIdleTimeout,
+                      '模型流式响应 ${_formatDuration(idleTimeout)} 没有新数据。',
+                      idleTimeout,
                     ),
                   );
                   sink.close();
@@ -269,6 +286,7 @@ class OpenAiCompatibleChatClient {
         messages: messages,
       );
     }
+    final stopwatch = Stopwatch()..start();
     try {
       final response = await _postChatCompletion(
         provider: provider,
@@ -279,6 +297,13 @@ class OpenAiCompatibleChatClient {
           stream: false,
         ),
       );
+      stopwatch.stop();
+      AppLogger.info('model.complete_text.completed', {
+        'provider': provider.id,
+        'model': provider.model,
+        'durationMs': stopwatch.elapsedMilliseconds,
+        'statusCode': response.statusCode,
+      });
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         return ChatCompletionResult(
@@ -293,6 +318,12 @@ class OpenAiCompatibleChatClient {
         content: text.isEmpty ? '模型响应中没有文本内容。' : text,
       );
     } on Object catch (error) {
+      stopwatch.stop();
+      AppLogger.error('model.complete_text.failed', error, null, {
+        'provider': provider.id,
+        'model': provider.model,
+        'durationMs': stopwatch.elapsedMilliseconds,
+      });
       return ChatCompletionResult(ok: false, content: error.toString());
     }
   }
@@ -740,6 +771,16 @@ class OpenAiCompatibleChatClient {
     return normalized.contains('qwen3.7-max') ||
         normalized.contains('qwen3-max-preview') ||
         normalized.contains('qwen-max-preview');
+  }
+
+  Duration _streamIdleTimeout({required bool hasTools}) {
+    if (!hasTools) {
+      return streamIdleTimeout;
+    }
+    if (toolStreamIdleTimeout < streamIdleTimeout) {
+      return streamIdleTimeout;
+    }
+    return toolStreamIdleTimeout;
   }
 
   ModelRequestException _modelRequestExceptionFor(

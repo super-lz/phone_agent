@@ -58,6 +58,50 @@ void main() {
     },
   );
 
+  test('streamed tool calls use the dedicated tool idle timeout', () async {
+    final streamController = StreamController<List<int>>();
+    addTearDown(streamController.close);
+    final client = OpenAiCompatibleChatClient(
+      httpClient: _IdleStreamHttpClient(streamController.stream),
+      streamIdleTimeout: const Duration(milliseconds: 10),
+      toolStreamIdleTimeout: const Duration(milliseconds: 70),
+    );
+    var completed = false;
+
+    final streamFuture = client
+        .streamChat(
+          provider: ModelProviders.aliyunBailianQwenFlash,
+          apiKey: 'test-key',
+          messages: const [
+            {'role': 'user', 'content': '创建 Web App'},
+          ],
+          tools: const [
+            {
+              'type': 'function',
+              'function': {
+                'name': 'project_create_web_app',
+                'parameters': {'type': 'object'},
+              },
+            },
+          ],
+        )
+        .drain<void>()
+        .whenComplete(() => completed = true);
+
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    expect(completed, isFalse);
+    await expectLater(
+      streamFuture,
+      throwsA(
+        isA<ModelRequestException>().having(
+          (error) => error.isRetryable,
+          'isRetryable',
+          isTrue,
+        ),
+      ),
+    );
+  });
+
   test(
     'openai-compatible provider posts to provider endpoint with bearer key',
     () async {
@@ -284,16 +328,34 @@ void main() {
     },
   );
 
-  test('unavailable provider reports configuration-only status', () async {
-    final client = OpenAiCompatibleChatClient();
+  test('mimo connection test uses chat completions endpoint', () async {
+    final httpClient = _CapturingHttpClient(
+      http.Response(
+        jsonEncode({
+          'choices': [
+            {
+              'message': {'content': 'ok'},
+            },
+          ],
+        }),
+        200,
+      ),
+    );
+    final client = OpenAiCompatibleChatClient(httpClient: httpClient);
 
     final result = await client.testConnection(
       provider: ModelProviders.xiaomiMimo,
       apiKey: 'mimo-key',
     );
 
-    expect(result.ok, isFalse);
-    expect(result.message, contains('官方 API endpoint 尚未确认'));
+    expect(result.ok, isTrue);
+    expect(
+      httpClient.lastUrl.toString(),
+      'https://api.xiaomimimo.com/v1/chat/completions',
+    );
+    expect(httpClient.lastHeaders['Authorization'], 'Bearer mimo-key');
+    final body = jsonDecode(httpClient.lastBody) as Map<String, Object?>;
+    expect(body['model'], 'mimo-v2.5-pro');
   });
 }
 

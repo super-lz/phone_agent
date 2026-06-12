@@ -33,7 +33,9 @@ void main() {
     expect(route.reverseTransitionDuration, Duration.zero);
   });
 
-  testWidgets('web app runtime fades out before popping', (tester) async {
+  testWidgets('web app runtime pops with the normal route lifecycle', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
@@ -78,11 +80,6 @@ void main() {
     expect(find.text('权限确认'), findsOneWidget);
 
     await tester.tap(find.byType(BackButton));
-    await tester.pump();
-
-    expect(find.text('权限确认'), findsOneWidget);
-
-    await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
 
     expect(find.text('权限确认'), findsNothing);
@@ -113,6 +110,23 @@ void main() {
       expect(script, contains('webFetch: function'));
       expect(script, contains('queryMemory: function'));
       expect(script, contains('switchWorkspace: function'));
+    },
+  );
+
+  test(
+    'bridge script applies baseline web app viewport and interaction styles',
+    () {
+      final script = buildWebAppBridgeHeadHtml(_webApp());
+
+      expect(script, contains('phone-agent-runtime-edge-reset'));
+      expect(script, contains('margin: 0'));
+      expect(script, contains('min-height: 100%'));
+      expect(script, contains('overflow-x: hidden'));
+      expect(script, contains('-webkit-tap-highlight-color: transparent'));
+      expect(script, contains('scrollbar-width: thin'));
+      expect(script, contains('::-webkit-scrollbar-thumb'));
+      expect(script, contains('overscroll-behavior: none'));
+      expect(script, contains(':focus-visible'));
     },
   );
 }

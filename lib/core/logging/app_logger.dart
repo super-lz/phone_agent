@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:logger/logger.dart';
 import 'package:path_provider/path_provider.dart';
 
 enum AppLogLevel {
@@ -31,6 +32,18 @@ class AppLogger {
   static File? _logFile;
   static IOSink? _sink;
   static AppLogLevel consoleLevel = AppLogLevel.info;
+
+  static final Logger _prettyLogger = Logger(
+    printer: PrettyPrinter(
+      methodCount: 0,
+      errorMethodCount: 8,
+      lineLength: 120,
+      colors: true,
+      printEmojis: true,
+      dateTimeFormat: DateTimeFormat.dateAndTime,
+    ),
+    output: AppLogOutput(),
+  );
 
   static String? get logFilePath => _logFile?.path;
 
@@ -76,6 +89,7 @@ class AppLogger {
   }
 
   static Future<void> dispose() async {
+    await _prettyLogger.close();
     await _sink?.flush();
     await _sink?.close();
     _sink = null;
@@ -90,7 +104,34 @@ class AppLogger {
         '${DateTime.now().toIso8601String()} ${level.label} $event ${_formatData(data)}'
             .trimRight();
     if (level.index >= consoleLevel.index) {
-      _printToConsole(line);
+      if (Platform.environment.containsKey('FLUTTER_TEST')) {
+        _printToConsole(line);
+      } else {
+        final msg = '$event ${_formatData(data)}';
+        switch (level) {
+          case AppLogLevel.debug:
+            _prettyLogger.d(msg);
+            break;
+          case AppLogLevel.info:
+            _prettyLogger.i(msg);
+            break;
+          case AppLogLevel.warning:
+            _prettyLogger.w(msg);
+            break;
+          case AppLogLevel.error:
+            final err = data['error'] ?? 'Unknown error';
+            final stackStr = data['stackTrace'] as String?;
+            final cleanData = Map<String, Object?>.from(data)
+              ..remove('error')
+              ..remove('stackTrace');
+            _prettyLogger.e(
+              '$event ${_formatData(cleanData)}',
+              error: err,
+              stackTrace: stackStr != null ? StackTrace.fromString(stackStr) : null,
+            );
+            break;
+        }
+      }
     }
     _sink?.writeln(line);
   }
@@ -140,5 +181,14 @@ class AppLogger {
       await rotated.delete();
     }
     await file.rename(rotated.path);
+  }
+}
+
+class AppLogOutput extends LogOutput {
+  @override
+  void output(OutputEvent event) {
+    for (final line in event.lines) {
+      AppLogger._printToConsole(line);
+    }
   }
 }

@@ -48,7 +48,15 @@ class _GenericToolResultCard extends StatefulWidget {
 }
 
 class _GenericToolResultCardState extends State<_GenericToolResultCard> {
-  bool _expanded = false;
+  late bool _expanded = !widget.presentation.ok;
+
+  @override
+  void didUpdateWidget(_GenericToolResultCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.presentation.ok != widget.presentation.ok) {
+      _expanded = !widget.presentation.ok;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -117,11 +125,13 @@ class _GenericToolResultCardState extends State<_GenericToolResultCard> {
                   style: Theme.of(context).textTheme.labelSmall,
                 ),
                 const SizedBox(height: 4),
-                SelectableText(
-                  presentation.detail,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+                SelectionArea(
+                  child: Text(
+                    presentation.detail,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+                  ),
                 ),
               ],
             ],
@@ -201,7 +211,17 @@ class _WebToolResultCard extends StatefulWidget {
 }
 
 class _WebToolResultCardState extends State<_WebToolResultCard> {
-  bool _expanded = false;
+  late bool _expanded = widget.output['ok'] != true;
+
+  @override
+  void didUpdateWidget(_WebToolResultCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldOk = oldWidget.output['ok'] == true;
+    final newOk = widget.output['ok'] == true;
+    if (oldOk != newOk) {
+      _expanded = !newOk;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

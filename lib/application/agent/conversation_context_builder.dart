@@ -2,6 +2,7 @@ import '../../core/logging/app_logger.dart';
 import '../../data/models/openai_compatible_chat_client.dart';
 import '../../domain/conversation/message_block.dart';
 import '../../domain/models/model_provider_config.dart';
+import 'final_response_guard.dart';
 
 class ConversationContextBuilder {
   const ConversationContextBuilder({
@@ -29,7 +30,7 @@ class ConversationContextBuilder {
 
     for (final entry in entries.reversed) {
       final nextSize = usedChars + entry.content.length;
-      if (nextSize <= maxRecentChars || recent.isEmpty) {
+      if (nextSize <= maxRecentChars) {
         recent.add(entry);
         usedChars = nextSize;
       } else {
@@ -136,7 +137,7 @@ class ConversationContextBuilder {
 
   ConversationContextEntry? _toTranscriptEntry(AgentMessage message) {
     final content = message.blocks
-        .map(_blockToText)
+        .map((block) => _blockToText(message.role, block))
         .where((part) => part.trim().isNotEmpty)
         .join('\n')
         .trim();
@@ -146,10 +147,17 @@ class ConversationContextBuilder {
     return ConversationContextEntry(role: message.role, content: content);
   }
 
-  String _blockToText(MessageBlock block) {
+  String _blockToText(MessageRole role, MessageBlock block) {
     switch (block.type) {
       case MessageBlockType.markdownText:
-        return block.data['text'] as String? ?? '';
+        if (block.data['intermediate'] == true) {
+          return '';
+        }
+        final text = block.data['text'] as String? ?? '';
+        if (role == MessageRole.assistant && looksLikeRawToolProcess(text)) {
+          return '';
+        }
+        return text;
       case MessageBlockType.codeBlock:
         final language = block.data['language'] as String? ?? '';
         final code = block.data['code'] as String? ?? '';
@@ -171,9 +179,10 @@ class ConversationContextBuilder {
         return '错误 ${block.data['title']}: ${block.data['detail']}';
       case MessageBlockType.toolResult:
         return _toolResultSummary(block);
+      case MessageBlockType.taskProgress:
+        return _taskProgressSummary(block);
       case MessageBlockType.toolCall:
       case MessageBlockType.approvalRequest:
-      case MessageBlockType.taskProgress:
       case MessageBlockType.citation:
         return '';
     }
@@ -252,6 +261,32 @@ class ConversationContextBuilder {
       parts.add('changedFiles=${changedPaths.take(8).join(', ')}');
     }
     return _truncate(parts.join(' · '), 900);
+  }
+
+  String _taskProgressSummary(MessageBlock block) {
+    final nestedBlocks = block.data['blocks'];
+    if (nestedBlocks is! Iterable<Object?>) {
+      return '';
+    }
+    final summaries = <String>[];
+    for (final item in nestedBlocks) {
+      final nested = MessageBlock.tryFromJson(item);
+      if (nested == null) {
+        continue;
+      }
+      final summary = switch (nested.type) {
+        MessageBlockType.toolResult => _toolResultSummary(nested),
+        MessageBlockType.artifactCard || MessageBlockType.webAppCard =>
+          'Artifact ${nested.data['title']}: ${nested.data['artifactId']}',
+        MessageBlockType.errorCard =>
+          '错误 ${nested.data['title']}: ${nested.data['detail']}',
+        _ => '',
+      };
+      if (summary.trim().isNotEmpty) {
+        summaries.add(summary);
+      }
+    }
+    return summaries.join('\n');
   }
 
   String? _safeScalar(Object? value) {

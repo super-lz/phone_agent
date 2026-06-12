@@ -89,13 +89,15 @@ class _CodeBlockCardState extends State<CodeBlockCard> {
           if (_expanded)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-              child: SelectableText(
-                widget.code,
-                style: const TextStyle(
-                  color: Color(0xFFE2E8F0),
-                  fontFamily: 'monospace',
-                  fontSize: 13,
-                  height: 1.5,
+              child: SelectionArea(
+                child: Text(
+                  widget.code,
+                  style: const TextStyle(
+                    color: Color(0xFFE2E8F0),
+                    fontFamily: 'monospace',
+                    fontSize: 13,
+                    height: 1.5,
+                  ),
                 ),
               ),
             )

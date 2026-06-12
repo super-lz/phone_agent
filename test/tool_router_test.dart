@@ -135,7 +135,7 @@ void main() {
     expect(route.index, contains('project_test_web_app'));
   });
 
-  test('web app creation exposes project test tool', () async {
+  test('web app creation relies on create tool built-in test result', () async {
     final chatClient = _RoutingChatClient(
       jsonEncode({
         'selected_tool_names': ['project_create_web_app'],
@@ -153,13 +153,218 @@ void main() {
       apiKey: 'test-key',
     );
 
-    expect(
-      route.selectedToolNames,
-      containsAll(['project_create_web_app', 'project_test_web_app']),
-    );
+    expect(route.selectedToolNames, contains('project_create_web_app'));
     expect(route.requiredToolNames, contains('project_create_web_app'));
-    expect(route.index, contains('project_test_web_app'));
+    expect(route.selectedToolNames, isNot(contains('project_test_web_app')));
+    expect(route.selectedToolNames, isNot(contains('artifact_create')));
+    expect(route.index, isNot(contains('project_test_web_app')));
   });
+
+  test(
+    'router failure still applies deterministic web app creation fallback',
+    () async {
+      final chatClient = _FailingRoutingChatClient('路由服务暂时不可用');
+
+      final route = await router.route(
+        prompt: '帮我创建一个待办 Web App',
+        allTools: tools,
+        chatClient: chatClient,
+        provider: ModelProviders.aliyunBailianQwenFlash,
+        apiKey: 'test-key',
+      );
+
+      expect(route.selectedToolNames, contains('project_create_web_app'));
+      expect(route.requiredToolNames, contains('project_create_web_app'));
+      expect(route.index, contains('project_create_web_app'));
+    },
+  );
+
+  test(
+    'invalid router JSON still applies deterministic web app creation fallback',
+    () async {
+      final chatClient = _RoutingChatClient('不是 JSON');
+
+      final route = await router.route(
+        prompt: '生成一个本地 Web App 番茄钟',
+        allTools: tools,
+        chatClient: chatClient,
+        provider: ModelProviders.aliyunBailianQwenFlash,
+        apiKey: 'test-key',
+      );
+
+      expect(route.selectedToolNames, contains('project_create_web_app'));
+      expect(route.requiredToolNames, contains('project_create_web_app'));
+    },
+  );
+
+  test(
+    'router failure still requires artifact creation for reusable reports',
+    () async {
+      final chatClient = _FailingRoutingChatClient('路由模型暂时不可用');
+
+      final route = await router.route(
+        prompt: '帮我生成一份项目复盘报告并保存成卡片',
+        allTools: tools,
+        chatClient: chatClient,
+        provider: ModelProviders.aliyunBailianQwenFlash,
+        apiKey: 'test-key',
+      );
+
+      expect(route.selectedToolNames, contains('artifact_create'));
+      expect(route.requiredToolNames, contains('artifact_create'));
+      expect(route.index, contains('artifact_create'));
+    },
+  );
+
+  test('router failure does not force artifact for ordinary writing', () async {
+    final chatClient = _FailingRoutingChatClient('路由模型暂时不可用');
+
+    final route = await router.route(
+      prompt: '帮我写一段产品介绍',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(route.selectedToolNames, isNot(contains('artifact_create')));
+    expect(route.requiredToolNames, isEmpty);
+  });
+
+  test(
+    'router failure still exposes memory tools for explicit memory',
+    () async {
+      final chatClient = _FailingRoutingChatClient('路由模型暂时不可用');
+
+      final route = await router.route(
+        prompt: '请记住我的偏好：默认用中文回答',
+        allTools: tools,
+        chatClient: chatClient,
+        provider: ModelProviders.aliyunBailianQwenFlash,
+        apiKey: 'test-key',
+      );
+
+      expect(route.selectedToolNames, contains('memory_create'));
+      expect(route.requiredToolNames, contains('memory_create'));
+      expect(route.selectedToolNames, isNot(contains('db_note_create')));
+    },
+  );
+
+  test('router failure still exposes note tools for explicit notes', () async {
+    final chatClient = _FailingRoutingChatClient('路由模型暂时不可用');
+
+    final route = await router.route(
+      prompt: '记录一个待办：周五前整理需求清单',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(route.selectedToolNames, contains('db_note_create'));
+    expect(route.requiredToolNames, contains('db_note_create'));
+    expect(route.selectedToolNames, isNot(contains('memory_create')));
+  });
+
+  test(
+    'router failure still exposes workspace tools for workspace commands',
+    () async {
+      final createClient = _FailingRoutingChatClient('路由模型暂时不可用');
+      final createRoute = await router.route(
+        prompt: '新建工作区：出差计划',
+        allTools: tools,
+        chatClient: createClient,
+        provider: ModelProviders.aliyunBailianQwenFlash,
+        apiKey: 'test-key',
+      );
+
+      expect(createRoute.selectedToolNames, contains('workspace_create'));
+      expect(createRoute.requiredToolNames, contains('workspace_create'));
+
+      final switchClient = _FailingRoutingChatClient('路由模型暂时不可用');
+      final switchRoute = await router.route(
+        prompt: '切换到工作区 出差计划',
+        allTools: tools,
+        chatClient: switchClient,
+        provider: ModelProviders.aliyunBailianQwenFlash,
+        apiKey: 'test-key',
+      );
+
+      expect(switchRoute.selectedToolNames, contains('workspace_switch'));
+      expect(switchRoute.requiredToolNames, contains('workspace_switch'));
+    },
+  );
+
+  test(
+    'router failure still exposes web tools for current information',
+    () async {
+      final chatClient = _FailingRoutingChatClient('路由模型暂时不可用');
+
+      final route = await router.route(
+        prompt: '搜索 Flutter 最新信息并给出来源',
+        allTools: tools,
+        chatClient: chatClient,
+        provider: ModelProviders.aliyunBailianQwenFlash,
+        apiKey: 'test-key',
+      );
+
+      expect(route.selectedToolNames, containsAll(['web_search', 'web_fetch']));
+      expect(route.requiredToolNames, contains('web_search'));
+    },
+  );
+
+  test('router failure exposes web fetch for explicit url reading', () async {
+    final chatClient = _FailingRoutingChatClient('路由模型暂时不可用');
+
+    final route = await router.route(
+      prompt: '读取 https://example.com 这个网页并总结',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(route.selectedToolNames, contains('web_fetch'));
+    expect(route.requiredToolNames, contains('web_fetch'));
+  });
+
+  test('router failure does not search web for local time requests', () async {
+    final chatClient = _FailingRoutingChatClient('路由模型暂时不可用');
+
+    final route = await router.route(
+      prompt: '现在几点',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(route.selectedToolNames, contains('time_get_current'));
+    expect(route.selectedToolNames, isNot(contains('web_search')));
+    expect(route.selectedToolNames, isNot(contains('web_fetch')));
+  });
+
+  test(
+    'router failure does not search web for local reminder requests',
+    () async {
+      final chatClient = _FailingRoutingChatClient('路由模型暂时不可用');
+
+      final route = await router.route(
+        prompt: '今天下午三点提醒我开会',
+        allTools: tools,
+        chatClient: chatClient,
+        provider: ModelProviders.aliyunBailianQwenFlash,
+        apiKey: 'test-key',
+      );
+
+      expect(
+        route.selectedToolNames,
+        containsAll(['time_get_current', 'notification_schedule']),
+      );
+      expect(route.selectedToolNames, isNot(contains('web_search')));
+      expect(route.selectedToolNames, isNot(contains('web_fetch')));
+    },
+  );
 
   test('native input requests expose system picker tools', () async {
     final chatClient = _RoutingChatClient(
@@ -460,5 +665,20 @@ class _RoutingChatClient extends OpenAiCompatibleChatClient {
   }) async {
     lastMessages = messages;
     return ChatCompletionResult(ok: true, content: output);
+  }
+}
+
+class _FailingRoutingChatClient extends OpenAiCompatibleChatClient {
+  _FailingRoutingChatClient(this.message);
+
+  final String message;
+
+  @override
+  Future<ChatCompletionResult> completeText({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    return ChatCompletionResult(ok: false, content: message);
   }
 }

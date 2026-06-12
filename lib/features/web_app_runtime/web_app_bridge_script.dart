@@ -7,6 +7,69 @@ String buildWebAppBridgeHeadHtml(AgentArtifact webApp) {
   const capabilities = WebAppRuntimeDefaults.permissions;
   return '''
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style id="phone-agent-runtime-edge-reset">
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    html,
+    body {
+      margin: 0;
+      min-width: 100%;
+      min-height: 100%;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(15, 23, 42, 0.28) transparent;
+    }
+    body {
+      width: 100%;
+      overflow-x: hidden;
+      overscroll-behavior: none;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
+    button,
+    input,
+    textarea,
+    select,
+    a,
+    [role="button"] {
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    :focus:not(:focus-visible) {
+      outline: none;
+    }
+    :focus-visible {
+      outline: 2px solid rgba(14, 165, 233, 0.62);
+      outline-offset: 2px;
+    }
+    ::selection {
+      background: rgba(14, 165, 233, 0.24);
+    }
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(15, 23, 42, 0.24);
+      border: 2px solid transparent;
+      border-radius: 999px;
+      background-clip: content-box;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(15, 23, 42, 0.38);
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    ::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+  </style>
   <script>
     (function() {
       const manifest = ${jsonEncode(_manifestFor(webApp))};

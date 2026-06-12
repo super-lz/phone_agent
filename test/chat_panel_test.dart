@@ -54,8 +54,8 @@ void main() {
     expect(find.byTooltip('停止'), findsOneWidget);
     expect(find.byTooltip('停止本轮任务'), findsNothing);
     expect(find.textContaining('3/48'), findsNothing);
-    expect(find.textContaining('执行工具'), findsOneWidget);
-    expect(find.textContaining('web_search'), findsOneWidget);
+    expect(find.textContaining('正在执行 web_search'), findsOneWidget);
+    expect(find.textContaining('执行工具'), findsNothing);
   });
 
   testWidgets('routing state is presented as thinking instead of tool prep', (
@@ -103,7 +103,8 @@ void main() {
       ),
     );
 
-    expect(find.textContaining('正在思考'), findsOneWidget);
+    expect(find.textContaining('正在分析这次请求'), findsOneWidget);
+    expect(find.textContaining('正在思考'), findsNothing);
     expect(find.textContaining('准备工具'), findsNothing);
   });
 
@@ -131,7 +132,7 @@ void main() {
             isSending: true,
             currentRun: AgentRunSnapshot(
               phase: AgentRunPhase.waitingForToolCall,
-              detail: '正在生成 Web App 文件内容，已接收约 4.2K 字符；参数完整后会立即创建。',
+              detail: '正在生成 Web App 文件内容，参数完整后会创建项目并自动检查。',
               toolCallsUsed: 0,
               maxToolCalls: 48,
               startedAt: DateTime(2026),
@@ -153,9 +154,17 @@ void main() {
       ),
     );
 
-    expect(find.textContaining('生成参数'), findsOneWidget);
     expect(find.textContaining('正在生成 Web App 文件内容'), findsOneWidget);
+    expect(find.text('正在生成 Web App 文件内容，参数完整后会创建项目并自动检查。'), findsNothing);
+    expect(find.text('正在生成 Web App 文件内容，参数完整后会创建项目并自动检查'), findsOneWidget);
+    expect(find.textContaining('生成参数'), findsNothing);
     expect(find.textContaining('调用工具'), findsNothing);
+
+    final statusText = tester.widget<Text>(
+      find.textContaining('正在生成 Web App 文件内容'),
+    );
+    expect(statusText.maxLines, 2);
+    expect(statusText.overflow, TextOverflow.ellipsis);
   });
 
   testWidgets('idle composer suggestions copy text into the input', (
@@ -319,6 +328,65 @@ void main() {
 
     expect(addFileCalls, 1);
     expect(find.text('上传文件'), findsNothing);
+  });
+
+  testWidgets('pending image attachment is visible above the composer', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(420, 720));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final controller = TextEditingController();
+    addTearDown(controller.dispose);
+
+    var removedIndex = -1;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatPanel(
+            workspace: AgentWorkspace(
+              id: 'default',
+              name: '默认',
+              description: '测试工作区',
+              createdAt: DateTime(2026),
+            ),
+            messages: const [],
+            composerController: controller,
+            isSending: false,
+            currentRun: null,
+            contextBudget: null,
+            onCancelRun: () {},
+            onSendPrompt: () {},
+            onOpenWebAppArtifact: (_) {},
+            onApproveCapability: (_) {},
+            onDenyCapability: (_) {},
+            pendingAttachments: [
+              MessageBlock.image(
+                name: 'photo.png',
+                uri: Uri.file('/tmp/photo.png').toString(),
+                bytes: 2048,
+                mimeType: 'image/png',
+              ),
+            ],
+            onAddFile: () {},
+            onAddImage: () {},
+            onTakePhoto: () {},
+            onRemovePendingAttachment: (index) {
+              removedIndex = index;
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('photo.png'), findsOneWidget);
+    expect(find.text('2 KB'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('移除附件'));
+    await tester.pump();
+
+    expect(removedIndex, 0);
   });
 
   testWidgets(

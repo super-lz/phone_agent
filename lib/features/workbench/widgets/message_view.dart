@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/phone_agent_colors.dart';
+import '../../../application/capabilities/capability_runtime.dart';
 import '../../../domain/conversation/message_block.dart';
 import 'message_block_view.dart';
 
@@ -117,7 +118,14 @@ class MessageView extends StatelessWidget {
     if (message.blocks.any(
       (block) => block.type == MessageBlockType.taskProgress,
     )) {
-      return message.blocks;
+      return [
+        ...message.blocks.where(
+          (block) => block.type == MessageBlockType.taskProgress,
+        ),
+        ...message.blocks.where(
+          (block) => block.type != MessageBlockType.taskProgress,
+        ),
+      ];
     }
 
     final lastProcessIndex = message.blocks.lastIndexWhere(_isProcessBlock);
@@ -170,27 +178,14 @@ class MessageView extends StatelessWidget {
         .whereType<String>()
         .toList(growable: false);
     final allCallsHaveResults = toolCalls.every((name) {
-      final expectedCapabilityId = _capabilityIdForToolName(name);
+      final expectedCapabilityId = CapabilityRuntime.capabilityIdForToolName(
+        name,
+      );
       return resultIds.contains(name) ||
-          resultIds.contains(expectedCapabilityId);
+          expectedCapabilityId != null &&
+              resultIds.contains(expectedCapabilityId);
     });
     return allCallsHaveResults ? 'completed' : 'processing';
-  }
-
-  String _capabilityIdForToolName(String toolName) {
-    return switch (toolName) {
-      'project_create_web_app' => 'project.create_web_app',
-      'project_update_web_app' => 'project.update_web_app',
-      'project_test_web_app' => 'project.test_web_app',
-      'artifact_create' => 'artifact.create',
-      'artifact_query' => 'artifact.query',
-      'file_write_app_file' => 'file.write_app_file',
-      'file_read_app_file' => 'file.read_app_file',
-      'file_search_app_files' => 'file.search_app_files',
-      'web_search' => 'web.search',
-      'web_fetch' => 'web.fetch',
-      _ => toolName.replaceAll('_', '.'),
-    };
   }
 
   bool _isProcessBlock(MessageBlock block) {

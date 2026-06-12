@@ -209,6 +209,8 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
     }
     setState(() {
       _provider = provider;
+      _setSelectedModel(provider.defaultModel, provider: provider);
+      _contextWindowController.clear();
       _loading = true;
       _status = _SettingsStatus.info('已选择 ${provider.vendorName}。');
     });
@@ -309,6 +311,11 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
 
   Widget _configurationPanel() {
     final provider = _provider;
+    final modelOptions = _uniqueModelOptions(provider.modelOptions);
+    final selectedModelValue = _dropdownModelValue(
+      selectedValue: _selectedModelValue,
+      options: modelOptions,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -348,14 +355,14 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  initialValue: _selectedModelValue,
+                  initialValue: selectedModelValue,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: '模型',
                     prefixIcon: Icon(Icons.psychology_outlined),
                   ),
                   items: [
-                    for (final option in provider.modelOptions)
+                    for (final option in modelOptions)
                       DropdownMenuItem(
                         value: option.name,
                         child: Text(
@@ -470,6 +477,28 @@ class _ModelSettingsPageState extends State<ModelSettingsPage> {
         Card(child: _DiagnosticsSection(logFilePath: AppLogger.logFilePath)),
       ],
     );
+  }
+
+  List<ModelOption> _uniqueModelOptions(List<ModelOption> options) {
+    final byName = <String, ModelOption>{};
+    for (final option in options) {
+      byName.putIfAbsent(option.name, () => option);
+    }
+    return byName.values.toList(growable: false);
+  }
+
+  String _dropdownModelValue({
+    required String selectedValue,
+    required List<ModelOption> options,
+  }) {
+    if (selectedValue == _customModelValue) {
+      return _customModelValue;
+    }
+    final hasSelected = options.any((option) => option.name == selectedValue);
+    if (hasSelected) {
+      return selectedValue;
+    }
+    return _customModelValue;
   }
 
   Widget _buildSectionHeader(String title) {

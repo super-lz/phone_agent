@@ -582,6 +582,20 @@ void main() {
         fileStore: fileStore,
       );
       expect(testResult.output['passed'], isTrue);
+      final slugTestResult = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-project-test-created-by-slug',
+          name: 'project_test_web_app',
+          arguments: {'artifact_id': 'gold-miner'},
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: artifacts,
+        fileStore: fileStore,
+      );
+      expect(slugTestResult.output['passed'], isTrue);
+      expect(slugTestResult.output['artifactId'], artifactId);
     },
   );
 
@@ -645,6 +659,21 @@ void main() {
     );
     expect(firstFile.content, contains('first'));
     expect(secondFile.content, contains('second'));
+
+    final shortNameTest = await runtime.execute(
+      toolCall: const ToolCallRequest(
+        id: 'call-root-project-test-by-short-name',
+        name: 'project_test_web_app',
+        arguments: {'artifact_id': 'first-app'},
+      ),
+      workspaceId: 'work',
+      memories: const [],
+      notes: const [],
+      artifacts: artifacts,
+      fileStore: fileStore,
+    );
+    expect(shortNameTest.output['passed'], isTrue);
+    expect(shortNameTest.output['artifactId'], artifacts[0].id);
   });
 
   test(

@@ -28,6 +28,62 @@ void main() {
     expect(find.text('切换工作区'), findsOneWidget);
   });
 
+  testWidgets('tool call summary hides generated file content', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessageBlockView(
+            onOpenWebAppArtifact: (_) {},
+            block: MessageBlock.toolCall('project_create_web_app', const {
+              'title': '待办清单',
+              'summary': '移动端待办事项应用',
+              'entry_path': 'apps/todo-app/index.html',
+              'files': [
+                {
+                  'path': 'apps/todo-app/index.html',
+                  'content': '<html>正在生成的网页代码</html>',
+                },
+              ],
+            }),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('创建 Web App：待办清单'), findsOneWidget);
+    expect(find.textContaining('apps/todo-app/index.html'), findsOneWidget);
+    expect(find.textContaining('正在生成的网页代码'), findsNothing);
+  });
+
+  testWidgets('approval request summary hides large raw content', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessageBlockView(
+            onOpenWebAppArtifact: (_) {},
+            block: MessageBlock.approvalRequest(
+              requestId: 'approval-file-write',
+              toolName: 'file_write_app_file',
+              capabilityId: 'file.write_app_file',
+              workspaceId: 'default',
+              input: const {
+                'path': 'docs/report.html',
+                'content': '<html>敏感的大段网页内容</html>',
+                'overwrite': true,
+              },
+              detail: '写入文件需要确认。',
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('写入文件：docs/report.html'), findsOneWidget);
+    expect(find.textContaining('敏感的大段网页内容'), findsNothing);
+  });
+
   testWidgets('renders local attachments as readable cards', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -228,6 +284,41 @@ void main() {
     expect(find.text('代码已折叠，点击展开查看。'), findsOneWidget);
   });
 
+  testWidgets('shows stopped process without spinner after cancellation', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessageView(
+            onOpenWebAppArtifact: (_) {},
+            message: AgentMessage(
+              id: 'assistant-stopped-process',
+              role: MessageRole.assistant,
+              createdAt: DateTime(2026),
+              blocks: [
+                MessageBlock(
+                  type: MessageBlockType.taskProgress,
+                  data: {
+                    'status': 'stopped',
+                    'blocks': [
+                      MessageBlock.intermediateMarkdown('正在分析请求并规划下一步。'),
+                      MessageBlock.intermediateMarkdown('用户已停止本轮任务。'),
+                    ],
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('已停止'), findsOneWidget);
+    expect(find.text('正在思考...'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
   testWidgets('tool process expands while running and collapses after result', (
     tester,
   ) async {
@@ -274,6 +365,34 @@ void main() {
     );
 
     expect(find.text('已完成 创建 Web App'), findsOneWidget);
+    expect(find.textContaining('Tool Call'), findsNothing);
+  });
+
+  testWidgets('multi segment tool process completes after mapped result', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MessageView(
+            onOpenWebAppArtifact: (_) {},
+            message: AgentMessage(
+              id: 'assistant-note-process',
+              role: MessageRole.assistant,
+              createdAt: DateTime(2026),
+              blocks: [
+                MessageBlock.toolCall('db_note_create', const {'title': '待办'}),
+                MessageBlock.toolResult('db.note.create', const {
+                  'ok': true,
+                  'summary': '已记录待办',
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.text('已完成 记录笔记'), findsOneWidget);
     expect(find.textContaining('Tool Call'), findsNothing);
   });
 

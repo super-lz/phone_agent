@@ -35,6 +35,32 @@ class MessageBlock {
 
   final MessageBlockType type;
   final Map<String, Object?> data;
+  static const _jsonMarker = '__messageBlock';
+
+  Map<String, Object?> toJson() => {
+    _jsonMarker: true,
+    'type': type.name,
+    'data': _jsonValue(data),
+  };
+
+  static MessageBlock fromJson(Object? value) {
+    final json = _objectMap(value);
+    return MessageBlock(
+      type: MessageBlockType.values.byName(json['type']! as String),
+      data: _objectMap(_decodeJsonValue(json['data'])),
+    );
+  }
+
+  static MessageBlock? tryFromJson(Object? value) {
+    if (value is MessageBlock) {
+      return value;
+    }
+    try {
+      return fromJson(value);
+    } on Object {
+      return null;
+    }
+  }
 
   factory MessageBlock.markdown(String text) =>
       MessageBlock(type: MessageBlockType.markdownText, data: {'text': text});
@@ -102,6 +128,7 @@ class MessageBlock {
     required String workspaceId,
     required Map<String, Object?> input,
     required String detail,
+    String? userPrompt,
   }) => MessageBlock(
     type: MessageBlockType.approvalRequest,
     data: {
@@ -111,6 +138,8 @@ class MessageBlock {
       'workspaceId': workspaceId,
       'input': input,
       'detail': detail,
+      if (userPrompt != null && userPrompt.trim().isNotEmpty)
+        'userPrompt': userPrompt.trim(),
       'status': 'pending',
     },
   );
@@ -140,5 +169,53 @@ class MessageBlock {
       return const [];
     }
     return value.whereType<String>().toList(growable: false);
+  }
+
+  static Object? _jsonValue(Object? value) {
+    if (value is MessageBlock) {
+      return value.toJson();
+    }
+    if (value is Map<Object?, Object?>) {
+      return value.map((key, value) {
+        return MapEntry(key.toString(), _jsonValue(value));
+      });
+    }
+    if (value is Iterable<Object?>) {
+      return value.map(_jsonValue).toList(growable: false);
+    }
+    return value;
+  }
+
+  static Object? _decodeJsonValue(Object? value) {
+    if (value is Iterable<Object?>) {
+      return value.map(_decodeJsonValue).toList(growable: false);
+    }
+    if (value is Map<Object?, Object?>) {
+      if (_isMarkedMessageBlock(value)) {
+        return fromJson(value);
+      }
+      return value.map((key, value) {
+        return MapEntry(key.toString(), _decodeJsonValue(value));
+      });
+    }
+    return value;
+  }
+
+  static bool _isMarkedMessageBlock(Map<Object?, Object?> value) {
+    if (value[_jsonMarker] != true ||
+        !value.containsKey('type') ||
+        value['data'] is! Map<Object?, Object?>) {
+      return false;
+    }
+    final typeName = value['type'];
+    if (typeName is! String) {
+      return false;
+    }
+    return MessageBlockType.values.any((type) => type.name == typeName);
+  }
+
+  static Map<String, Object?> _objectMap(Object? value) {
+    final map = value as Map<Object?, Object?>;
+    return map.map((key, value) => MapEntry(key.toString(), value));
   }
 }

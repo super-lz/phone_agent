@@ -117,6 +117,14 @@ class CapabilityRuntime {
       entry.value: entry.key,
   };
 
+  static String? capabilityIdForToolName(String toolName) {
+    return _capabilityIdsByToolName[toolName];
+  }
+
+  static String capabilityIdForToolNameOrFallback(String toolName) {
+    return capabilityIdForToolName(toolName) ?? toolName.replaceFirst('_', '.');
+  }
+
   CapabilityRuntime({
     WebCapabilityAdapter? webAdapter,
     NativeCapabilityAdapter? nativeAdapter,
@@ -181,6 +189,7 @@ class CapabilityRuntime {
             capabilities: capabilities,
             permissionMode: permissionMode,
           );
+    final stopwatch = Stopwatch()..start();
     final result =
         permissionBlocked ??
         await _executeAllowed(
@@ -197,6 +206,13 @@ class CapabilityRuntime {
           apiKey: apiKey,
           permissionMode: permissionMode,
         );
+    stopwatch.stop();
+    AppLogger.info('capability.execute.completed', {
+      'tool': toolCall.name,
+      'workspaceId': workspaceId,
+      'durationMs': stopwatch.elapsedMilliseconds,
+      'ok': result.output['ok'] == true,
+    });
     await _persistResultSideEffects(
       result: result,
       memories: memories,

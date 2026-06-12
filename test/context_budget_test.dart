@@ -90,4 +90,146 @@ void main() {
     expect(withTools.toolTokens, greaterThan(0));
     expect(withTools.inputTokens, greaterThan(withoutTools.inputTokens));
   });
+
+  test('ignores intermediate process text in history budget', () {
+    final planner = ContextBudgetPlanner();
+    final withOnlyIntermediate = planner.plan(
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      systemPrompt: 'system',
+      toolIndex: '',
+      prompt: '继续',
+      priorMessages: [
+        AgentMessage(
+          id: 'process',
+          role: MessageRole.assistant,
+          createdAt: DateTime(2026),
+          blocks: [MessageBlock.intermediateMarkdown('正在分析请求并规划下一步。' * 100)],
+        ),
+      ],
+    );
+    final withFinalAnswer = planner.plan(
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      systemPrompt: 'system',
+      toolIndex: '',
+      prompt: '继续',
+      priorMessages: [
+        AgentMessage(
+          id: 'final',
+          role: MessageRole.assistant,
+          createdAt: DateTime(2026),
+          blocks: [MessageBlock.markdown('已经创建待办应用。')],
+        ),
+      ],
+    );
+
+    expect(withOnlyIntermediate.preCompressionSnapshot.recentHistoryTokens, 0);
+    expect(
+      withFinalAnswer.preCompressionSnapshot.recentHistoryTokens,
+      greaterThan(0),
+    );
+  });
+
+  test('counts safe nested task progress results in history budget', () {
+    final planner = ContextBudgetPlanner();
+    final withoutToolResult = planner.plan(
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      systemPrompt: 'system',
+      toolIndex: '',
+      prompt: '继续',
+      priorMessages: [
+        AgentMessage(
+          id: 'process',
+          role: MessageRole.assistant,
+          createdAt: DateTime(2026),
+          blocks: [
+            MessageBlock(
+              type: MessageBlockType.taskProgress,
+              data: {
+                'blocks': [MessageBlock.intermediateMarkdown('正在读取文件。' * 100)],
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+    final withToolResult = planner.plan(
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      systemPrompt: 'system',
+      toolIndex: '',
+      prompt: '继续',
+      priorMessages: [
+        AgentMessage(
+          id: 'process',
+          role: MessageRole.assistant,
+          createdAt: DateTime(2026),
+          blocks: [
+            MessageBlock(
+              type: MessageBlockType.taskProgress,
+              data: {
+                'blocks': [
+                  MessageBlock.toolResult('project.create_web_app', const {
+                    'ok': true,
+                    'summary': '已创建待办 Web App。',
+                    'artifactId': 'artifact-todo',
+                    'html': '<main>不应该按原始网页内容计入</main>',
+                  }),
+                ],
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+
+    expect(withoutToolResult.preCompressionSnapshot.recentHistoryTokens, 0);
+    expect(
+      withToolResult.preCompressionSnapshot.recentHistoryTokens,
+      greaterThan(0),
+    );
+    expect(
+      withToolResult.preCompressionSnapshot.recentHistoryTokens,
+      lessThan(80),
+    );
+  });
+
+  test('counts restored nested task progress results in history budget', () {
+    final planner = ContextBudgetPlanner();
+    final plan = planner.plan(
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      systemPrompt: 'system',
+      toolIndex: '',
+      prompt: '继续',
+      priorMessages: [
+        AgentMessage(
+          id: 'process',
+          role: MessageRole.assistant,
+          createdAt: DateTime(2026),
+          blocks: [
+            MessageBlock(
+              type: MessageBlockType.taskProgress,
+              data: {
+                'blocks': [
+                  {
+                    'type': 'toolResult',
+                    'data': {
+                      'capabilityId': 'project.create_web_app',
+                      'output': {
+                        'ok': true,
+                        'summary': '已创建待办 Web App。',
+                        'artifactId': 'artifact-todo',
+                        'html': '<main>不应该按原始网页内容计入</main>',
+                      },
+                    },
+                  },
+                ],
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+
+    expect(plan.preCompressionSnapshot.recentHistoryTokens, greaterThan(0));
+    expect(plan.preCompressionSnapshot.recentHistoryTokens, lessThan(80));
+  });
 }

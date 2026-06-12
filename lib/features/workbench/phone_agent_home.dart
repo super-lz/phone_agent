@@ -1,8 +1,6 @@
 import 'dart:async';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:open_filex/open_filex.dart';
 
 import '../../application/capabilities/capability_runtime.dart';
@@ -20,6 +18,7 @@ import '../../domain/workbench/workbench_store.dart';
 import '../settings/model_settings_page.dart';
 import '../settings/permission_settings_page.dart';
 import '../web_app_runtime/web_app_runtime_page.dart';
+import 'attachment_picker_service.dart';
 import 'audit_log_page.dart';
 import 'controllers/workbench_controller.dart';
 import 'token_usage_page.dart';
@@ -65,6 +64,7 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
   late final ModelApiKeyStore _apiKeyStore;
   late final ModelSettingsStore _modelSettingsStore;
   late final AppPermissionService _permissionService;
+  final _attachmentPicker = const WorkbenchAttachmentPicker();
   final _composerController = TextEditingController();
   final List<MessageBlock> _pendingAttachments = [];
   bool _isPickingAttachment = false;
@@ -125,27 +125,31 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
   Future<void> _pickFileAttachment() async {
     await _runAttachmentPicker(
       busyMessage: '正在选择附件，请先完成当前选择。',
-      pick: () => _pickAttachment(type: FileType.any),
+      failurePrefix: '选择附件失败',
+      pick: _attachmentPicker.pickSystemFiles,
     );
   }
 
   Future<void> _pickImageAttachment() async {
     await _runAttachmentPicker(
       busyMessage: '正在选择图片，请先完成当前选择。',
-      pick: () => _pickAttachment(type: FileType.image),
+      failurePrefix: '选择图片失败',
+      pick: _attachmentPicker.pickGalleryImages,
     );
   }
 
   Future<void> _takePhoto() async {
     await _runAttachmentPicker(
       busyMessage: '正在打开相机，请先完成当前操作。',
-      pick: _takePhotoAttachment,
+      failurePrefix: '拍照失败',
+      pick: _attachmentPicker.takePhoto,
     );
   }
 
   Future<void> _runAttachmentPicker({
     required String busyMessage,
-    required Future<void> Function() pick,
+    required String failurePrefix,
+    required Future<List<MessageBlock>> Function() pick,
   }) async {
     if (_isPickingAttachment) {
       if (mounted) {
@@ -157,61 +161,8 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
     }
     _isPickingAttachment = true;
     try {
-      await pick();
-    } finally {
-      _isPickingAttachment = false;
-    }
-  }
-
-  Future<void> _takePhotoAttachment() async {
-    try {
-      final picker = ImagePicker();
-      final photo = await picker.pickImage(
-        source: ImageSource.camera,
-        maxWidth: 2000,
-        maxHeight: 2000,
-        imageQuality: 85,
-      );
-      if (photo == null) {
-        return;
-      }
-      final size = await photo.length();
-      final block = MessageBlock.image(
-        name: photo.name,
-        uri: Uri.file(photo.path).toString(),
-        bytes: size,
-        mimeType: _imageMimeType(photo.path.split('.').last),
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _pendingAttachments.add(block);
-      });
-    } on Object catch (error) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('拍照失败：$error')));
-    }
-  }
-
-  Future<void> _pickAttachment({required FileType type}) async {
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: type,
-        allowMultiple: true,
-        withData: false,
-      );
-      if (result == null || result.files.isEmpty) {
-        return;
-      }
-      final blocks = result.files.map(
-        (file) => _blockForPickedFile(file, type),
-      );
-      if (!mounted) {
+      final blocks = await pick();
+      if (!mounted || blocks.isEmpty) {
         return;
       }
       setState(() {
@@ -223,51 +174,9 @@ class _PhoneAgentHomeState extends State<PhoneAgentHome>
       }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('选择附件失败：$error')));
-    }
-  }
-
-  MessageBlock _blockForPickedFile(PlatformFile file, FileType type) {
-    final uri = _uriForPickedFile(file);
-    if (type == FileType.image) {
-      return MessageBlock.image(
-        name: file.name,
-        uri: uri,
-        bytes: file.size,
-        mimeType: _imageMimeType(file.extension),
-      );
-    }
-    return MessageBlock.fileAttachment(
-      name: file.name,
-      uri: uri,
-      bytes: file.size,
-      extension: file.extension,
-    );
-  }
-
-  String _uriForPickedFile(PlatformFile file) {
-    final path = file.path;
-    if (path != null && path.isNotEmpty) {
-      return Uri.file(path).toString();
-    }
-    return file.identifier ?? file.name;
-  }
-
-  String? _imageMimeType(String? extension) {
-    switch (extension?.toLowerCase()) {
-      case 'jpg':
-      case 'jpeg':
-        return 'image/jpeg';
-      case 'png':
-        return 'image/png';
-      case 'gif':
-        return 'image/gif';
-      case 'webp':
-        return 'image/webp';
-      case 'heic':
-        return 'image/heic';
-      default:
-        return null;
+      ).showSnackBar(SnackBar(content: Text('$failurePrefix：$error')));
+    } finally {
+      _isPickingAttachment = false;
     }
   }
 

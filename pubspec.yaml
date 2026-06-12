@@ -66,6 +66,7 @@ dependencies:
   open_filex: ^4.5.0
   wakelock_plus: ^1.5.2
   archive: ^4.0.7
+  logger: ^2.5.0
 
 dev_dependencies:
   flutter_test:

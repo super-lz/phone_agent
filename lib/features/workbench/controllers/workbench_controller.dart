@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../../../application/agent/agent_loop.dart';
+import '../../../application/agent/agent_loop_budget.dart';
 import '../../../application/agent/agent_run_state.dart';
 import '../../../application/agent/context_budget.dart';
 import '../../../application/capabilities/capability_execution_result.dart';
@@ -43,6 +44,7 @@ class WorkbenchController extends ChangeNotifier {
     AppFileStore? fileStore,
     WorkbenchStore? workbenchStore,
     AgentRunBackgroundService? backgroundService,
+    AgentLoopBudget? agentLoopBudget,
   }) : this._(
          apiKeyStore: apiKeyStore ?? ModelApiKeyStore(),
          chatClient: chatClient ?? OpenAiCompatibleChatClient(),
@@ -53,6 +55,7 @@ class WorkbenchController extends ChangeNotifier {
          workbenchStore: workbenchStore ?? InMemoryWorkbenchStore(),
          backgroundService:
              backgroundService ?? const NoopAgentRunBackgroundService(),
+         agentLoopBudget: agentLoopBudget,
        );
 
   WorkbenchController._({
@@ -64,11 +67,13 @@ class WorkbenchController extends ChangeNotifier {
     required AppFileStore fileStore,
     required WorkbenchStore workbenchStore,
     required AgentRunBackgroundService backgroundService,
+    AgentLoopBudget? agentLoopBudget,
   }) : _apiKeyStore = apiKeyStore,
        _modelSettingsStore = modelSettingsStore,
        _agentLoop = AgentLoop(
          chatClient: chatClient,
          capabilityRuntime: capabilityRuntime,
+         budget: agentLoopBudget ?? const AgentLoopBudget(),
        ),
        _webAppBridge = WebAppCapabilityBridge(
          capabilityRuntime: capabilityRuntime,
@@ -120,7 +125,10 @@ class WorkbenchController extends ChangeNotifier {
   AgentRunSnapshot? _currentRun;
   ContextBudgetSnapshot? _contextBudget;
   AgentRunControl? _currentRunControl;
+  String? _activePendingRunId;
   Future<void> _stateReady = Future<void>.value();
+
+  Future<void> get stateReady => _stateReady;
 
   List<AgentWorkspace> get workspaces => List.unmodifiable(_workspaces);
   List<CapabilityDefinition> get capabilities =>
@@ -353,31 +361,89 @@ class WorkbenchController extends ChangeNotifier {
   }
 
   void _persistMessage(AgentMessage message, {String? workspaceId}) {
-    unawaited(
+    _persistLater(
       _workbenchStore.upsertMessage(
         workspaceId: workspaceId ?? _workspaceId,
         message: message,
       ),
+      'workbench.message.persist_failed',
+      {'messageId': message.id, 'workspaceId': workspaceId ?? _workspaceId},
     );
   }
 
   void _persistCollections() {
     for (final workspace in _workspaces) {
-      unawaited(_workbenchStore.upsertWorkspace(workspace));
+      _persistLater(
+        _workbenchStore.upsertWorkspace(workspace),
+        'workbench.workspace.persist_failed',
+        {'workspaceId': workspace.id},
+      );
     }
     for (final memory in _memories) {
-      unawaited(_workbenchStore.upsertMemory(memory));
+      _persistLater(
+        _workbenchStore.upsertMemory(memory),
+        'workbench.memory.persist_failed',
+        {'memoryId': memory.id},
+      );
     }
     for (final artifact in _artifacts) {
-      unawaited(_workbenchStore.upsertArtifact(artifact));
+      _persistLater(
+        _workbenchStore.upsertArtifact(artifact),
+        'workbench.artifact.persist_failed',
+        {'artifactId': artifact.id},
+      );
     }
     for (final connection in _mcpConnections) {
-      unawaited(_workbenchStore.upsertMcpConnection(connection));
+      _persistLater(
+        _workbenchStore.upsertMcpConnection(connection),
+        'workbench.mcp_connection.persist_failed',
+        {'url': connection.url},
+      );
     }
     for (final skill in _skills) {
-      unawaited(_workbenchStore.upsertSkill(skill));
+      _persistLater(
+        _workbenchStore.upsertSkill(skill),
+        'workbench.skill.persist_failed',
+        {'skillId': skill.id},
+      );
     }
-    unawaited(_workbenchStore.saveCurrentWorkspaceId(_workspaceId));
+    _persistLater(
+      _workbenchStore.saveCurrentWorkspaceId(_workspaceId),
+      'workbench.current_workspace.persist_failed',
+      {'workspaceId': _workspaceId},
+    );
+  }
+
+  void _persistLater(
+    Future<void> future,
+    String event,
+    Map<String, Object?> context,
+  ) {
+    unawaited(
+      future.catchError((Object error, StackTrace stackTrace) {
+        AppLogger.warning(event, {...context, 'error': error.toString()});
+        AppLogger.error('$event.stack', error, stackTrace);
+      }),
+    );
+  }
+
+  Future<void> _persistCollectionsNow() async {
+    for (final workspace in _workspaces) {
+      await _workbenchStore.upsertWorkspace(workspace);
+    }
+    for (final memory in _memories) {
+      await _workbenchStore.upsertMemory(memory);
+    }
+    for (final artifact in _artifacts) {
+      await _workbenchStore.upsertArtifact(artifact);
+    }
+    for (final connection in _mcpConnections) {
+      await _workbenchStore.upsertMcpConnection(connection);
+    }
+    for (final skill in _skills) {
+      await _workbenchStore.upsertSkill(skill);
+    }
+    await _workbenchStore.saveCurrentWorkspaceId(_workspaceId);
   }
 
   Future<PendingAgentRun> _createPendingAgentRun({
@@ -572,6 +638,9 @@ class WorkbenchController extends ChangeNotifier {
   }
 
   Future<void> approveCapabilityRequest(Map<String, Object?> data) async {
+    if (_isSending) {
+      return;
+    }
     final requestId = data['requestId'];
     final toolName = data['toolName'];
     final workspaceId = data['workspaceId'];
@@ -583,30 +652,54 @@ class WorkbenchController extends ChangeNotifier {
       return;
     }
     _setApprovalStatus(requestId, 'approved');
+    final priorMessagesBeforeApproval = List<AgentMessage>.unmodifiable(
+      _messages,
+    );
     final input = rawInput.map((key, value) => MapEntry(key.toString(), value));
+    _isSending = true;
+    _currentRun = AgentRunSnapshot(
+      phase: AgentRunPhase.executingTool,
+      detail: '正在执行已批准的能力请求。',
+      toolCallsUsed: 0,
+      maxToolCalls: _agentLoop.budget.maxToolCalls,
+      startedAt: DateTime.now(),
+      currentToolName: toolName,
+      contextBudget: _contextBudget,
+    );
+    notifyListeners();
+
     final apiKey = await _apiKeyStore.readApiKey(
       ModelProviders.aliyunBailianQwenFlash.id,
     );
-    final result = await _agentLoop.executeApprovedTool(
-      toolCall: ToolCallRequest(
-        id: requestId,
-        name: toolName,
-        arguments: input,
-      ),
-      workspaceId: workspaceId,
-      allMemories: _memories,
-      allNotes: _notes,
-      allArtifacts: _artifacts,
-      allWorkspaces: _workspaces,
-      allSkills: _skills,
-      allCapabilities: _capabilities,
-      noteStore: _noteStore,
-      fileStore: _fileStore,
-      workbenchStore: _workbenchStore,
-      apiKey: apiKey,
-      permissionMode: _permissionMode,
-      switchWorkspace: _switchWorkspaceFromAgent,
-    );
+    late final CapabilityExecutionResult result;
+    try {
+      result = await _agentLoop.executeApprovedTool(
+        toolCall: ToolCallRequest(
+          id: requestId,
+          name: toolName,
+          arguments: input,
+        ),
+        workspaceId: workspaceId,
+        allMemories: _memories,
+        allNotes: _notes,
+        allArtifacts: _artifacts,
+        allWorkspaces: _workspaces,
+        allSkills: _skills,
+        allCapabilities: _capabilities,
+        noteStore: _noteStore,
+        fileStore: _fileStore,
+        workbenchStore: _workbenchStore,
+        apiKey: apiKey,
+        permissionMode: _permissionMode,
+        switchWorkspace: _switchWorkspaceFromAgent,
+      );
+    } on Object catch (error) {
+      _addMessage(_modelErrorResponse('已批准能力执行失败：$error'));
+      _isSending = false;
+      _currentRun = null;
+      notifyListeners();
+      return;
+    }
 
     if (result.capabilityId == 'mcp.connect' && result.output['ok'] == true) {
       final connData = result.output['connection'] as Map<String, Object?>;
@@ -644,25 +737,54 @@ class WorkbenchController extends ChangeNotifier {
       capabilityId: result.capabilityId,
       output: result.output,
     );
-    _addMessage(
-      AgentMessage(
-        id: 'msg-approved-${DateTime.now().microsecondsSinceEpoch}',
-        role: MessageRole.assistant,
-        createdAt: DateTime.now(),
-        blocks: [
-          MessageBlock.toolCall(toolName, input),
-          MessageBlock.toolResult(result.capabilityId, result.output),
-          ..._artifactBlocksFor(result),
-          MessageBlock.markdown(presentation.summary),
-        ],
-      ),
+    final approvedMessage = AgentMessage(
+      id: 'msg-approved-${DateTime.now().microsecondsSinceEpoch}',
+      role: MessageRole.assistant,
+      createdAt: DateTime.now(),
+      blocks: [
+        MessageBlock.toolCall(toolName, input),
+        MessageBlock.toolResult(result.capabilityId, result.output),
+        ..._artifactBlocksFor(result),
+        MessageBlock.intermediateMarkdown(presentation.summary),
+      ],
     );
+    _addMessage(approvedMessage);
     _persistCollections();
     await _refreshWorkspaceFiles(notify: false);
     notifyListeners();
+
+    _isSending = false;
+    _currentRun = null;
+    final originalUserPrompt = _approvalUserPrompt(data);
+    await _runConfiguredModel(
+      _approvalContinuationPrompt(
+        result,
+        originalUserPrompt: originalUserPrompt,
+      ),
+      priorMessages: [...priorMessagesBeforeApproval, approvedMessage],
+      userPrompt: '继续处理已批准的能力结果',
+    );
   }
 
-  void denyCapabilityRequest(Map<String, Object?> data) {
+  String _approvalContinuationPrompt(
+    CapabilityExecutionResult result, {
+    required String originalUserPrompt,
+  }) {
+    final ok = result.output['ok'] == true ? '成功' : '失败';
+    final original = originalUserPrompt.isEmpty
+        ? ''
+        : '用户原始请求是：$originalUserPrompt。';
+    return '用户已批准并执行了刚才的能力请求，能力 ${result.capabilityId} 执行$ok。'
+        '$original'
+        '请基于当前对话历史、用户原始请求和刚刚的工具结果继续完成任务，'
+        '给出面向用户的最终结论或下一步。不要复述原始 JSON、tool_call、tool_result 或 capability 字段；'
+        '不要再次请求同一个已批准能力，除非确实需要新的能力调用。';
+  }
+
+  Future<void> denyCapabilityRequest(Map<String, Object?> data) async {
+    if (_isSending) {
+      return;
+    }
     final requestId = data['requestId'];
     final toolName = data['toolName'];
     final capabilityId = data['capabilityId'];
@@ -674,7 +796,15 @@ class WorkbenchController extends ChangeNotifier {
       return;
     }
     _setApprovalStatus(requestId, 'denied');
+    final priorMessagesBeforeDenial = List<AgentMessage>.unmodifiable(
+      _messages,
+    );
     final input = rawInput.map((key, value) => MapEntry(key.toString(), value));
+    const deniedOutput = {
+      'ok': false,
+      'error': 'permission_denied',
+      'detail': '用户已拒绝执行该能力。',
+    };
     unawaited(
       _workbenchStore.recordInvocation(
         CapabilityInvocation(
@@ -684,27 +814,56 @@ class WorkbenchController extends ChangeNotifier {
           input: input,
           status: CapabilityInvocationStatus.denied,
           permissionDecision: 'denied_by_user',
-          output: const {'ok': false, 'error': 'permission_denied'},
+          output: deniedOutput,
           error: 'permission_denied',
           createdAt: DateTime.now(),
         ),
       ),
     );
-    _addMessage(
-      AgentMessage(
-        id: 'msg-denied-${DateTime.now().microsecondsSinceEpoch}',
-        role: MessageRole.assistant,
-        createdAt: DateTime.now(),
-        blocks: [
-          MessageBlock.toolResult(capabilityId, const {
-            'ok': false,
-            'error': 'permission_denied',
-            'detail': '用户已拒绝执行该能力。',
-          }),
-        ],
-      ),
+    final deniedMessage = AgentMessage(
+      id: 'msg-denied-${DateTime.now().microsecondsSinceEpoch}',
+      role: MessageRole.assistant,
+      createdAt: DateTime.now(),
+      blocks: [
+        MessageBlock.toolCall(toolName, input),
+        MessageBlock.toolResult(capabilityId, deniedOutput),
+      ],
     );
+    _addMessage(deniedMessage);
     notifyListeners();
+
+    final originalUserPrompt = _approvalUserPrompt(data);
+    await _runConfiguredModel(
+      _denialContinuationPrompt(
+        capabilityId,
+        originalUserPrompt: originalUserPrompt,
+      ),
+      priorMessages: [...priorMessagesBeforeDenial, deniedMessage],
+      userPrompt: '继续处理已拒绝的能力请求',
+    );
+  }
+
+  String _denialContinuationPrompt(
+    String capabilityId, {
+    required String originalUserPrompt,
+  }) {
+    final original = originalUserPrompt.isEmpty
+        ? ''
+        : '用户原始请求是：$originalUserPrompt。';
+    return '用户已拒绝执行刚才的能力请求，能力 $capabilityId 未执行。'
+        '$original'
+        '请基于当前对话历史和用户原始请求继续完成任务：说明该动作未执行，'
+        '如有可能给出不需要该能力的替代方案或下一步。'
+        '不要复述原始 JSON、tool_call、tool_result 或 capability 字段；'
+        '不要再次请求同一个已拒绝能力，除非用户重新明确要求。';
+  }
+
+  String _approvalUserPrompt(Map<String, Object?> data) {
+    final value = data['userPrompt'];
+    if (value is! String || value.trim().isEmpty) {
+      return '';
+    }
+    return value.trim();
   }
 
   Future<Map<String, Object?>> callCapabilityFromWebApp({
@@ -768,18 +927,21 @@ class WorkbenchController extends ChangeNotifier {
     if (!_isSending || control == null || control.isCancelled) {
       return;
     }
+    final pendingRunId = _activePendingRunId;
     control.cancel();
-    _currentRun = AgentRunSnapshot(
-      phase: AgentRunPhase.cancelled,
-      detail: control.reason,
-      toolCallsUsed: _currentRun?.toolCallsUsed ?? 0,
-      maxToolCalls: _currentRun?.maxToolCalls ?? 0,
-      startedAt: _currentRun?.startedAt ?? DateTime.now(),
-      contextBudget: _contextBudget,
-    );
+    _markLatestProcessingMessageStopped(control.reason);
+    if (pendingRunId != null) {
+      _activePendingRunId = null;
+      unawaited(_workbenchStore.clearPendingAgentRun(pendingRunId));
+      unawaited(_stopBackgroundRun(pendingRunId));
+    }
+    _isSending = false;
+    _currentRunControl = null;
+    _currentRun = null;
     AppLogger.warning('workbench.agent_run.cancel_requested', {
       'workspaceId': _workspaceId,
       'reason': control.reason,
+      'runId': pendingRunId,
     });
     notifyListeners();
   }
@@ -1097,18 +1259,18 @@ class WorkbenchController extends ChangeNotifier {
         final bytes = await file.readAsBytes();
         final content = _officeCodec.extractText(file.path, bytes);
         final normalized = content.replaceAll(RegExp(r'\s+'), ' ').trim();
-        if (normalized.length <= 6000) {
+        if (normalized.length <= 800) {
           return normalized;
         }
-        return '${normalized.substring(0, 6000)}...';
+        return '${normalized.substring(0, 800)}...';
       }
 
       final content = await file.readAsString();
       final normalized = content.replaceAll(RegExp(r'\s+'), ' ').trim();
-      if (normalized.length <= 4000) {
+      if (normalized.length <= 600) {
         return normalized;
       }
-      return '${normalized.substring(0, 4000)}...';
+      return '${normalized.substring(0, 600)}...';
     } on Object catch (error) {
       return '读取失败：$error';
     }
@@ -1159,6 +1321,7 @@ class WorkbenchController extends ChangeNotifier {
     _isSending = true;
     final runControl = AgentRunControl();
     _currentRunControl = runControl;
+    _activePendingRunId = activePendingRun.id;
     _currentRun = AgentRunSnapshot(
       phase: AgentRunPhase.routing,
       detail: '正在启动本轮 Agent 任务。',
@@ -1204,18 +1367,73 @@ class WorkbenchController extends ChangeNotifier {
         'reason': error.message,
       });
       _addMessage(_agentRunCancelledResponse(error.message));
+    } on ContextBudgetExceededException catch (error) {
+      _contextBudget = error.snapshot;
+      unawaited(_saveContextBudgetSnapshot(_workspaceId, error.snapshot));
+      AppLogger.warning('workbench.context_budget.exceeded', {
+        'workspaceId': _workspaceId,
+        'providerId': error.snapshot.providerId,
+        'modelName': error.snapshot.modelName,
+        'totalTokens': error.snapshot.totalTokens,
+        'maxContextTokens': error.snapshot.maxContextTokens,
+      });
+      _addMessage(_contextBudgetExceededResponse(error.snapshot));
     } on Object catch (error) {
       _addMessage(_modelErrorResponse(error.toString()));
     } finally {
       await _recordTokenUsage(activePendingRun);
-      _persistCollections();
-      await _workbenchStore.clearPendingAgentRun(activePendingRun.id);
+      final didPersistCompletion = await _persistRunCompletionState(
+        activePendingRun,
+      );
+      if (didPersistCompletion) {
+        try {
+          await _workbenchStore.clearPendingAgentRun(activePendingRun.id);
+        } on Object catch (error, stackTrace) {
+          AppLogger.warning('workbench.pending_run.clear_failed', {
+            'runId': activePendingRun.id,
+            'error': error.toString(),
+          });
+          AppLogger.error(
+            'workbench.pending_run.clear_failed.stack',
+            error,
+            stackTrace,
+          );
+        }
+      }
       await _stopBackgroundRun(activePendingRun.id);
       await _refreshWorkspaceFiles(notify: false);
-      _isSending = false;
-      _currentRunControl = null;
-      _currentRun = null;
+      final isCurrentRun =
+          _currentRunControl == runControl ||
+          _activePendingRunId == activePendingRun.id;
+      if (_activePendingRunId == activePendingRun.id) {
+        _activePendingRunId = null;
+      }
+      if (isCurrentRun) {
+        _isSending = false;
+        _currentRunControl = null;
+        _currentRun = null;
+      }
       notifyListeners();
+    }
+  }
+
+  Future<bool> _persistRunCompletionState(PendingAgentRun run) async {
+    try {
+      await _persistCurrentMessages();
+      await _persistCollectionsNow();
+      return true;
+    } on Object catch (error, stackTrace) {
+      AppLogger.warning('workbench.agent_run.persist_completion_failed', {
+        'runId': run.id,
+        'workspaceId': _workspaceId,
+        'error': error.toString(),
+      });
+      AppLogger.error(
+        'workbench.agent_run.persist_completion_failed.stack',
+        error,
+        stackTrace,
+      );
+      return false;
     }
   }
 
@@ -1448,6 +1666,22 @@ class WorkbenchController extends ChangeNotifier {
     );
   }
 
+  AgentMessage _contextBudgetExceededResponse(ContextBudgetSnapshot snapshot) {
+    return AgentMessage(
+      id: 'msg-context-budget-exceeded-${DateTime.now().microsecondsSinceEpoch}',
+      role: MessageRole.assistant,
+      createdAt: DateTime.now(),
+      blocks: [
+        MessageBlock.error(
+          '上下文已超过模型窗口',
+          '当前预计需要 ${snapshot.totalTokens} tokens，'
+              '超过 ${snapshot.modelName} 的 ${snapshot.maxContextTokens} tokens 窗口。'
+              '请缩短本轮输入、减少附件，或在模型设置里确认该模型的最大上下文窗口。',
+        ),
+      ],
+    );
+  }
+
   AgentMessage _agentRunCancelledResponse(String detail) {
     return AgentMessage(
       id: 'msg-agent-cancelled-${DateTime.now().microsecondsSinceEpoch}',
@@ -1508,6 +1742,125 @@ class WorkbenchController extends ChangeNotifier {
       _messages[messageIndex] = updated;
       _persistMessage(updated);
       return;
+    }
+  }
+
+  void _markLatestProcessingMessageStopped(String reason) {
+    for (var index = _messages.length - 1; index >= 0; index--) {
+      final stoppedMessage = _stoppedProcessMessage(_messages[index], reason);
+      if (stoppedMessage == null) {
+        continue;
+      }
+      _messages[index] = stoppedMessage;
+      _persistMessage(stoppedMessage);
+      return;
+    }
+  }
+
+  AgentMessage? _stoppedProcessMessage(AgentMessage message, String reason) {
+    if (message.role != MessageRole.assistant) {
+      return null;
+    }
+    if (message.blocks.length == 1 &&
+        message.blocks.single.type == MessageBlockType.taskProgress) {
+      final progress = message.blocks.single;
+      if (progress.data['status'] != 'processing') {
+        return null;
+      }
+      final innerBlocks = _taskProgressBlocks(progress.data['blocks']);
+      if (innerBlocks.isEmpty) {
+        return null;
+      }
+      return AgentMessage(
+        id: message.id,
+        role: message.role,
+        createdAt: message.createdAt,
+        blocks: [_stoppedTaskProgress(progress, innerBlocks, reason)],
+      );
+    }
+
+    if (message.blocks.isEmpty ||
+        !message.blocks.every(_isProcessOnlyBlockForStop)) {
+      return null;
+    }
+    return AgentMessage(
+      id: message.id,
+      role: message.role,
+      createdAt: message.createdAt,
+      blocks: [
+        MessageBlock(
+          type: MessageBlockType.taskProgress,
+          data: {
+            'blocks': _appendStopReason(message.blocks, reason),
+            'status': 'stopped',
+          },
+        ),
+      ],
+    );
+  }
+
+  MessageBlock _stoppedTaskProgress(
+    MessageBlock progress,
+    List<MessageBlock> blocks,
+    String reason,
+  ) {
+    return MessageBlock(
+      type: MessageBlockType.taskProgress,
+      data: {
+        ...progress.data,
+        'blocks': _appendStopReason(blocks, reason),
+        'status': 'stopped',
+      },
+    );
+  }
+
+  List<MessageBlock> _taskProgressBlocks(Object? value) {
+    if (value is! Iterable<Object?>) {
+      return const [];
+    }
+    return value
+        .map(MessageBlock.tryFromJson)
+        .whereType<MessageBlock>()
+        .toList(growable: false);
+  }
+
+  List<MessageBlock> _appendStopReason(
+    List<MessageBlock> blocks,
+    String reason,
+  ) {
+    final trimmedReason = reason.trim();
+    if (trimmedReason.isEmpty ||
+        blocks.any(
+          (block) =>
+              block.type == MessageBlockType.markdownText &&
+              block.data['text'] == trimmedReason,
+        )) {
+      return List<MessageBlock>.of(blocks);
+    }
+    return [...blocks, MessageBlock.intermediateMarkdown(trimmedReason)];
+  }
+
+  bool _isProcessOnlyBlockForStop(MessageBlock block) {
+    if (block.type == MessageBlockType.markdownText &&
+        block.data['intermediate'] == true) {
+      return true;
+    }
+    switch (block.type) {
+      case MessageBlockType.toolCall:
+      case MessageBlockType.toolResult:
+      case MessageBlockType.taskProgress:
+      case MessageBlockType.citation:
+        return true;
+      case MessageBlockType.markdownText:
+      case MessageBlockType.codeBlock:
+      case MessageBlockType.image:
+      case MessageBlockType.fileAttachment:
+      case MessageBlockType.approvalRequest:
+      case MessageBlockType.todoList:
+      case MessageBlockType.artifactCard:
+      case MessageBlockType.webAppCard:
+      case MessageBlockType.errorCard:
+        return false;
     }
   }
 

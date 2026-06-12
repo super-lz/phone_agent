@@ -302,7 +302,7 @@ class CapabilityToolDefinitions {
         'function': {
           'name': 'project_test_web_app',
           'description':
-              '对已有本地 Web App 项目做受控静态检查。创建或更新 Web App 后调用，用来确认入口文件、manifest 文件清单、HTML 引用、CSS 大括号和 JavaScript 字符串/括号/注释是否存在明显语法问题。当前不执行任意 shell、npm 或网络测试。',
+              '对已有本地 Web App 项目做受控静态复测。project_create_web_app 和 project_update_web_app 已会自动测试并在结果 test 中返回结论；本工具用于用户明确要求复测，或维护已有项目时单独确认当前状态。优先使用 Web App Artifact ID；系统也会尽量识别同 Workspace 内唯一匹配的 projectId、入口目录或项目目录名。当前不执行任意 shell、npm 或网络测试。',
           'parameters': {
             'type': 'object',
             'properties': {

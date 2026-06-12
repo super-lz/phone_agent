@@ -1060,7 +1060,8 @@ class ProjectCapabilityHandler {
     required List<AgentArtifact> artifacts,
     required Object? artifactId,
   }) {
-    if (artifactId is! String || artifactId.trim().isEmpty) {
+    final reference = artifactId is String ? artifactId.trim() : '';
+    if (reference.isEmpty) {
       return _WebAppArtifactLookup(
         error: const CapabilityExecutionResult(
           capabilityId: 'project.web_app',
@@ -1069,8 +1070,7 @@ class ProjectCapabilityHandler {
       );
     }
     for (final artifact in artifacts) {
-      if (artifact.id == artifactId.trim() &&
-          artifact.workspaceId == workspaceId) {
+      if (artifact.id == reference && artifact.workspaceId == workspaceId) {
         if (artifact.type != ArtifactType.webApp) {
           return _WebAppArtifactLookup(
             error: const CapabilityExecutionResult(
@@ -1082,16 +1082,115 @@ class ProjectCapabilityHandler {
         return _WebAppArtifactLookup(artifact: artifact);
       }
     }
+
+    final candidates = artifacts
+        .where(
+          (artifact) =>
+              artifact.workspaceId == workspaceId &&
+              artifact.type == ArtifactType.webApp &&
+              _matchesWebAppReference(artifact, reference),
+        )
+        .toList(growable: false);
+    if (candidates.length == 1) {
+      return _WebAppArtifactLookup(artifact: candidates.single);
+    }
+    if (candidates.length > 1) {
+      return _WebAppArtifactLookup(
+        error: CapabilityExecutionResult(
+          capabilityId: 'project.web_app',
+          output: {
+            'ok': false,
+            'error': 'artifact_reference_ambiguous',
+            'artifactId': reference,
+            'candidates': candidates
+                .map(_webAppCandidate)
+                .toList(growable: false),
+          },
+        ),
+      );
+    }
+
     return _WebAppArtifactLookup(
       error: CapabilityExecutionResult(
         capabilityId: 'project.web_app',
         output: {
           'ok': false,
           'error': 'artifact_not_found',
-          'artifactId': artifactId,
+          'artifactId': reference,
         },
       ),
     );
+  }
+
+  bool _matchesWebAppReference(AgentArtifact artifact, String reference) {
+    if (artifact.id == reference || artifact.title == reference) {
+      return true;
+    }
+    final projectId = _metadataString(artifact, 'projectId');
+    if (projectId == reference) {
+      return true;
+    }
+    final entryPath = _metadataString(artifact, 'entry');
+    if (entryPath == null) {
+      return false;
+    }
+    if (entryPath == reference) {
+      return true;
+    }
+    final root = _projectRootForPath(entryPath);
+    if (root == reference) {
+      return true;
+    }
+    final slash = root.lastIndexOf('/');
+    final rootName = slash >= 0 ? root.substring(slash + 1) : root;
+    if (rootName == reference) {
+      return true;
+    }
+    return _matchesGeneratedProjectRoot(rootName, reference, artifact.id);
+  }
+
+  bool _matchesGeneratedProjectRoot(
+    String rootName,
+    String reference,
+    String artifactId,
+  ) {
+    final suffix = artifactId.split('-').last;
+    if (suffix.isEmpty) {
+      return false;
+    }
+    return rootName == '$reference-$suffix';
+  }
+
+  String? _metadataString(AgentArtifact artifact, String key) {
+    final value = artifact.metadata[key];
+    if (value is! String || value.trim().isEmpty) {
+      return null;
+    }
+    return value.trim();
+  }
+
+  String _projectRootForPath(String path) {
+    final slash = path.lastIndexOf('/');
+    if (slash < 0) {
+      return '';
+    }
+    return path.substring(0, slash);
+  }
+
+  Map<String, Object?> _webAppCandidate(AgentArtifact artifact) {
+    final candidate = <String, Object?>{
+      'artifactId': artifact.id,
+      'title': artifact.title,
+    };
+    final projectId = _metadataString(artifact, 'projectId');
+    final entryPath = _metadataString(artifact, 'entry');
+    if (projectId != null) {
+      candidate['projectId'] = projectId;
+    }
+    if (entryPath != null) {
+      candidate['entryPath'] = entryPath;
+    }
+    return candidate;
   }
 
   Future<_ProjectManifestLookup> _readManifest({

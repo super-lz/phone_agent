@@ -17,6 +17,28 @@ class AgentToolRouter {
   }) async {
     final latestPrompt = _extractPromptText(prompt);
     final routingContext = context == null ? '' : _extractPromptText(context);
+
+    // Fast-path: Check if local deterministic fallback rules can directly resolve the required tools.
+    final fastDecision = _withDeterministicFallbackTools(
+      decision: const {},
+      latestPrompt: latestPrompt,
+      recentContext: routingContext,
+      allTools: allTools,
+    );
+    final fastSelected = _stringList(fastDecision['selected_tool_names']);
+    if (fastSelected.isNotEmpty) {
+      AppLogger.info('agent_tool_router.fast_path.matched', {
+        'promptLength': latestPrompt.length,
+        'matchedTools': fastSelected,
+      });
+      return routeFromDecision(
+        decision: fastDecision,
+        allTools: allTools,
+        latestPromptLength: latestPrompt.length,
+        contextLength: routingContext.length,
+      );
+    }
+
     final toolCatalog = _toolCatalogForModel(allTools);
     final messages = [
       {'role': 'system', 'content': _routingSystemPrompt()},
@@ -50,27 +72,25 @@ class AgentToolRouter {
       AppLogger.warning('agent_tool_router.model.failed', {
         'message': result.content,
       });
-      return routeFromDecision(
+      final decision = _withDeterministicFallbackTools(
         decision: const {},
+        latestPrompt: latestPrompt,
+        recentContext: routingContext,
+        allTools: allTools,
+      );
+      return routeFromDecision(
+        decision: decision,
         allTools: allTools,
         reason: '工具路由模型失败：${result.content}',
+        latestPromptLength: latestPrompt.length,
+        contextLength: routingContext.length,
       );
     }
     final decoded = _decodeRouteDecision(result.content);
-    final creationDecision = _withWebAppCreationTools(
+    final decision = _withDeterministicFallbackTools(
       decision: decoded,
       latestPrompt: latestPrompt,
-      allTools: allTools,
-    );
-    final maintenanceDecision = _withWebAppMaintenanceTools(
-      decision: creationDecision,
-      latestPrompt: latestPrompt,
       recentContext: routingContext,
-      allTools: allTools,
-    );
-    final decision = _withNativeCapabilityTools(
-      decision: maintenanceDecision,
-      latestPrompt: latestPrompt,
       allTools: allTools,
     );
     return routeFromDecision(
@@ -79,6 +99,106 @@ class AgentToolRouter {
       latestPromptLength: latestPrompt.length,
       contextLength: routingContext.length,
     );
+  }
+
+  Map<String, Object?> _withDeterministicFallbackTools({
+    required Map<String, Object?> decision,
+    required String latestPrompt,
+    required String recentContext,
+    required List<Map<String, Object?>> allTools,
+  }) {
+    final creationDecision = _withWebAppCreationTools(
+      decision: decision,
+      latestPrompt: latestPrompt,
+      allTools: allTools,
+    );
+    final maintenanceDecision = _withWebAppMaintenanceTools(
+      decision: creationDecision,
+      latestPrompt: latestPrompt,
+      recentContext: recentContext,
+      allTools: allTools,
+    );
+    final artifactDecision = _withReusableArtifactTools(
+      decision: maintenanceDecision,
+      latestPrompt: latestPrompt,
+      allTools: allTools,
+    );
+    final coreDecision = _withCoreCapabilityTools(
+      decision: artifactDecision,
+      latestPrompt: latestPrompt,
+      allTools: allTools,
+    );
+    return _withNativeCapabilityTools(
+      decision: coreDecision,
+      latestPrompt: latestPrompt,
+      allTools: allTools,
+    );
+  }
+
+  Map<String, Object?> _withCoreCapabilityTools({
+    required Map<String, Object?> decision,
+    required String latestPrompt,
+    required List<Map<String, Object?>> allTools,
+  }) {
+    final prompt = latestPrompt.toLowerCase();
+    final selected = _stringList(decision['selected_tool_names']).toSet();
+    final required = _stringList(decision['required_tool_names']).toSet();
+    final availableNames = {
+      for (final tool in allTools)
+        if (_toolName(tool) case final String name) name,
+    };
+
+    void addIfAvailable(String name, {bool isRequired = false}) {
+      if (!availableNames.contains(name)) {
+        return;
+      }
+      selected.add(name);
+      if (isRequired) {
+        required.add(name);
+      }
+    }
+
+    if (_looksLikeMemoryCreate(prompt)) {
+      addIfAvailable('memory_create', isRequired: true);
+    }
+    if (_looksLikeMemoryQuery(prompt)) {
+      addIfAvailable('memory_query');
+    }
+    if (_looksLikeNoteCreate(prompt)) {
+      addIfAvailable('db_note_create', isRequired: true);
+    }
+    if (_looksLikeNoteQuery(prompt)) {
+      addIfAvailable('db_note_query');
+    }
+    if (_looksLikeWorkspaceCreate(prompt)) {
+      addIfAvailable('workspace_create', isRequired: true);
+    }
+    if (_looksLikeWorkspaceSwitch(prompt)) {
+      addIfAvailable('workspace_switch', isRequired: true);
+    }
+    if (_looksLikeWebFetch(prompt)) {
+      addIfAvailable('web_fetch', isRequired: true);
+    }
+    if (_looksLikeWebSearch(prompt)) {
+      addIfAvailable('web_search', isRequired: true);
+      addIfAvailable('web_fetch');
+    }
+
+    final originalSelected = _stringList(decision['selected_tool_names']);
+    final originalRequired = _stringList(decision['required_tool_names']);
+    if (selected.length == originalSelected.length &&
+        required.length == originalRequired.length) {
+      return decision;
+    }
+    return {
+      ...decision,
+      'selected_tool_names': selected.toList(growable: false)..sort(),
+      'required_tool_names': required.toList(growable: false)..sort(),
+      'reason': [
+        if (decision['reason'] is String) decision['reason'],
+        'core_capability_request_requires_deterministic_tools',
+      ].whereType<String>().join('; '),
+    };
   }
 
   Map<String, Object?> _withNativeCapabilityTools({
@@ -668,7 +788,7 @@ class AgentToolRouter {
       '普通聊天、问候、身份追问、闲聊应返回空工具列表。',
       '如果用户最新消息要求创建、保存、写入、修改、查询、搜索、读取、调用手机能力或生成可复用产物，选择能完成真实动作的最小工具集合。',
       '如果用户最新消息要求创建真实本地 Web 工程、网页、网站、小游戏、Web App 或原型，project_create_web_app 必须同时出现在 selected_tool_names 和 required_tool_names。',
-      '如果用户最新消息是在反馈、修复或迭代已有 Web App/网页/小游戏的问题，必须暴露 artifact_query、artifact_inspect_logs、file_search_app_files、file_read_app_file、project_update_web_app、project_test_web_app、project_version_history、project_revert_web_app；让 Agent 先读运行日志和项目文件，再用项目级更新能力修改原项目，更新后调用项目测试能力。',
+      '如果用户最新消息是在反馈、修复或迭代已有 Web App/网页/小游戏的问题，必须暴露 artifact_query、artifact_inspect_logs、file_search_app_files、file_read_app_file、project_update_web_app、project_test_web_app、project_version_history、project_revert_web_app；让 Agent 先读运行日志和项目文件，再用项目级更新能力修改原项目，必要时单独调用项目测试能力复测。',
       'required_tool_names 只用于“未成功调用就不能声称完成”的真实产物创建工具；没有这种硬性完成条件时返回空数组。',
       '只输出一个 JSON 对象，不要 Markdown，不要代码围栏，不要解释。',
     ].join('\n');
@@ -731,9 +851,6 @@ class AgentToolRouter {
       selected.add('project_create_web_app');
       required.add('project_create_web_app');
     }
-    if (availableNames.contains('project_test_web_app')) {
-      selected.add('project_test_web_app');
-    }
     return {
       ...decision,
       'selected_tool_names': selected.toList(growable: false)..sort(),
@@ -741,6 +858,37 @@ class AgentToolRouter {
       'reason': [
         if (decision['reason'] is String) decision['reason'],
         'web_app_creation_requires_project_tools',
+      ].whereType<String>().join('; '),
+    };
+  }
+
+  Map<String, Object?> _withReusableArtifactTools({
+    required Map<String, Object?> decision,
+    required String latestPrompt,
+    required List<Map<String, Object?>> allTools,
+  }) {
+    if (!_looksLikeReusableArtifactCreation(latestPrompt) ||
+        _looksLikeWebAppCreation(latestPrompt)) {
+      return decision;
+    }
+    final availableNames = {
+      for (final tool in allTools)
+        if (_toolName(tool) case final String name) name,
+    };
+    if (!availableNames.contains('artifact_create')) {
+      return decision;
+    }
+    final selected = _stringList(decision['selected_tool_names']).toSet()
+      ..add('artifact_create');
+    final required = _stringList(decision['required_tool_names']).toSet()
+      ..add('artifact_create');
+    return {
+      ...decision,
+      'selected_tool_names': selected.toList(growable: false)..sort(),
+      'required_tool_names': required.toList(growable: false)..sort(),
+      'reason': [
+        if (decision['reason'] is String) decision['reason'],
+        'reusable_artifact_request_requires_artifact_create',
       ].whereType<String>().join('; '),
     };
   }
@@ -808,6 +956,8 @@ class AgentToolRouter {
       '原型',
       '页面',
       '本地应用',
+      '应用',
+      'app',
     ]);
     if (!mentionsWebArtifact) {
       return false;
@@ -820,9 +970,170 @@ class AgentToolRouter {
       '写一个',
       '搞一个',
       '给我一个',
+      '开发',
+      '设计',
+      '制作',
+      '做个',
+      '写个',
       'build',
       'create',
       'make',
+    ]);
+  }
+
+  bool _looksLikeReusableArtifactCreation(String latestPrompt) {
+    final prompt = latestPrompt.toLowerCase();
+    if (_looksLikeNoteCreate(prompt)) {
+      return false;
+    }
+    final asksToCreate = _containsAny(prompt, const [
+      '创建',
+      '新建',
+      '生成',
+      '整理',
+      '输出',
+      '保存',
+      '做一个',
+      '写一份',
+      '给我一份',
+      'create',
+      'generate',
+      'save',
+    ]);
+    if (!asksToCreate) {
+      return false;
+    }
+    return _containsAny(prompt, const [
+      '报告',
+      '文档',
+      '任务清单',
+      '待办清单',
+      '清单',
+      '文件摘要',
+      '摘要卡片',
+      '卡片',
+      '可复用产物',
+      'artifact',
+      'document',
+      'report',
+      'checklist',
+    ]);
+  }
+
+  bool _looksLikeMemoryCreate(String prompt) {
+    return _containsAny(prompt, const [
+      '记住',
+      '帮我记住',
+      '以后记得',
+      '长期记忆',
+      '保存到记忆',
+      '记到记忆',
+      '我的偏好',
+      '我的习惯',
+      'remember this',
+    ]);
+  }
+
+  bool _looksLikeMemoryQuery(String prompt) {
+    return _containsAny(prompt, const [
+      '查看记忆',
+      '查询记忆',
+      '有哪些记忆',
+      '你记得我',
+      '你还记得',
+      '长期记忆里',
+    ]);
+  }
+
+  bool _looksLikeNoteCreate(String prompt) {
+    if (_looksLikeMemoryCreate(prompt) || _looksLikeWebAppCreation(prompt)) {
+      return false;
+    }
+    return _containsAny(prompt, const [
+      '记录一个',
+      '记一个',
+      '记一下',
+      '保存笔记',
+      '新建笔记',
+      '备忘',
+      '待办',
+      'todo',
+      'note',
+    ]);
+  }
+
+  bool _looksLikeNoteQuery(String prompt) {
+    return _containsAny(prompt, const [
+      '查看笔记',
+      '查询笔记',
+      '笔记列表',
+      '备忘列表',
+      '有哪些笔记',
+      '之前记录',
+      '之前的待办',
+    ]);
+  }
+
+  bool _looksLikeWorkspaceCreate(String prompt) {
+    if (!_containsAny(prompt, const ['工作区', 'workspace'])) {
+      return false;
+    }
+    return _containsAny(prompt, const [
+      '创建',
+      '新建',
+      '建一个',
+      '开一个',
+      'create',
+      'new',
+    ]);
+  }
+
+  bool _looksLikeWorkspaceSwitch(String prompt) {
+    if (!_containsAny(prompt, const ['工作区', 'workspace'])) {
+      return false;
+    }
+    if (_looksLikeWorkspaceCreate(prompt)) {
+      return false;
+    }
+    return _containsAny(prompt, const ['切换', '切到', '进入', '打开', 'switch']);
+  }
+
+  bool _looksLikeWebSearch(String prompt) {
+    return _containsAny(prompt, const [
+      '搜索',
+      '查一下',
+      '查询一下',
+      '联网查',
+      '网上查',
+      '最新',
+      '新闻',
+      '资料来源',
+      '引用来源',
+      'search',
+      'latest',
+      'news',
+    ]);
+  }
+
+  bool _looksLikeWebFetch(String prompt) {
+    final containsUrl = RegExp(r'https?://\S+').hasMatch(prompt);
+    if (!containsUrl) {
+      return false;
+    }
+    if (_containsAny(prompt, const ['打开链接', '打开网址', '外部打开', '浏览器打开']) ||
+        prompt.contains('打开 http://') ||
+        prompt.contains('打开 https://')) {
+      return false;
+    }
+    return _containsAny(prompt, const [
+      '打开',
+      '读取',
+      '总结',
+      '看看',
+      '分析',
+      'fetch',
+      'read',
+      'summarize',
     ]);
   }
 

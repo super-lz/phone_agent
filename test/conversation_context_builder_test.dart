@@ -92,12 +92,111 @@ void main() {
     expect(context.recentEntries.single.content, isNot(contains('latitude=')));
   });
 
-  test('drops nested process block data from transcript context', () async {
+  test(
+    'drops intermediate assistant process text from transcript context',
+    () async {
+      final context =
+          await const ConversationContextBuilder(maxRecentChars: 1000).build(
+            messages: [
+              AgentMessage(
+                id: 'assistant-intermediate',
+                role: MessageRole.assistant,
+                createdAt: DateTime(2026),
+                blocks: [
+                  MessageBlock.intermediateMarkdown('正在分析请求并规划下一步。'),
+                  MessageBlock.intermediateMarkdown('已确定执行步骤，开始调用工具。'),
+                  MessageBlock.markdown('已经为你创建待办应用。'),
+                ],
+              ),
+            ],
+          );
+
+      expect(context.recentEntries.single.content, '已经为你创建待办应用。');
+      expect(context.recentEntries.single.content, isNot(contains('正在分析')));
+      expect(context.recentEntries.single.content, isNot(contains('开始调用工具')));
+    },
+  );
+
+  test(
+    'drops leaked assistant pseudo tool calls from transcript context',
+    () async {
+      final context =
+          await const ConversationContextBuilder(maxRecentChars: 1000).build(
+            messages: [
+              AgentMessage(
+                id: 'assistant-pseudo-tool-call',
+                role: MessageRole.assistant,
+                createdAt: DateTime(2026),
+                blocks: [
+                  MessageBlock.markdown(
+                    '<tool_call><function=file.read_app_file>'
+                    '<parameter=path>apps/city-3d/app.js</parameter>'
+                    '</function></tool_call>',
+                  ),
+                ],
+              ),
+              AgentMessage(
+                id: 'user-after-pseudo-tool-call',
+                role: MessageRole.user,
+                createdAt: DateTime(2026),
+                blocks: [MessageBlock.markdown('继续修复这个 Web App')],
+              ),
+            ],
+          );
+
+      expect(context.recentEntries, hasLength(1));
+      expect(context.recentEntries.single.role, MessageRole.user);
+      expect(context.recentEntries.single.content, '继续修复这个 Web App');
+    },
+  );
+
+  test(
+    'keeps nested process tool result summary in transcript context',
+    () async {
+      final context =
+          await const ConversationContextBuilder(maxRecentChars: 1000).build(
+            messages: [
+              AgentMessage(
+                id: 'assistant-process',
+                role: MessageRole.assistant,
+                createdAt: DateTime(2026),
+                blocks: [
+                  MessageBlock(
+                    type: MessageBlockType.taskProgress,
+                    data: {
+                      'blocks': [
+                        MessageBlock.toolResult('device.info', const {
+                          'ok': true,
+                          'summary': '设备信息已读取完成。',
+                          'artifactId': 'artifact-device',
+                          'rawDevice': {'brand': '不应该进入历史'},
+                        }),
+                        MessageBlock.intermediateMarkdown('正在读取设备信息。'),
+                      ],
+                    },
+                  ),
+                  MessageBlock.markdown('你的手机信息已经读取完成。'),
+                ],
+              ),
+            ],
+          );
+
+      final content = context.recentEntries.single.content;
+      expect(content, contains('你的手机信息已经读取完成。'));
+      expect(content, contains('工具结果 device.info'));
+      expect(content, contains('设备信息已读取完成'));
+      expect(content, contains('artifact-device'));
+      expect(content, isNot(contains('rawDevice')));
+      expect(content, isNot(contains('正在读取设备信息')));
+    },
+  );
+
+  test('keeps restored nested process tool result summary', () async {
     final context = await const ConversationContextBuilder(maxRecentChars: 1000)
         .build(
           messages: [
             AgentMessage(
-              id: 'assistant-process',
+              id: 'assistant-restored-process',
               role: MessageRole.assistant,
               createdAt: DateTime(2026),
               blocks: [
@@ -105,20 +204,31 @@ void main() {
                   type: MessageBlockType.taskProgress,
                   data: {
                     'blocks': [
-                      MessageBlock.toolResult('device.info', const {
-                        'ok': true,
-                        'rawDevice': {'brand': '不应该进入历史'},
-                      }),
+                      {
+                        'type': 'toolResult',
+                        'data': {
+                          'capabilityId': 'project.create_web_app',
+                          'output': {
+                            'ok': true,
+                            'summary': '已创建待办 Web App。',
+                            'artifactId': 'artifact-todo',
+                            'html': '<main>不应该进入历史</main>',
+                          },
+                        },
+                      },
                     ],
                   },
                 ),
-                MessageBlock.markdown('你的手机信息已经读取完成。'),
               ],
             ),
           ],
         );
 
-    expect(context.recentEntries.single.content, '你的手机信息已经读取完成。');
+    final content = context.recentEntries.single.content;
+    expect(content, contains('project.create_web_app'));
+    expect(content, contains('已创建待办 Web App'));
+    expect(content, contains('artifact-todo'));
+    expect(content, isNot(contains('<main>')));
   });
 
   test('compacts older entries when recent context budget is full', () async {
@@ -140,6 +250,30 @@ void main() {
     expect(context.recentEntries.last.content, contains('第 7 条消息'));
     expect(context.summary.length, lessThanOrEqualTo(303));
   });
+
+  test(
+    'summarizes oversized history instead of forcing it into recent',
+    () async {
+      final context =
+          await const ConversationContextBuilder(
+            maxRecentChars: 30,
+            maxSummaryChars: 120,
+          ).build(
+            messages: [
+              AgentMessage(
+                id: 'oversized',
+                role: MessageRole.assistant,
+                createdAt: DateTime(2026),
+                blocks: [MessageBlock.markdown('上一轮生成了大量内容 ${'源码片段' * 40}')],
+              ),
+            ],
+          );
+
+      expect(context.recentEntries, isEmpty);
+      expect(context.summary, contains('上一轮生成了大量内容'));
+      expect(context.summary.length, lessThanOrEqualTo(123));
+    },
+  );
 
   test(
     'semantic summary input is not pre-truncated to final summary size',

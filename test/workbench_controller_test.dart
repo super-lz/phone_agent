@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:phone_agent/application/agent/agent_loop_budget.dart';
 import 'package:phone_agent/application/agent/agent_run_state.dart';
 import 'package:phone_agent/application/capabilities/capability_runtime.dart';
 import 'package:phone_agent/data/background/agent_run_background_service.dart';
@@ -103,6 +104,35 @@ void main() {
 
     expect(restoredController.contextBudget!.usagePercent, savedPercent);
     restoredController.dispose();
+  });
+
+  test('context budget overflow is surfaced and persisted', () async {
+    final workbenchStore = InMemoryWorkbenchStore();
+    final modelSettingsStore = InMemoryModelSettingsStore();
+    await modelSettingsStore.saveContextWindowTokens(
+      ModelProviders.aliyunBailianQwenFlash.id,
+      2048,
+    );
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: _FakeChatClient([]),
+      modelSettingsStore: modelSettingsStore,
+      workbenchStore: workbenchStore,
+    );
+
+    await controller.sendPrompt(List.filled(5000, '超').join());
+
+    expect(controller.isSending, isFalse);
+    expect(controller.contextBudget, isNotNull);
+    expect(controller.contextBudget!.exceedsWindow, isTrue);
+    expect(
+      await workbenchStore.loadContextBudgetSnapshot('default'),
+      isNotNull,
+    );
+    expect(await workbenchStore.loadPendingAgentRun(), isNull);
+    final lastBlock = controller.messages.last.blocks.single;
+    expect(lastBlock.type, MessageBlockType.errorCard);
+    expect(lastBlock.data['title'], '上下文已超过模型窗口');
   });
 
   test(
@@ -219,6 +249,24 @@ void main() {
     expect(controller.messages.last.blocks.first.data['text'], '恢复成功');
   });
 
+  test('keeps pending run when completion state cannot be persisted', () async {
+    final store = _FailingCompletionPersistStore();
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: _FakeChatClient([
+        [const ChatStreamEvent(contentDelta: '已完成但保存失败')],
+      ]),
+      workbenchStore: store,
+    );
+
+    await controller.sendPrompt('需要可靠恢复的任务');
+
+    final pendingRun = await store.loadPendingAgentRun();
+    expect(controller.isSending, isFalse);
+    expect(pendingRun, isNotNull);
+    expect(pendingRun!.userPrompt, '需要可靠恢复的任务');
+  });
+
   test('model prompt uses structured system sections', () async {
     final chatClient = _FakeChatClient([
       [const ChatStreamEvent(contentDelta: '找到 Flutter 来源。')],
@@ -227,10 +275,9 @@ void main() {
       apiKeyStore: _FakeApiKeyStore('test-key'),
       chatClient: chatClient,
     );
-
     await controller.sendPrompt('帮我搜索 Flutter 最新信息');
 
-    final systemPrompt = chatClient.capturedMessages.single.first['content'];
+    final systemPrompt = chatClient.capturedMessages.first.first['content'];
     expect(systemPrompt, isA<String>());
     final text = systemPrompt! as String;
     expect(text, contains('<role>'));
@@ -300,23 +347,20 @@ void main() {
 
     expect(controller.isSending, isTrue);
     expect(
-      controller.messages
-          .expand((message) => message.blocks)
-          .where(
-            (block) =>
-                block.type == MessageBlockType.markdownText &&
-                block.data['intermediate'] == true &&
-                (block.data['text'] as String).contains('正在分析请求'),
-          ),
+      _allBlocks(controller.messages).where(
+        (block) =>
+            block.type == MessageBlockType.markdownText &&
+            block.data['intermediate'] == true &&
+            (block.data['text'] as String).contains('正在分析请求'),
+      ),
       isNotEmpty,
     );
 
     chatClient.releaseToolCall.complete();
     await chatClient.secondStreamStarted.future;
+    await chatClient.finalAnswerDeltaApplied.future;
 
-    final blocksBeforeFinal = controller.messages.expand(
-      (message) => message.blocks,
-    );
+    final blocksBeforeFinal = _allBlocks(controller.messages);
     expect(
       blocksBeforeFinal.any(
         (block) =>
@@ -330,6 +374,13 @@ void main() {
         (block) =>
             block.type == MessageBlockType.toolResult &&
             block.data['capabilityId'] == 'project.create_web_app',
+      ),
+      isTrue,
+    );
+    expect(controller.messages.last.blocks.first.data['text'], '已');
+    expect(
+      controller.messages.last.blocks.any(
+        (block) => block.type == MessageBlockType.taskProgress,
       ),
       isTrue,
     );
@@ -352,16 +403,14 @@ void main() {
 
     expect(controller.currentRun!.phase, AgentRunPhase.waitingForToolCall);
     expect(controller.currentRun!.detail, contains('正在生成 Web App 文件内容'));
-    expect(controller.currentRun!.detail, contains('已接收约'));
+    expect(controller.currentRun!.detail, isNot(contains('已接收约')));
     expect(
-      controller.messages
-          .expand((message) => message.blocks)
-          .where(
-            (block) =>
-                block.type == MessageBlockType.markdownText &&
-                block.data['intermediate'] == true &&
-                (block.data['text'] as String).contains('正在生成 Web App 文件内容'),
-          ),
+      _allBlocks(controller.messages).where(
+        (block) =>
+            block.type == MessageBlockType.markdownText &&
+            block.data['intermediate'] == true &&
+            (block.data['text'] as String).contains('正在生成 Web App 文件内容'),
+      ),
       isNotEmpty,
     );
 
@@ -369,6 +418,29 @@ void main() {
     await sendFuture;
 
     expect(controller.messages.last.blocks.first.data['text'], '已创建。');
+  });
+
+  test('retries transient failure after partial tool arguments', () async {
+    final chatClient = _RetryAfterPartialToolArgumentsChatClient();
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt('创建一个本地 Web App');
+
+    expect(chatClient.callCount, 3);
+    expect(controller.messages.last.blocks.first.data['text'], '已创建。');
+    expect(
+      controller.workspaceArtifacts.where(
+        (artifact) => artifact.type == ArtifactType.webApp,
+      ),
+      isNotEmpty,
+    );
+    final allErrorTitles = _allBlocks(controller.messages)
+        .where((block) => block.type == MessageBlockType.errorCard)
+        .map((block) => block.data['title']);
+    expect(allErrorTitles, isNot(contains('模型连接中断')));
   });
 
   test(
@@ -578,14 +650,13 @@ void main() {
       workbenchStore: store,
     );
 
-    await controller.sendPrompt('记住这轮会话');
+    await controller.sendPrompt('测试持久化');
 
     final restored = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore(null),
       workbenchStore: store,
     );
-    await Future<void>.delayed(Duration.zero);
-    await Future<void>.delayed(Duration.zero);
+    await restored.stateReady;
 
     expect(
       restored.messages.any(
@@ -615,19 +686,42 @@ void main() {
   });
 
   test('user can stop a running agent turn', () async {
+    final workbenchStore = InMemoryWorkbenchStore();
     final chatClient = _SlowChatClient();
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),
       chatClient: chatClient,
+      workbenchStore: workbenchStore,
     );
 
     final sendFuture = controller.sendPrompt('创建一个俄罗斯方块 Web App');
-    await Future<void>.delayed(const Duration(milliseconds: 10));
+    await _waitFor(
+      () => controller.messages.any(
+        (message) =>
+            message.role == MessageRole.assistant &&
+            message.blocks.any(
+              (block) =>
+                  block.type == MessageBlockType.markdownText &&
+                  block.data['intermediate'] == true,
+            ),
+      ),
+    );
 
     expect(controller.isSending, isTrue);
     expect(controller.currentRun, isNotNull);
 
     controller.cancelCurrentRun();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.isSending, isFalse);
+    expect(controller.currentRun, isNull);
+    expect(await workbenchStore.loadPendingAgentRun(), isNull);
+    final stoppedProgress = controller.messages
+        .expand((message) => message.blocks)
+        .where((block) => block.type == MessageBlockType.taskProgress)
+        .last;
+    expect(stoppedProgress.data['status'], 'stopped');
+
     await sendFuture;
 
     expect(controller.isSending, isFalse);
@@ -708,7 +802,342 @@ void main() {
   });
 
   test(
-    'default permission mode blocks high risk memory delete tool call',
+    'invalid streamed tool arguments are sent back for model correction',
+    () async {
+      final chatClient = _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-memory-invalid-json',
+                name: 'memory_create',
+                argumentsDelta: '{"content":"半截',
+              ),
+            ],
+          ),
+        ],
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-memory-fixed-json',
+                name: 'memory_create',
+                argumentsDelta: '{"content":"修正后的记忆"}',
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '已记住。')],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+      );
+
+      await controller.sendPrompt('记住一个新偏好');
+
+      expect(chatClient.callCount, 3);
+      expect(
+        controller.visibleMemories.where(
+          (memory) => memory.content == '修正后的记忆',
+        ),
+        hasLength(1),
+      );
+      expect(
+        controller.visibleMemories.any((memory) => memory.content == '半截'),
+        isFalse,
+      );
+      final invalidArgumentResults = _allBlocks(controller.messages).where(
+        (block) =>
+            block.type == MessageBlockType.toolResult &&
+            (block.data['output']! as Map<String, Object?>)['error'] ==
+                'invalid_tool_arguments',
+      );
+      expect(invalidArgumentResults, isNotEmpty);
+      expect(controller.messages.last.blocks.first.data['text'], '已记住。');
+    },
+  );
+
+  test(
+    'default permission mode pauses high risk tool call for approval',
+    () async {
+      final chatClient = _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-memory-delete',
+                name: 'memory_delete',
+                argumentsDelta: '{"memory_id":"mem-global-1"}',
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '不应继续生成。')],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+      );
+
+      await controller.sendPrompt('忘记第一条记忆');
+
+      expect(chatClient.callCount, 1);
+      expect(
+        controller.visibleMemories.any((memory) => memory.id == 'mem-global-1'),
+        isTrue,
+      );
+      final deleteResultBlocks = _allBlocks(controller.messages).where(
+        (block) =>
+            block.type == MessageBlockType.toolResult &&
+            block.data['capabilityId'] == 'memory.delete',
+      );
+      expect(deleteResultBlocks, isNotEmpty);
+      final output =
+          deleteResultBlocks.first.data['output']! as Map<String, Object?>;
+      expect(output['error'], 'permission_confirmation_required');
+      expect(
+        _allBlocks([
+          controller.messages.last,
+        ]).any((block) => block.type == MessageBlockType.approvalRequest),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'approved high risk tool result continues original agent task',
+    () async {
+      final chatClient = _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-memory-delete',
+                name: 'memory_delete',
+                argumentsDelta: '{"memory_id":"mem-global-1"}',
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '已删除这条记忆。')],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+      );
+
+      await controller.sendPrompt('忘记第一条记忆');
+      final approvalBlock = _allBlocks(
+        controller.messages,
+      ).firstWhere((block) => block.type == MessageBlockType.approvalRequest);
+      expect(approvalBlock.data['userPrompt'], '忘记第一条记忆');
+
+      final approveFuture = controller.approveCapabilityRequest(
+        approvalBlock.data,
+      );
+      expect(controller.isSending, isTrue);
+      expect(controller.currentRun!.phase, AgentRunPhase.executingTool);
+      expect(controller.currentRun!.currentToolName, 'memory_delete');
+      await approveFuture;
+
+      expect(chatClient.callCount, 2);
+      expect(
+        controller.visibleMemories.any((memory) => memory.id == 'mem-global-1'),
+        isFalse,
+      );
+      expect(controller.messages.last.blocks.first.data['text'], '已删除这条记忆。');
+    },
+  );
+
+  test(
+    'pending approval can continue original task after controller restart',
+    () async {
+      final store = InMemoryWorkbenchStore();
+      final firstChatClient = _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-memory-delete',
+                name: 'memory_delete',
+                argumentsDelta: '{"memory_id":"mem-global-1"}',
+              ),
+            ],
+          ),
+        ],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: firstChatClient,
+        workbenchStore: store,
+      );
+
+      await controller.sendPrompt('忘记第一条记忆');
+      final storedApprovalMessage = (await store.loadMessages('default'))
+          .firstWhere(
+            (message) => _allBlocks([
+              message,
+            ]).any((block) => block.type == MessageBlockType.approvalRequest),
+          );
+      final storedApprovalBlock = storedApprovalMessage.blocks.firstWhere(
+        (block) => block.type == MessageBlockType.approvalRequest,
+      );
+      expect(storedApprovalBlock.data['userPrompt'], '忘记第一条记忆');
+      controller.dispose();
+
+      final restoredChatClient = _FakeChatClient([
+        [const ChatStreamEvent(contentDelta: '已删除这条记忆。')],
+      ]);
+      final restoredController = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: restoredChatClient,
+        workbenchStore: store,
+      );
+      await _waitFor(
+        () => restoredController.messages.any(
+          (message) => _allBlocks([
+            message,
+          ]).any((block) => block.type == MessageBlockType.approvalRequest),
+        ),
+      );
+      final restoredApprovalBlock = _allBlocks(
+        restoredController.messages,
+      ).firstWhere((block) => block.type == MessageBlockType.approvalRequest);
+
+      await restoredController.approveCapabilityRequest(
+        restoredApprovalBlock.data,
+      );
+
+      expect(restoredChatClient.callCount, 1);
+      expect(
+        restoredChatClient.capturedMessages.single.last['content'],
+        contains('用户原始请求是：忘记第一条记忆。'),
+      );
+      expect(restoredChatClient.capturedTools.single, isEmpty);
+      expect(
+        restoredController.visibleMemories.any(
+          (memory) => memory.id == 'mem-global-1',
+        ),
+        isFalse,
+      );
+      final updatedApprovalBlock = _allBlocks(
+        await store.loadMessages('default'),
+      ).firstWhere((block) => block.type == MessageBlockType.approvalRequest);
+      expect(updatedApprovalBlock.data['status'], 'approved');
+    },
+  );
+
+  test('denied high risk tool result continues original agent task', () async {
+    final chatClient = _FakeChatClient([
+      [
+        const ChatStreamEvent(
+          toolCallDeltas: [
+            ToolCallDelta(
+              index: 0,
+              id: 'call-memory-delete',
+              name: 'memory_delete',
+              argumentsDelta: '{"memory_id":"mem-global-1"}',
+            ),
+          ],
+        ),
+      ],
+      [const ChatStreamEvent(contentDelta: '已取消删除，这条记忆仍然保留。')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt('忘记第一条记忆');
+    final approvalBlock = _allBlocks(
+      controller.messages,
+    ).firstWhere((block) => block.type == MessageBlockType.approvalRequest);
+
+    await controller.denyCapabilityRequest(approvalBlock.data);
+
+    expect(chatClient.callCount, 2);
+    expect(
+      controller.visibleMemories.any((memory) => memory.id == 'mem-global-1'),
+      isTrue,
+    );
+    final deniedResults = _allBlocks(controller.messages).where(
+      (block) =>
+          block.type == MessageBlockType.toolResult &&
+          (block.data['output']! as Map<String, Object?>)['error'] ==
+              'permission_denied',
+    );
+    expect(deniedResults, isNotEmpty);
+    expect(
+      controller.messages.last.blocks.first.data['text'],
+      '已取消删除，这条记忆仍然保留。',
+    );
+  });
+
+  test(
+    'tool budget applies to multiple tool calls in the same model round',
+    () async {
+      final chatClient = _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-memory-a',
+                name: 'memory_create',
+                argumentsDelta: '{"content":"第一条"}',
+              ),
+              ToolCallDelta(
+                index: 1,
+                id: 'call-memory-b',
+                name: 'memory_create',
+                argumentsDelta: '{"content":"第二条"}',
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '已按预算停止。')],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+        agentLoopBudget: const AgentLoopBudget(
+          maxModelRounds: 3,
+          maxToolCalls: 1,
+        ),
+      );
+
+      await controller.sendPrompt('记住两条信息');
+
+      expect(
+        controller.visibleMemories.where(
+          (memory) => memory.content == '第一条' || memory.content == '第二条',
+        ),
+        hasLength(1),
+      );
+      expect(
+        controller.visibleMemories.any((memory) => memory.content == '第一条'),
+        isTrue,
+      );
+      final budgetResults = _allBlocks(controller.messages).where(
+        (block) =>
+            block.type == MessageBlockType.toolResult &&
+            (block.data['output']! as Map<String, Object?>)['error'] ==
+                'tool_budget_exceeded',
+      );
+      expect(budgetResults, isNotEmpty);
+      expect(chatClient.capturedTools[1], isEmpty);
+      expect(controller.messages.last.blocks.first.data['text'], '已按预算停止。');
+    },
+  );
+
+  test(
+    'model round exhaustion returns visible failure instead of silent completion',
     () async {
       final controller = WorkbenchController(
         apiKeyStore: _FakeApiKeyStore('test-key'),
@@ -718,35 +1147,23 @@ void main() {
               toolCallDeltas: [
                 ToolCallDelta(
                   index: 0,
-                  id: 'call-memory-delete',
-                  name: 'memory_delete',
-                  argumentsDelta: '{"memory_id":"mem-global-1"}',
+                  id: 'call-memory-loop',
+                  name: 'memory_create',
+                  argumentsDelta: '{"content":"循环中的记忆"}',
                 ),
               ],
             ),
           ],
-          [const ChatStreamEvent(contentDelta: '删除需要确认。')],
         ]),
+        agentLoopBudget: const AgentLoopBudget(maxModelRounds: 1),
       );
 
-      await controller.sendPrompt('忘记第一条记忆');
+      await controller.sendPrompt('记住循环中的记忆');
 
-      expect(
-        controller.visibleMemories.any((memory) => memory.id == 'mem-global-1'),
-        isTrue,
-      );
-      final deleteResultBlocks = controller.messages
-          .expand((message) => message.blocks)
-          .where(
-            (block) =>
-                block.type == MessageBlockType.toolResult &&
-                block.data['capabilityId'] == 'memory.delete',
-          );
-      expect(deleteResultBlocks, isNotEmpty);
-      final output =
-          deleteResultBlocks.first.data['output']! as Map<String, Object?>;
-      expect(output['error'], 'permission_confirmation_required');
-      expect(controller.messages.last.blocks.first.data['text'], '删除需要确认。');
+      final lastBlock = controller.messages.last.blocks.single;
+      expect(lastBlock.type, MessageBlockType.errorCard);
+      expect(lastBlock.data['title'], '模型调用失败');
+      expect(lastBlock.data['detail'], contains('最大模型轮次'));
     },
   );
 
@@ -795,14 +1212,36 @@ void main() {
       toolNames.length,
       lessThan(CapabilityRuntime().toolDefinitions.length),
     );
-    final toolBlocks = controller.messages
-        .expand((message) => message.blocks)
-        .where((block) => block.data['capabilityId'] == 'web.search');
+    final toolBlocks = _allBlocks(
+      controller.messages,
+    ).where((block) => block.data['capabilityId'] == 'web.search');
     expect(toolBlocks, isNotEmpty);
     expect(
       controller.messages.last.blocks.first.data['text'],
       '找到 Flutter 来源。',
     );
+  });
+
+  test('required web search prevents latest answer without search', () async {
+    final chatClient = _FakeChatClient([
+      [const ChatStreamEvent(contentDelta: 'Flutter 最新版本是 X。')],
+      [const ChatStreamEvent(contentDelta: 'Flutter 最新版本是 X。')],
+      [const ChatStreamEvent(contentDelta: 'Flutter 最新版本是 X。')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt('搜索 Flutter 最新信息并给出来源');
+
+    expect(chatClient.callCount, 3);
+    final toolNames = _capturedToolNames(chatClient.capturedTools.first);
+    expect(toolNames, contains('web_search'));
+    final finalBlock = controller.messages.last.blocks.single;
+    expect(finalBlock.type, MessageBlockType.errorCard);
+    expect(finalBlock.data['title'], '必需动作未完成');
+    expect(finalBlock.data['detail'], contains('联网搜索'));
   });
 
   test('model tool call can create workspace note', () async {
@@ -833,7 +1272,138 @@ void main() {
       ),
       isTrue,
     );
+    final blocks = controller.messages.last.blocks;
+    expect(blocks.first.data['text'], '已记录到当前工作区。');
+    final progressBlock = blocks.singleWhere(
+      (block) => block.type == MessageBlockType.taskProgress,
+    );
+    expect(progressBlock.data['status'], 'completed');
+    final processBlocks = progressBlock.data['blocks']! as List<MessageBlock>;
+    expect(
+      processBlocks.any(
+        (block) =>
+            block.type == MessageBlockType.toolResult &&
+            block.data['capabilityId'] == 'db.note.create',
+      ),
+      isTrue,
+    );
+  });
+
+  test(
+    'required multi segment tool name is matched to capability id',
+    () async {
+      final chatClient = _RequiredNoteToolChatClient();
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+      );
+
+      await controller.sendPrompt('必须记录一个待办：映射检查');
+
+      expect(chatClient.callCount, 2);
+      expect(
+        controller.workspaceNotes.any(
+          (note) => note.title == '待办' && note.content == '映射检查',
+        ),
+        isTrue,
+      );
+      expect(controller.messages.last.blocks.first.data['text'], '已记录。');
+      expect(
+        _allBlocks(
+          controller.messages,
+        ).where((block) => block.type == MessageBlockType.errorCard),
+        isEmpty,
+      );
+    },
+  );
+
+  test('raw structured tool final answer is regenerated for users', () async {
+    final chatClient = _FakeChatClient([
+      [
+        const ChatStreamEvent(
+          toolCallDeltas: [
+            ToolCallDelta(
+              index: 0,
+              id: 'call-note-raw-final',
+              name: 'db_note_create',
+              argumentsDelta: '{"title":"待办","content":"检查最终回答"}',
+            ),
+          ],
+        ),
+      ],
+      [
+        const ChatStreamEvent(
+          contentDelta:
+              '{ok: true, title: 待办, workspaceId: default, output: 已记录}',
+        ),
+      ],
+      [const ChatStreamEvent(contentDelta: '已记录到当前工作区。')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt('记录一个待办：检查最终回答');
+
+    expect(chatClient.callCount, 3);
+    expect(
+      controller.workspaceNotes.any(
+        (note) => note.title == '待办' && note.content == '检查最终回答',
+      ),
+      isTrue,
+    );
     expect(controller.messages.last.blocks.first.data['text'], '已记录到当前工作区。');
+    expect(
+      chatClient.capturedMessages.last.last['content'],
+      contains('不要出现工具调用、工具结果、原始 JSON、Map 或 capability 字段'),
+    );
+  });
+
+  test('pseudo tool call text is corrected into a real tool call', () async {
+    final chatClient = _FakeChatClient([
+      [
+        const ChatStreamEvent(
+          contentDelta:
+              '<tool_call><function=db.note.create><parameter=title>待办</parameter>'
+              '<parameter=content>修复伪工具调用</parameter></function></tool_call>',
+        ),
+      ],
+      [
+        const ChatStreamEvent(
+          toolCallDeltas: [
+            ToolCallDelta(
+              index: 0,
+              id: 'call-note-after-pseudo',
+              name: 'db_note_create',
+              argumentsDelta: '{"title":"待办","content":"修复伪工具调用"}',
+            ),
+          ],
+        ),
+      ],
+      [const ChatStreamEvent(contentDelta: '已记录到当前工作区。')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt('记录一个待办：修复伪工具调用');
+
+    expect(chatClient.callCount, 3);
+    expect(
+      controller.workspaceNotes.any(
+        (note) => note.title == '待办' && note.content == '修复伪工具调用',
+      ),
+      isTrue,
+    );
+    final finalText = controller.messages.last.blocks.first.data['text'];
+    expect(finalText, '已记录到当前工作区。');
+    expect(finalText, isNot(contains('<tool_call>')));
+    expect(
+      chatClient.capturedMessages[1].last['content'],
+      contains('正文里的伪工具标签不会被系统执行'),
+    );
   });
 
   test('workspace notes are scoped to current workspace', () async {
@@ -899,9 +1469,9 @@ void main() {
       controller.workspaceArtifacts.any((artifact) => artifact.title == '搜索报告'),
       isTrue,
     );
-    final artifactCards = controller.messages
-        .expand((message) => message.blocks)
-        .where((block) => block.type == MessageBlockType.artifactCard);
+    final artifactCards = _allBlocks(
+      controller.messages,
+    ).where((block) => block.type == MessageBlockType.artifactCard);
     expect(artifactCards, isNotEmpty);
     expect(controller.messages.last.blocks.first.data['text'], '已生成报告。');
   });
@@ -934,9 +1504,9 @@ void main() {
     );
     expect(webApp.type, ArtifactType.webApp);
     expect(webApp.metadata['html'], contains('background'));
-    final webAppCards = controller.messages
-        .expand((message) => message.blocks)
-        .where((block) => block.type == MessageBlockType.webAppCard);
+    final webAppCards = _allBlocks(
+      controller.messages,
+    ).where((block) => block.type == MessageBlockType.webAppCard);
     expect(webAppCards, isNotEmpty);
   });
 
@@ -975,14 +1545,12 @@ void main() {
 
     await controller.sendPrompt('保存并读取今天总结');
 
-    final fileBlocks = controller.messages
-        .expand((message) => message.blocks)
-        .where(
-          (block) =>
-              block.type == MessageBlockType.toolResult &&
-              (block.data['capabilityId'] == 'file.write_app_file' ||
-                  block.data['capabilityId'] == 'file.read_app_file'),
-        );
+    final fileBlocks = _allBlocks(controller.messages).where(
+      (block) =>
+          block.type == MessageBlockType.toolResult &&
+          (block.data['capabilityId'] == 'file.write_app_file' ||
+              block.data['capabilityId'] == 'file.read_app_file'),
+    );
     expect(fileBlocks.length, 2);
     expect(controller.workspaceFiles.map((file) => file.path), [
       'reports/today.md',
@@ -1029,9 +1597,9 @@ void main() {
       'games/gold-miner/index.html',
     ]);
     expect(controller.workspaceArtifacts.last.title, '黄金矿工小游戏');
-    final webAppCards = controller.messages
-        .expand((message) => message.blocks)
-        .where((block) => block.type == MessageBlockType.webAppCard);
+    final webAppCards = _allBlocks(
+      controller.messages,
+    ).where((block) => block.type == MessageBlockType.webAppCard);
     expect(webAppCards, isNotEmpty);
   });
 
@@ -1058,8 +1626,7 @@ void main() {
         (artifact) => artifact.id == artifactId,
       );
       expect(updatedArtifact.metadata['currentVersion'], 2);
-      final matchingCards = controller.messages
-          .expand((message) => message.blocks)
+      final matchingCards = _allBlocks(controller.messages)
           .where(
             (block) =>
                 block.type == MessageBlockType.webAppCard &&
@@ -1160,8 +1727,37 @@ void main() {
       );
       final finalBlock = controller.messages.last.blocks.single;
       expect(finalBlock.type, MessageBlockType.errorCard);
-      expect(finalBlock.data['title'], '未创建真实产物');
+      expect(finalBlock.data['title'], '必需动作未完成');
       expect(finalBlock.data['detail'], contains('必需工具没有成功完成'));
+    },
+  );
+
+  test(
+    'failed required note tool reports generic required action error',
+    () async {
+      final chatClient = _FakeChatClient([
+        [const ChatStreamEvent(contentDelta: '已记录这个待办。')],
+        [const ChatStreamEvent(contentDelta: '已记录这个待办。')],
+        [const ChatStreamEvent(contentDelta: '已记录这个待办。')],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+        noteStore: InMemoryAgentNoteStore([]),
+      );
+
+      await controller.sendPrompt('记录一个待办：整理需求清单');
+
+      expect(chatClient.callCount, 3);
+      expect(
+        controller.workspaceNotes.where((n) => n.content.contains('需求清单')),
+        isEmpty,
+      );
+      final finalBlock = controller.messages.last.blocks.single;
+      expect(finalBlock.type, MessageBlockType.errorCard);
+      expect(finalBlock.data['title'], '必需动作未完成');
+      expect(finalBlock.data['detail'], contains('记录笔记'));
+      expect(finalBlock.data['detail'], isNot(contains('未创建真实产物')));
     },
   );
 
@@ -1188,13 +1784,11 @@ void main() {
 
     await controller.sendPrompt('复制 Phone Agent');
 
-    final clipboardBlocks = controller.messages
-        .expand((message) => message.blocks)
-        .where(
-          (block) =>
-              block.type == MessageBlockType.toolResult &&
-              block.data['capabilityId'] == 'clipboard.write',
-        );
+    final clipboardBlocks = _allBlocks(controller.messages).where(
+      (block) =>
+          block.type == MessageBlockType.toolResult &&
+          block.data['capabilityId'] == 'clipboard.write',
+    );
     expect(clipboardBlocks, isNotEmpty);
     expect(controller.messages.last.blocks.first.data['text'], '已复制。');
   });
@@ -1222,13 +1816,11 @@ void main() {
 
     await controller.sendPrompt('用我的当前位置推荐附近事项');
 
-    final locationBlocks = controller.messages
-        .expand((message) => message.blocks)
-        .where(
-          (block) =>
-              block.type == MessageBlockType.toolResult &&
-              block.data['capabilityId'] == 'location.get_current',
-        );
+    final locationBlocks = _allBlocks(controller.messages).where(
+      (block) =>
+          block.type == MessageBlockType.toolResult &&
+          block.data['capabilityId'] == 'location.get_current',
+    );
     expect(locationBlocks, isNotEmpty);
     expect(controller.messages.last.blocks.first.data['text'], '已获取当前位置。');
   });
@@ -1298,13 +1890,11 @@ void main() {
 
     await controller.sendPrompt('现在几点');
 
-    final timeBlocks = controller.messages
-        .expand((message) => message.blocks)
-        .where(
-          (block) =>
-              block.type == MessageBlockType.toolResult &&
-              block.data['capabilityId'] == 'time.get_current',
-        );
+    final timeBlocks = _allBlocks(controller.messages).where(
+      (block) =>
+          block.type == MessageBlockType.toolResult &&
+          block.data['capabilityId'] == 'time.get_current',
+    );
     expect(timeBlocks, isNotEmpty);
     expect(controller.messages.last.blocks.first.data['text'], '当前时间已校准。');
   });
@@ -1333,13 +1923,11 @@ void main() {
 
     await controller.sendPrompt('一分钟后提醒我整理需求');
 
-    final notificationBlocks = controller.messages
-        .expand((message) => message.blocks)
-        .where(
-          (block) =>
-              block.type == MessageBlockType.toolResult &&
-              block.data['capabilityId'] == 'notification.schedule',
-        );
+    final notificationBlocks = _allBlocks(controller.messages).where(
+      (block) =>
+          block.type == MessageBlockType.toolResult &&
+          block.data['capabilityId'] == 'notification.schedule',
+    );
     expect(notificationBlocks, isNotEmpty);
     expect(controller.messages.last.blocks.first.data['text'], '已安排提醒。');
   });
@@ -1368,13 +1956,11 @@ void main() {
 
     await controller.sendPrompt('帮我把明天 10 点需求同步加入日历');
 
-    final calendarBlocks = controller.messages
-        .expand((message) => message.blocks)
-        .where(
-          (block) =>
-              block.type == MessageBlockType.toolResult &&
-              block.data['capabilityId'] == 'calendar.event.create',
-        );
+    final calendarBlocks = _allBlocks(controller.messages).where(
+      (block) =>
+          block.type == MessageBlockType.toolResult &&
+          block.data['capabilityId'] == 'calendar.event.create',
+    );
     expect(calendarBlocks, isNotEmpty);
     expect(controller.messages.last.blocks.first.data['text'], '已打开日历创建日程。');
   });
@@ -1706,13 +2292,11 @@ void main() {
       contains('生活'),
     );
     expect(controller.currentWorkspace.name, '生活');
-    final workspaceBlocks = controller.messages
-        .expand((message) => message.blocks)
-        .where(
-          (block) =>
-              block.type == MessageBlockType.toolResult &&
-              block.data['capabilityId'] == 'workspace.create',
-        );
+    final workspaceBlocks = _allBlocks(controller.messages).where(
+      (block) =>
+          block.type == MessageBlockType.toolResult &&
+          block.data['capabilityId'] == 'workspace.create',
+    );
     expect(workspaceBlocks, isNotEmpty);
     expect(controller.messages.last.blocks.first.data['text'], '已切换到生活工作区。');
   });
@@ -1740,13 +2324,11 @@ void main() {
     await controller.sendPrompt('切换到工作');
 
     expect(controller.workspaceId, 'work');
-    final workspaceBlocks = controller.messages
-        .expand((message) => message.blocks)
-        .where(
-          (block) =>
-              block.type == MessageBlockType.toolResult &&
-              block.data['capabilityId'] == 'workspace.switch',
-        );
+    final workspaceBlocks = _allBlocks(controller.messages).where(
+      (block) =>
+          block.type == MessageBlockType.toolResult &&
+          block.data['capabilityId'] == 'workspace.switch',
+    );
     expect(workspaceBlocks, isNotEmpty);
     expect(controller.messages.last.blocks.first.data['text'], '已切换到工作。');
   });
@@ -1765,9 +2347,9 @@ void main() {
 
     await controller.sendPrompt('连续查询记忆直到完成');
 
-    final memoryQueryBlocks = controller.messages
-        .expand((message) => message.blocks)
-        .where((block) => block.data['capabilityId'] == 'memory.query');
+    final memoryQueryBlocks = _allBlocks(
+      controller.messages,
+    ).where((block) => block.data['capabilityId'] == 'memory.query');
     expect(memoryQueryBlocks.length, 4);
     expect(controller.messages.last.blocks.first.data['text'], '已经完成多轮工具处理。');
   });
@@ -2029,6 +2611,27 @@ class _RecordingBackgroundService implements AgentRunBackgroundService {
   }
 }
 
+class _FailingCompletionPersistStore extends InMemoryWorkbenchStore {
+  bool failMessageWrites = false;
+
+  @override
+  Future<void> savePendingAgentRun(PendingAgentRun run) async {
+    await super.savePendingAgentRun(run);
+    failMessageWrites = true;
+  }
+
+  @override
+  Future<void> upsertMessage({
+    required String workspaceId,
+    required AgentMessage message,
+  }) async {
+    if (failMessageWrites) {
+      throw StateError('message persist failed');
+    }
+    await super.upsertMessage(workspaceId: workspaceId, message: message);
+  }
+}
+
 class _FakeWebAdapter extends WebCapabilityAdapter {
   _FakeWebAdapter({required this.searchOutput, required this.fetchOutput});
 
@@ -2213,9 +2816,53 @@ class _FakeChatClient extends OpenAiCompatibleChatClient {
   }
 }
 
+class _RequiredNoteToolChatClient extends OpenAiCompatibleChatClient {
+  int callCount = 0;
+
+  @override
+  Future<ChatCompletionResult> completeText({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    return ChatCompletionResult(
+      ok: true,
+      content: jsonEncode(
+        _routeDecision({'db_note_create', 'db_note_query'}, {'db_note_create'}),
+      ),
+    );
+  }
+
+  @override
+  Stream<ChatStreamEvent> streamChat({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+    List<Map<String, Object?>> tools = const [],
+  }) async* {
+    final index = callCount;
+    callCount += 1;
+    if (index == 0) {
+      yield const ChatStreamEvent(
+        toolCallDeltas: [
+          ToolCallDelta(
+            index: 0,
+            id: 'call-required-note',
+            name: 'db_note_create',
+            argumentsDelta: '{"title":"待办","content":"映射检查"}',
+          ),
+        ],
+      );
+      return;
+    }
+    yield const ChatStreamEvent(contentDelta: '已记录。');
+  }
+}
+
 class _BlockingWebAppToolChatClient extends OpenAiCompatibleChatClient {
   final firstStreamStarted = Completer<void>();
   final secondStreamStarted = Completer<void>();
+  final finalAnswerDeltaApplied = Completer<void>();
   final releaseToolCall = Completer<void>();
   final releaseFinalAnswer = Completer<void>();
   int callCount = 0;
@@ -2253,8 +2900,10 @@ class _BlockingWebAppToolChatClient extends OpenAiCompatibleChatClient {
       return;
     }
     secondStreamStarted.complete();
+    yield const ChatStreamEvent(contentDelta: '已');
+    finalAnswerDeltaApplied.complete();
     await releaseFinalAnswer.future;
-    yield const ChatStreamEvent(contentDelta: '已创建。');
+    yield const ChatStreamEvent(contentDelta: '创建。');
   }
 }
 
@@ -2319,6 +2968,57 @@ class _SlowWebAppArgumentsChatClient extends OpenAiCompatibleChatClient {
   }
 }
 
+class _RetryAfterPartialToolArgumentsChatClient
+    extends OpenAiCompatibleChatClient {
+  int callCount = 0;
+
+  @override
+  Future<ChatCompletionResult> completeText({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+  }) async {
+    return ChatCompletionResult(
+      ok: true,
+      content: jsonEncode(
+        _routeDecision(
+          {'project_create_web_app', 'artifact_query', 'file_write_app_file'},
+          {'project_create_web_app'},
+        ),
+      ),
+    );
+  }
+
+  @override
+  Stream<ChatStreamEvent> streamChat({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+    List<Map<String, Object?>> tools = const [],
+  }) async* {
+    final index = callCount;
+    callCount += 1;
+    if (index == 0) {
+      yield const ChatStreamEvent(
+        toolCallDeltas: [
+          ToolCallDelta(
+            index: 0,
+            id: 'call-interrupted-webapp',
+            name: 'project_create_web_app',
+            argumentsDelta: '{"title":"半截',
+          ),
+        ],
+      );
+      throw const ModelRequestException('工具参数流中断', isRetryable: true);
+    }
+    if (index == 1) {
+      yield _webAppToolCallRound(0);
+      return;
+    }
+    yield const ChatStreamEvent(contentDelta: '已创建。');
+  }
+}
+
 class _BlockingSecondRouteChatClient extends _FakeChatClient {
   _BlockingSecondRouteChatClient(super.rounds);
 
@@ -2350,6 +3050,11 @@ Map<String, Object?> _routeDecisionForTest(String latest, String context) {
   final required = <String>{};
 
   void add(Iterable<String> names) => selected.addAll(names);
+
+  if (latest.startsWith('用户已批准并执行了刚才的能力请求') ||
+      latest.contains('继续处理已批准的能力结果')) {
+    return _routeDecision(selected, required);
+  }
 
   if (latest == '你好' ||
       latest == '你是' ||
@@ -2544,4 +3249,16 @@ Future<void> _waitFor(
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }
   fail('Timed out waiting for condition.');
+}
+
+Iterable<MessageBlock> _allBlocks(List<AgentMessage> messages) {
+  return messages.expand((message) => message.blocks).expand((block) {
+    if (block.type == MessageBlockType.taskProgress) {
+      final inner = block.data['blocks'];
+      if (inner is Iterable) {
+        return [block, ...inner.cast<MessageBlock>()];
+      }
+    }
+    return [block];
+  });
 }

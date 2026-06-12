@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -188,7 +189,7 @@ class SqliteWorkbenchStore implements WorkbenchStore {
       whereArgs: [workspaceId],
       orderBy: 'created_at ASC',
     );
-    return rows.map(_messageFromRow).toList(growable: false);
+    return rows.map(_messageFromRowOrFallback).toList(growable: false);
   }
 
   @override
@@ -656,9 +657,7 @@ class SqliteWorkbenchStore implements WorkbenchStore {
     'workspace_id': workspaceId,
     'role': message.role.name,
     'blocks_json': jsonEncode(
-      message.blocks
-          .map((block) => {'type': block.type.name, 'data': block.data})
-          .toList(growable: false),
+      message.blocks.map((block) => block.toJson()).toList(growable: false),
     ),
     'created_at': message.createdAt.toIso8601String(),
   };
@@ -667,16 +666,109 @@ class SqliteWorkbenchStore implements WorkbenchStore {
     id: row['id']! as String,
     role: MessageRole.values.byName(row['role']! as String),
     createdAt: DateTime.parse(row['created_at']! as String),
-    blocks: _decodeList(row['blocks_json']! as String)
-        .map((item) {
-          final map = _objectMap(item);
-          return MessageBlock(
-            type: MessageBlockType.values.byName(map['type']! as String),
-            data: _objectMap(map['data']),
-          );
-        })
-        .toList(growable: false),
+    blocks: _messageBlocksFromJson(
+      messageId: row['id']! as String,
+      blocksJson: row['blocks_json']! as String,
+    ),
   );
+
+  AgentMessage _messageFromRowOrFallback(Map<String, Object?> row) {
+    try {
+      return _messageFromRow(row);
+    } on Object catch (error) {
+      final messageId = _safeMessageId(row);
+      AppLogger.warning('workbench.message.decode_failed', {
+        'messageId': messageId,
+        'error': error.toString(),
+      });
+      return AgentMessage(
+        id: messageId,
+        role: MessageRole.assistant,
+        createdAt: _safeMessageCreatedAt(row),
+        blocks: [
+          MessageBlock.error('消息记录不可读', '该消息的本地索引数据损坏，已保留占位以避免整个会话不可读。'),
+        ],
+      );
+    }
+  }
+
+  @visibleForTesting
+  List<MessageBlock> decodeMessageBlocksForTesting({
+    required String messageId,
+    required String blocksJson,
+  }) {
+    return _messageBlocksFromJson(messageId: messageId, blocksJson: blocksJson);
+  }
+
+  @visibleForTesting
+  AgentMessage decodeMessageForTesting(Map<String, Object?> row) {
+    return _messageFromRowOrFallback(row);
+  }
+
+  String _safeMessageId(Map<String, Object?> row) {
+    final rawId = row['id'];
+    if (rawId is String && rawId.trim().isNotEmpty) {
+      return rawId.trim();
+    }
+    final rawCreatedAt = row['created_at'];
+    if (rawCreatedAt is String && rawCreatedAt.trim().isNotEmpty) {
+      return 'corrupt-message-${rawCreatedAt.hashCode}';
+    }
+    return 'corrupt-message-${row.hashCode}';
+  }
+
+  DateTime _safeMessageCreatedAt(Map<String, Object?> row) {
+    final rawCreatedAt = row['created_at'];
+    if (rawCreatedAt is String) {
+      final parsed = DateTime.tryParse(rawCreatedAt);
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  List<MessageBlock> _messageBlocksFromJson({
+    required String messageId,
+    required String blocksJson,
+  }) {
+    try {
+      final blocks = <MessageBlock>[];
+      var corruptBlockCount = 0;
+      for (final item in _decodeList(blocksJson)) {
+        final block = MessageBlock.tryFromJson(item);
+        if (block == null) {
+          corruptBlockCount += 1;
+          continue;
+        }
+        blocks.add(block);
+      }
+      if (corruptBlockCount > 0) {
+        AppLogger.warning('workbench.message_block.decode_failed', {
+          'messageId': messageId,
+          'count': corruptBlockCount,
+        });
+        blocks.add(_corruptMessageBlock(corruptBlockCount));
+      }
+      if (blocks.isEmpty) {
+        return [MessageBlock.error('消息内容不可读', '该消息没有可恢复的内容块。')];
+      }
+      return blocks;
+    } on Object catch (error) {
+      AppLogger.warning('workbench.message_blocks.decode_failed', {
+        'messageId': messageId,
+        'error': error.toString(),
+      });
+      return [MessageBlock.error('消息内容不可读', '该消息的本地持久化内容不是有效 JSON，已保留消息占位。')];
+    }
+  }
+
+  MessageBlock _corruptMessageBlock(int count) {
+    final detail = count == 1
+        ? '该消息中有 1 个内容块无法恢复，其它内容已保留。'
+        : '该消息中有 $count 个内容块无法恢复，其它内容已保留。';
+    return MessageBlock.error('部分消息内容不可读', detail);
+  }
 
   Map<String, Object?> _invocationToRow(CapabilityInvocation invocation) => {
     'id': invocation.id,

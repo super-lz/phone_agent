@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/phone_agent_colors.dart';
+import 'tool_call_summary.dart';
 
 class ApprovalBlock extends StatelessWidget {
   const ApprovalBlock({
@@ -18,6 +19,10 @@ class ApprovalBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = data['status'] as String? ?? 'pending';
     final pending = status == 'pending';
+    final toolName =
+        data['toolName'] as String? ??
+        data['capabilityId'] as String? ??
+        'tool';
     final colors = context.phoneAgentColors;
     return Container(
       width: double.infinity,
@@ -56,7 +61,7 @@ class ApprovalBlock extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           SelectableText(
-            data['input']?.toString() ?? '{}',
+            toolCallSummary(toolName, data['input']),
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 12),

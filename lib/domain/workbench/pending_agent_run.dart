@@ -60,18 +60,11 @@ class PendingAgentRun {
     );
   }
 
-  static Map<String, Object?> _blockToJson(MessageBlock block) => {
-    'type': block.type.name,
-    'data': block.data,
-  };
+  static Map<String, Object?> _blockToJson(MessageBlock block) =>
+      block.toJson();
 
-  static MessageBlock _blockFromJson(Object? value) {
-    final json = _objectMap(value);
-    return MessageBlock(
-      type: MessageBlockType.values.byName(json['type']! as String),
-      data: _objectMap(json['data']),
-    );
-  }
+  static MessageBlock _blockFromJson(Object? value) =>
+      MessageBlock.fromJson(value);
 
   static Map<String, Object?> _objectMap(Object? value) {
     final map = value as Map<Object?, Object?>;

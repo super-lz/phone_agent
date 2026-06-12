@@ -15,6 +15,10 @@ class ToolCallAccumulator {
     }
   }
 
+  void clear() {
+    _buffers.clear();
+  }
+
   List<ToolCallRequest> toRequests() {
     final entries = _buffers.entries.toList()
       ..sort((left, right) => left.key.compareTo(right.key));

@@ -8,6 +8,7 @@ import 'approval_block.dart';
 import 'markdown_block_view.dart';
 import 'message_block_cards.dart';
 import 'todo_block.dart';
+import 'tool_call_summary.dart';
 import 'tool_result_view.dart';
 
 class MessageBlockView extends StatelessWidget {
@@ -35,10 +36,11 @@ class MessageBlockView extends StatelessWidget {
           code: block.data['code']! as String,
         );
       case MessageBlockType.toolCall:
+        final capabilityId = block.data['capabilityId'] as String? ?? 'tool';
         return StructuredBlock(
           icon: Icons.play_arrow,
-          title: 'Tool Call · ${block.data['capabilityId']}',
-          body: block.data['input'].toString(),
+          title: 'Tool Call · $capabilityId',
+          body: toolCallSummary(capabilityId, block.data['input']),
           initiallyExpanded: false,
         );
       case MessageBlockType.toolResult:
@@ -116,7 +118,10 @@ class MessageBlockView extends StatelessWidget {
     if (value is! Iterable<Object?>) {
       return const [];
     }
-    return value.whereType<MessageBlock>().toList(growable: false);
+    return value
+        .map(MessageBlock.tryFromJson)
+        .whereType<MessageBlock>()
+        .toList(growable: false);
   }
 
   String _attachmentDetail(Map<String, Object?> data) {

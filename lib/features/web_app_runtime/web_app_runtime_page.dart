@@ -64,14 +64,13 @@ class WebAppRuntimeRoute extends PageRouteBuilder<void> {
 }
 
 class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
-  static const Duration _exitFadeDuration = Duration(milliseconds: 160);
+  static const double _webViewViewportBleed = 1;
 
   WebAppPermissionDecision _permissionDecision =
       WebAppPermissionDecision.pending;
   WebAppLocalServer? _localServer;
   Uri? _localServerUrl;
   String? _localServerError;
-  bool _isClosing = false;
   bool _showConsole = false;
   final List<WebAppRuntimeLogEntry> _localLogs = [];
 
@@ -142,7 +141,19 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
       allowUniversalAccessFromFileURLs: true,
       mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
       supportZoom: false,
+      builtInZoomControls: false,
+      displayZoomControls: false,
+      textZoom: 100,
       transparentBackground: false,
+      verticalScrollBarEnabled: false,
+      horizontalScrollBarEnabled: false,
+      overScrollMode: OverScrollMode.NEVER,
+      scrollBarStyle: ScrollBarStyle.SCROLLBARS_INSIDE_OVERLAY,
+      scrollbarFadingEnabled: true,
+      disableDefaultErrorPage: true,
+      // Keep the Android WebView in Flutter's texture composition path so
+      // route teardown behaves like a regular Flutter layer.
+      useHybridComposition: false,
       useShouldOverrideUrlLoading: true,
       useOnDownloadStart: true,
       iframeAllow:
@@ -284,87 +295,43 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
     );
   }
 
-  Future<void> _closePreview() async {
-    if (_isClosing) {
-      return;
-    }
-    setState(() {
-      _isClosing = true;
-    });
-    await Future<void>.delayed(_exitFadeDuration);
-    if (!mounted) {
-      return;
-    }
-    Navigator.of(context).pop();
-  }
-
   @override
   Widget build(BuildContext context) {
-    return PopScope<void>(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop) {
-          unawaited(_closePreview());
-        }
-      },
-      child: Stack(
-        children: [
-          Scaffold(
-            appBar: AppBar(title: Text(widget.webApp.title)),
-            body: _permissionDecision == WebAppPermissionDecision.pending
-                ? WebAppPermissionGate(
-                    webApp: widget.webApp,
-                    onApprove: () {
-                      _openWithPermissionDecision(
-                        WebAppPermissionDecision.granted,
-                      );
-                    },
-                    onDeny: () {
-                      _openWithPermissionDecision(
-                        WebAppPermissionDecision.denied,
-                      );
-                    },
-                  )
-                : Stack(
-                    children: [
-                      _webViewBody(),
-                      if (_permissionDecision ==
-                          WebAppPermissionDecision.denied)
-                        const WebAppPermissionDeniedBanner(),
-                      if (_showConsole) _buildConsoleOverlay(),
-                    ],
-                  ),
-            floatingActionButton:
-                _permissionDecision == WebAppPermissionDecision.granted
-                ? FloatingActionButton(
-                    mini: true,
-                    onPressed: () {
-                      setState(() {
-                        _showConsole = !_showConsole;
-                      });
-                    },
-                    child: Icon(
-                      _showConsole
-                          ? Icons.bug_report
-                          : Icons.bug_report_outlined,
-                    ),
-                  )
-                : null,
-          ),
-          IgnorePointer(
-            ignoring: !_isClosing,
-            child: AnimatedOpacity(
-              opacity: _isClosing ? 1 : 0,
-              duration: _exitFadeDuration,
-              curve: Curves.easeOutCubic,
-              child: ColoredBox(
-                color: Theme.of(context).scaffoldBackgroundColor,
-                child: const SizedBox.expand(),
-              ),
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.webApp.title)),
+      body: _permissionDecision == WebAppPermissionDecision.pending
+          ? WebAppPermissionGate(
+              webApp: widget.webApp,
+              onApprove: () {
+                _openWithPermissionDecision(WebAppPermissionDecision.granted);
+              },
+              onDeny: () {
+                _openWithPermissionDecision(WebAppPermissionDecision.denied);
+              },
+            )
+          : Stack(
+              fit: StackFit.expand,
+              children: [
+                _webViewBody(),
+                if (_permissionDecision == WebAppPermissionDecision.denied)
+                  const WebAppPermissionDeniedBanner(),
+                if (_showConsole) _buildConsoleOverlay(),
+              ],
             ),
-          ),
-        ],
-      ),
+      floatingActionButton:
+          _permissionDecision == WebAppPermissionDecision.granted
+          ? FloatingActionButton(
+              mini: true,
+              onPressed: () {
+                setState(() {
+                  _showConsole = !_showConsole;
+                });
+              },
+              child: Icon(
+                _showConsole ? Icons.bug_report : Icons.bug_report_outlined,
+              ),
+            )
+          : null,
     );
   }
 
@@ -458,6 +425,37 @@ class _WebAppRuntimePageState extends State<WebAppRuntimePage> {
       );
     }
 
+    return ColoredBox(
+      color: Colors.white,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+          final height = constraints.maxHeight;
+          if (!width.isFinite || !height.isFinite) {
+            return SizedBox.expand(child: _buildInAppWebView(url));
+          }
+          // Android platform views can round fractional physical pixels down,
+          // leaving a 1px host-background seam on the trailing edges.
+          return ClipRect(
+            child: OverflowBox(
+              alignment: Alignment.topLeft,
+              minWidth: width + _webViewViewportBleed,
+              maxWidth: width + _webViewViewportBleed,
+              minHeight: height + _webViewViewportBleed,
+              maxHeight: height + _webViewViewportBleed,
+              child: SizedBox(
+                width: width + _webViewViewportBleed,
+                height: height + _webViewViewportBleed,
+                child: _buildInAppWebView(url),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildInAppWebView(Uri url) {
     return InAppWebView(
       initialUrlRequest: URLRequest(url: WebUri(url.toString())),
       initialSettings: _initialSettings(),

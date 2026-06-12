@@ -1,3 +1,4 @@
+import '../../core/logging/app_logger.dart';
 import '../../data/models/openai_compatible_chat_client.dart';
 import '../../domain/artifacts/artifact.dart';
 import '../../domain/capabilities/capability.dart';
@@ -13,11 +14,14 @@ import '../../domain/workspace/workspace.dart';
 import '../capabilities/capability_execution_result.dart';
 import '../capabilities/capability_runtime.dart';
 import '../capabilities/mcp_manager.dart';
+import '../capabilities/tool_prompt_registry.dart';
 import 'agent_loop_budget.dart';
 import 'agent_run_state.dart';
 import 'context_budget.dart';
 import 'conversation_context_builder.dart';
+import 'final_response_guard.dart';
 import 'tool_call_accumulator.dart';
+import 'tool_display_names.dart';
 import 'tool_router.dart';
 import 'web_app_jsbridge_guide.dart';
 
@@ -162,6 +166,7 @@ class AgentLoop {
     );
 
     report(AgentRunPhase.routing, '正在分析这次请求。');
+    final routingStopwatch = Stopwatch()..start();
     final toolRoute = await _toolRouter.route(
       prompt: latestRoutingPrompt,
       context: routingContext,
@@ -170,7 +175,14 @@ class AgentLoop {
       provider: provider,
       apiKey: apiKey,
     );
+    routingStopwatch.stop();
+    AppLogger.info('agent_loop.routing.completed', {
+      'durationMs': routingStopwatch.elapsedMilliseconds,
+      'selectedTools': toolRoute.selectedToolNames,
+      'requiredTools': toolRoute.requiredToolNames,
+    });
 
+    final buildMessagesStopwatch = Stopwatch()..start();
     final modelMessageResult = await _buildModelMessages(
       prompt: prompt,
       workspace: workspace,
@@ -182,6 +194,13 @@ class AgentLoop {
       provider: provider,
       apiKey: apiKey,
     );
+    buildMessagesStopwatch.stop();
+    AppLogger.info('agent_loop.build_messages.completed', {
+      'durationMs': buildMessagesStopwatch.elapsedMilliseconds,
+      'messageCount': modelMessageResult.messages.length,
+      'usedSummary': modelMessageResult.usedSummary,
+    });
+
     final modelMessages = modelMessageResult.messages;
     contextBudget = modelMessageResult.contextBudget;
     if (contextBudget.exceedsWindow) {
@@ -195,17 +214,16 @@ class AgentLoop {
     final currentTurnToolResults = <CapabilityExecutionResult>[];
     var requiredToolCorrectionAttempts = 0;
     var rawFinalCorrectionAttempts = 0;
+    var accumulatedProcessBlocks = <MessageBlock>[];
 
     for (var round = 0; round < budget.maxModelRounds; round += 1) {
       throwIfCancelled();
 
-      // Turn message IDs
-      final assistantMessageId = round == 0
-          ? firstAssistantMessageId
-          : 'msg-model-${DateTime.now().microsecondsSinceEpoch}-$round';
+      final assistantMessageId = firstAssistantMessageId;
       final contentBuffer = StringBuffer();
       final toolCalls = ToolCallAccumulator();
       final processBlocks = <MessageBlock>[
+        ...accumulatedProcessBlocks,
         MessageBlock.intermediateMarkdown(
           round == 0 ? '正在分析请求并规划下一步。' : '正在根据工具结果继续处理。',
         ),
@@ -214,7 +232,8 @@ class AgentLoop {
       var preparingToolName = '';
       var toolArgumentChars = 0;
       var retryAttempts = 0;
-      var hasReceivedModelDelta = false;
+      var hasReceivedContentDelta = false;
+      var hasReceivedToolCallDelta = false;
 
       void publishProcessBlocks() {
         replaceMessage(
@@ -230,8 +249,12 @@ class AgentLoop {
       }
 
       void publishToolPreparation(String detail) {
-        processBlocks.clear();
-        final content = contentBuffer.toString().trim();
+        processBlocks
+          ..clear()
+          ..addAll(accumulatedProcessBlocks);
+        final content = stripInternalToolProgressText(
+          contentBuffer.toString(),
+        ).trim();
         if (content.isNotEmpty) {
           processBlocks.add(MessageBlock.intermediateMarkdown(content));
         }
@@ -242,6 +265,10 @@ class AgentLoop {
       publishProcessBlocks();
 
       // START MODEL STREAMING
+      final streamStopwatch = Stopwatch()..start();
+      var firstTokenLatency = 0;
+      var hasReceivedFirstToken = false;
+
       while (true) {
         throwIfCancelled();
         report(AgentRunPhase.modelStreaming, '正在思考...');
@@ -257,8 +284,19 @@ class AgentLoop {
           )) {
             throwIfCancelled();
 
+            if (!hasReceivedFirstToken &&
+                (event.contentDelta.isNotEmpty ||
+                    event.toolCallDeltas.isNotEmpty)) {
+              hasReceivedFirstToken = true;
+              firstTokenLatency = streamStopwatch.elapsedMilliseconds;
+              AppLogger.info('agent_loop.stream.first_token', {
+                'latencyMs': firstTokenLatency,
+                'round': round,
+              });
+            }
+
             if (event.toolCallDeltas.isNotEmpty) {
-              hasReceivedModelDelta = true;
+              hasReceivedToolCallDelta = true;
               isPreparingToolCall = true;
               for (final delta in event.toolCallDeltas) {
                 final name = delta.name;
@@ -283,30 +321,78 @@ class AgentLoop {
             }
 
             if (event.contentDelta.isNotEmpty) {
-              hasReceivedModelDelta = true;
+              hasReceivedContentDelta = true;
               contentBuffer.write(event.contentDelta);
 
               if (!isPreparingToolCall) {
+                final visibleText = stripInternalToolProgressText(
+                  contentBuffer.toString(),
+                );
+                if (toolRoute.tools.isNotEmpty &&
+                    looksLikePseudoToolCallText(visibleText)) {
+                  replaceMessage(
+                    assistantMessageId,
+                    _assistantIntermediateMessage(
+                      assistantMessageId,
+                      '模型正在输出内部工具调用格式，系统已拦截，正在要求改用真实工具调用。',
+                    ),
+                  );
+                  notifyChange();
+                  continue;
+                }
+                if (visibleText.trim().isEmpty &&
+                    looksLikeInternalToolProgressText(
+                      contentBuffer.toString(),
+                    )) {
+                  report(
+                    AgentRunPhase.waitingForToolCall,
+                    '正在接收工具参数，参数完整后会立即执行。',
+                  );
+                  continue;
+                }
                 replaceMessage(
                   assistantMessageId,
-                  _assistantMarkdownMessage(
+                  _assistantFinalMessage(
                     assistantMessageId,
-                    contentBuffer.toString(),
+                    visibleText,
+                    processBlocks,
                   ),
                 );
                 notifyChange();
+              } else {
+                final detail = _toolPreparationDetail(
+                  preparingToolName,
+                  toolArgumentChars,
+                );
+                publishToolPreparation(detail);
               }
             }
           }
+          streamStopwatch.stop();
+          AppLogger.info('agent_loop.stream.completed', {
+            'durationMs': streamStopwatch.elapsedMilliseconds,
+            'firstTokenLatencyMs': firstTokenLatency,
+            'round': round,
+            'contentLength': contentBuffer.length,
+            'toolCallCount': toolCalls.toRequests().length,
+          });
           break;
         } on ModelRequestException catch (error) {
           throwIfCancelled();
           if (_shouldRetryModelStream(
             error: error,
             retryAttempts: retryAttempts,
-            hasReceivedModelDelta: hasReceivedModelDelta,
+            hasReceivedContentDelta: hasReceivedContentDelta,
           )) {
             retryAttempts += 1;
+            if (hasReceivedToolCallDelta) {
+              toolCalls.clear();
+              isPreparingToolCall = false;
+              preparingToolName = '';
+              toolArgumentChars = 0;
+              hasReceivedToolCallDelta = false;
+              publishToolPreparation('工具参数流连接中断，正在重新发起模型请求。');
+            }
             await _waitForForegroundBeforeRetryIfNeeded(
               isForeground: isForeground,
               waitUntilForeground: waitUntilForeground,
@@ -322,7 +408,7 @@ class AgentLoop {
               assistantMessageId,
               _assistantInterruptedMessage(
                 assistantMessageId,
-                contentBuffer.toString(),
+                stripInternalToolProgressText(contentBuffer.toString()),
                 error.message,
               ),
             );
@@ -345,22 +431,84 @@ class AgentLoop {
           );
           notifyChange();
         } else {
-          final finalText = contentBuffer.toString();
+          final finalText = stripInternalToolProgressText(
+            contentBuffer.toString(),
+          );
+          final looksLikePseudoToolCall = looksLikePseudoToolCallText(
+            finalText,
+          );
+          if (finalText.trim().isEmpty &&
+              _requiredToolsSatisfied(toolRoute, currentTurnToolResults)) {
+            replaceMessage(
+              assistantMessageId,
+              _modelErrorResponse('模型只返回了内部工具参数进度，没有返回可展示内容。请重试本轮请求。'),
+            );
+            notifyChange();
+            report(AgentRunPhase.failed, '模型没有返回可展示内容');
+            return;
+          }
           if (!_requiredToolsSatisfied(toolRoute, currentTurnToolResults)) {
+            if (looksLikePseudoToolCallText(finalText) &&
+                toolRoute.tools.isNotEmpty &&
+                provider.supportsTools &&
+                runState.canUseTools &&
+                rawFinalCorrectionAttempts < 1) {
+              rawFinalCorrectionAttempts += 1;
+              replaceMessage(
+                assistantMessageId,
+                _assistantIntermediateMessage(
+                  assistantMessageId,
+                  '模型输出了不会执行的伪工具调用标签，系统已拦截，正在要求改用真实工具调用。',
+                ),
+              );
+              modelMessages
+                ..add({
+                  'role': 'assistant',
+                  'content': '[上一轮把伪工具调用标签作为正文输出，系统未执行这些标签。]',
+                })
+                ..add({
+                  'role': 'user',
+                  'content':
+                      '你刚才把 <tool_call>、<function=...> 或 <parameter=...> '
+                      '当作普通正文输出了。正文里的伪工具标签不会被系统执行。'
+                      '请立即使用当前 tools schema 发起真实 tool call；'
+                      '不要再输出伪工具标签、原始参数或工具调用文本。'
+                      '如果无法调用真实工具，请明确说明哪些动作尚未执行。',
+                });
+              notifyChange();
+              continue;
+            }
             if (requiredToolCorrectionAttempts < 2) {
               requiredToolCorrectionAttempts += 1;
               replaceMessage(
                 assistantMessageId,
-                _assistantIntermediateMessage(assistantMessageId, finalText),
+                _assistantIntermediateMessage(
+                  assistantMessageId,
+                  looksLikePseudoToolCall
+                      ? '模型输出了不会执行的伪工具调用标签，系统已拦截。'
+                      : finalText,
+                ),
               );
               modelMessages
-                ..add({'role': 'assistant', 'content': finalText})
+                ..add({
+                  'role': 'assistant',
+                  'content': looksLikePseudoToolCall
+                      ? '[上一轮把伪工具调用标签作为正文输出，系统未执行这些标签。]'
+                      : finalText,
+                })
                 ..add({
                   'role': 'user',
-                  'content':
-                      '本轮存在必需工具：${toolRoute.requiredToolNames.join('、')}。'
-                      '在必需工具成功执行前，不能声称产物已经创建、已保存或可预览。'
-                      '请立即调用缺失的必需工具；如果无法调用，请明确说明未创建。',
+                  'content': looksLikePseudoToolCall
+                      ? '本轮存在必须完成的工具动作：'
+                            '${_requiredToolDisplayNames(toolRoute.requiredToolNames)}。'
+                            '你刚才把工具调用写成了正文里的伪标签，这些标签没有被执行。'
+                            '请使用当前 tools schema 发起真实 tool call；'
+                            '如果无法调用，请明确说明哪些动作尚未完成。'
+                      : '本轮存在必须完成的工具动作：'
+                            '${_requiredToolDisplayNames(toolRoute.requiredToolNames)}。'
+                            '在这些动作成功执行前，不能声称任务已经完成、内容已经保存、'
+                            '产物已经创建或可以预览。请立即调用缺失的必需工具；'
+                            '如果无法调用，请明确说明哪些动作尚未完成。',
                 });
               notifyChange();
               continue;
@@ -377,29 +525,60 @@ class AgentLoop {
             return;
           }
 
-          if (_looksLikeRawToolProcess(finalText) &&
+          if ((currentTurnToolResults.isNotEmpty ||
+                  looksLikePseudoToolCall && toolRoute.tools.isNotEmpty) &&
+              looksLikeRawToolProcess(finalText) &&
               rawFinalCorrectionAttempts < 1) {
             rawFinalCorrectionAttempts += 1;
             replaceMessage(
               assistantMessageId,
-              _assistantIntermediateMessage(assistantMessageId, finalText),
+              _assistantIntermediateMessage(
+                assistantMessageId,
+                looksLikePseudoToolCall
+                    ? '模型输出了不会执行的伪工具调用标签，系统已拦截，正在要求改用真实工具调用或给出可读结论。'
+                    : finalText,
+              ),
             );
             modelMessages
-              ..add({'role': 'assistant', 'content': finalText})
+              ..add({
+                'role': 'assistant',
+                'content': looksLikePseudoToolCall
+                    ? '[上一轮把伪工具调用标签作为正文输出，系统未执行这些标签。]'
+                    : finalText,
+              })
               ..add({
                 'role': 'user',
-                'content':
-                    '上一条回复复述了工具调用过程或原始结构化结果，不能作为最终回答。'
-                    '请基于已有 observation 重新生成面向用户的自然语言结论，'
-                    '不要出现工具调用、工具结果、原始 JSON、Map 或 capability 字段。',
+                'content': looksLikePseudoToolCall
+                    ? '上一条回复输出了 <tool_call>、<function=...> 或 <parameter=...> '
+                          '这类伪工具标签。正文里的伪工具标签不会被执行，不能作为最终回答。'
+                          '如果还需要执行动作，请使用当前 tools schema 发起真实 tool call；'
+                          '如果不需要执行动作，请生成面向用户的自然语言结论。'
+                          '不要出现伪工具标签、工具调用文本、原始 JSON、Map 或 capability 字段。'
+                    : '上一条回复复述了工具调用过程或原始结构化结果，不能作为最终回答。'
+                          '请基于已有 observation 重新生成面向用户的自然语言结论，'
+                          '不要出现工具调用、工具结果、原始 JSON、Map 或 capability 字段。',
               });
             notifyChange();
             continue;
           }
 
+          if (looksLikePseudoToolCall && toolRoute.tools.isNotEmpty) {
+            replaceMessage(
+              assistantMessageId,
+              _modelErrorResponse('模型把工具调用标签输出成了普通正文，系统没有执行这些标签。请重试本轮请求。'),
+            );
+            notifyChange();
+            report(AgentRunPhase.failed, '模型输出了未执行的伪工具调用');
+            return;
+          }
+
           replaceMessage(
             assistantMessageId,
-            _assistantMarkdownMessage(assistantMessageId, finalText),
+            _assistantFinalMessage(
+              assistantMessageId,
+              finalText,
+              processBlocks,
+            ),
           );
           notifyChange();
         }
@@ -409,20 +588,23 @@ class AgentLoop {
 
       // CASE 2: TOOL CALLS -> EXECUTE THEM
       report(AgentRunPhase.executingTool, '正在执行工具...');
+      final visibleContent = stripInternalToolProgressText(
+        contentBuffer.toString(),
+      );
 
       modelMessages.add({
         'role': 'assistant',
-        'content': contentBuffer.toString(),
+        'content': visibleContent,
         'tool_calls': requests
             .map((r) => r.toAssistantMessageToolCall())
             .toList(growable: false),
       });
 
-      processBlocks.clear();
-      if (contentBuffer.toString().trim().isNotEmpty) {
-        processBlocks.add(
-          MessageBlock.intermediateMarkdown(contentBuffer.toString()),
-        );
+      processBlocks
+        ..clear()
+        ..addAll(accumulatedProcessBlocks);
+      if (visibleContent.trim().isNotEmpty) {
+        processBlocks.add(MessageBlock.intermediateMarkdown(visibleContent));
       } else {
         processBlocks.add(MessageBlock.intermediateMarkdown('已确定执行步骤，开始调用工具。'));
       }
@@ -453,6 +635,39 @@ class AgentLoop {
           MessageBlock.toolCall(request.name, request.arguments),
         );
         publishToolProcess();
+
+        if (_hasInvalidToolArguments(request)) {
+          final result = _invalidToolArgumentsResult(request);
+          runState.recordToolResult(false);
+          currentTurnToolResults.add(result);
+          processBlocks.add(
+            MessageBlock.toolResult(result.capabilityId, result.output),
+          );
+          publishToolProcess();
+          modelMessages.add({
+            'role': 'tool',
+            'tool_call_id': request.id,
+            'name': request.name,
+            'content': result.encodedModelObservation,
+          });
+          continue;
+        }
+
+        if (!runState.canStartToolCall) {
+          final result = _toolBudgetExceededResult(request, runState);
+          currentTurnToolResults.add(result);
+          processBlocks.add(
+            MessageBlock.toolResult(result.capabilityId, result.output),
+          );
+          publishToolProcess();
+          modelMessages.add({
+            'role': 'tool',
+            'tool_call_id': request.id,
+            'name': request.name,
+            'content': result.encodedModelObservation,
+          });
+          continue;
+        }
 
         final result = await _capabilityRuntime.execute(
           toolCall: request,
@@ -492,12 +707,18 @@ class AgentLoop {
               workspaceId: activeWorkspaceId,
               input: request.arguments,
               detail: result.output['detail'] as String? ?? '需要授权',
+              userPrompt: latestRoutingPrompt,
             ),
           );
         }
 
         processBlocks.addAll(_artifactBlocksFor(result));
         publishToolProcess();
+
+        if (result.output['error'] == 'permission_confirmation_required') {
+          report(AgentRunPhase.completed, '等待用户授权');
+          return;
+        }
 
         modelMessages.add({
           'role': 'tool',
@@ -506,9 +727,57 @@ class AgentLoop {
           'content': result.encodedModelObservation,
         });
       }
+      accumulatedProcessBlocks = List<MessageBlock>.of(processBlocks);
     }
 
-    report(AgentRunPhase.completed, '已完成');
+    addMessage(
+      _modelErrorResponse(
+        '任务已达到本轮最大模型轮次 ${budget.maxModelRounds} 轮，'
+        '系统已停止继续自动调用，避免无限循环。请根据上方执行过程调整请求后重试。',
+      ),
+    );
+    notifyChange();
+    report(AgentRunPhase.failed, '任务轮次已达上限');
+  }
+
+  bool _hasInvalidToolArguments(ToolCallRequest request) {
+    return request.arguments['_parseError'] == 'invalid_json';
+  }
+
+  CapabilityExecutionResult _invalidToolArgumentsResult(
+    ToolCallRequest request,
+  ) {
+    return CapabilityExecutionResult(
+      capabilityId: CapabilityRuntime.capabilityIdForToolNameOrFallback(
+        request.name,
+      ),
+      output: {
+        'ok': false,
+        'error': 'invalid_tool_arguments',
+        'detail': '工具参数不是有效 JSON，未执行真实能力；请重新生成完整参数后再调用。',
+        'tool': request.name,
+      },
+    );
+  }
+
+  CapabilityExecutionResult _toolBudgetExceededResult(
+    ToolCallRequest request,
+    AgentLoopRunState runState,
+  ) {
+    final detail = runState.stopReason.isEmpty
+        ? '已达到本轮任务预算，系统停止继续执行工具。'
+        : runState.stopReason;
+    return CapabilityExecutionResult(
+      capabilityId: CapabilityRuntime.capabilityIdForToolNameOrFallback(
+        request.name,
+      ),
+      output: {
+        'ok': false,
+        'error': 'tool_budget_exceeded',
+        'detail': detail,
+        'tool': request.name,
+      },
+    );
   }
 
   String _routingContextText({
@@ -543,6 +812,11 @@ class AgentLoop {
         .where((block) => block.type == MessageBlockType.markdownText)
         .map((block) => block.data['text'])
         .whereType<String>()
+        .where(
+          (text) =>
+              message.role != MessageRole.assistant ||
+              !looksLikeRawToolProcess(text),
+        )
         .join('\n')
         .trim();
     return text.isEmpty ? '' : '$role: $text';
@@ -673,6 +947,7 @@ class AgentLoop {
       '- 能通过工具完成的真实动作必须调用工具；不要用自然语言假装已经创建、保存、打开或执行。',
       '- 只使用 <capability_index> 中本轮暴露的工具。未暴露的工具组视为不可用，不要臆造调用。',
       '- 工具结果是内部观察。最终回答不要直接展示原始 JSON、字段名、tool_call、tool_result 或 capability 元数据。',
+      '- 工具参数生成进度是系统内部状态，不要在正文里说“已接收约 N 字符”或复述参数接收进度。',
       '- 如果工具结果包含 summary 或 userMessage，优先把它转成用户能理解的结论和下一步。',
       '- 可以连续调用工具完成复杂任务，但证据足够后要及时总结，避免重复调用。',
       '</operating_principles>',
@@ -680,38 +955,23 @@ class AgentLoop {
       '<capability_index>',
       toolIndex,
       '',
-      '能力分组与触发规则：',
-      '- memory: memory_create / memory_query / memory_delete。仅在用户明确要求记住、忘记、查看或管理长期记忆时使用；普通回答直接使用 <current_context> 中已注入的长期记忆。',
-      '- notes: db_note_create / db_note_query。记录备忘、保存信息、整理事项或查询已保存笔记时使用。',
-      '- workspace: workspace_create / workspace_switch。创建或切换工作区时使用；创建成功后当前 Workspace 必须切换到新工作区。',
-      '- files: file_write_app_file / file_read_app_file / file_search_app_files / file_apply_text_patch。只访问当前工作区沙箱内的相对路径。',
-      '- artifacts: artifact_create / artifact_query / artifact_inspect_logs。报告、文档、任务清单、文件摘要、Web App 卡片或其它可复用产物必须保存为 Artifact。',
-      '- projects: project_create_web_app / project_update_web_app / project_test_web_app / project_version_history / project_revert_web_app。创建 Web App 用 create；反馈、修复或迭代已有 Web App 时更新原项目，不创建新卡片；创建或更新后用 test 做受控静态检查。',
-      '- office: document_* / spreadsheet_* / presentation_* / pdf_*。用于 Office/PDF 的提取、生成和受控局部文本替换。',
-      '- native: device_info / time_get_current / battery_status / network_status / clipboard_* / camera_capture_* / flashlight_* / media_pick_* / file_pick_system_file / audio_record_* / contacts_pick / barcode_scan_* / share_text / system_* / permission_open_settings / url_open_external / screen_* / sensor_* / location_get_current / notification_* / calendar_event_create。',
-      '- web: web_search / web_fetch。需要最新信息、网页资料、来源引用或读取具体网页正文时使用。',
-      '- extensions: skill_install / skill_invoke / mcp_connect。仅在用户明确要求 Skill/MCP 或外部工具扩展时使用。',
+      ToolPromptRegistry.generateCapabilityIndex(toolIndex),
       '</capability_index>',
       '',
       '<workflow_contracts>',
-      '1. 普通对话：没有暴露工具时直接回答；不要为了使用已注入记忆而调用 memory_query。',
-      '2. 相对时间：处理今天、明天、今晚、几分钟后等表达时，以 <current_context> 的本地时间为准；需要校准时调用 time_get_current。',
-      '3. 文件维护：先 file_search_app_files 定位，再 file_read_app_file 读局部内容，最后 file_apply_text_patch 精确修改；补丁不唯一或目标不存在时返回错误。',
-      '4. Web App 维护：用户反馈已有 Web App/网页/小游戏问题时，先 artifact_query 定位原 Artifact，必要时 artifact_inspect_logs 读运行日志，再读取相关项目文件，最后用 project_update_web_app 更新原项目；更新后调用 project_test_web_app 做静态检查，检查失败时继续修复或说明剩余问题；不要调用 project_create_web_app 复制新项目。',
-      '5. 可复用产物：生成报告、文档、任务清单、文件摘要或 Web App 时，必须调用 artifact_create 或更专用的创建工具。',
-      '6. Office/PDF：上传或处理 Word、Excel、PPT、PDF 时先提取；生成新文件时写入当前 Workspace 文件区；局部替换不承诺保留复杂原格式。',
-      '7. 本地能力：手机设备、位置、电量、网络、权限等能力执行后，最终回答优先展示可读摘要，不展示底层结构化元数据。',
+      ToolPromptRegistry.generateWorkflowContracts(toolIndex),
       '</workflow_contracts>',
       '',
       '<web_app_contract>',
       '- 创建小游戏、交互网页、Web App、原型或本地可维护项目时，必须调用 project_create_web_app 写入真实工程文件并创建 Web App Artifact。',
-      '- project_create_web_app 或 project_update_web_app 成功后，若本轮暴露了 project_test_web_app，先调用它检查项目；检查未通过时不要声称完全完成。',
+      '- project_create_web_app 和 project_update_web_app 会自动执行受控静态检查，并在工具结果 test 中返回结论；刚创建或刚更新同一项目后，不要为了同一结果立刻重复调用 project_test_web_app。',
+      '- 只有用户明确要求复测，或维护已有 Web App 且需要单独确认当前状态时，才调用 project_test_web_app；优先使用工具结果返回的 artifactId。',
       '- project_create_web_app 成功前，不得说“已创建”“可预览”“文件已保存”或提示用户点击不存在的卡片。',
       '- Web App 默认按本地工程组织；除极小页面外，入口 HTML、样式、脚本应拆成可维护文件。',
       '- 默认按手机竖屏、触摸交互、360-430px 宽度、安全区域和移动端性能设计；不要生成桌面优先、多列侧栏、依赖 hover 或密集小字号的布局。',
       '- 大段 HTML/CSS/JS 放入 project_create_web_app 或 file_write_app_file 的工具参数，不要先在聊天正文中流式输出完整源码。',
       '- Web App 需要手机能力时，必须在 permissions 中声明精确 capability id，并通过 window.PhoneAgent.getManifest() / window.PhoneAgent.callCapability(id, input) 调用。',
-      '- JSBridge 当前可用能力：db.note.create, db.note.query, file.read_app_file, file.write_app_file, file.search_app_files, artifact.create, artifact.query, app.info, device.info, time.get_current, battery.status, network.status, clipboard.read, clipboard.write, camera.capture_photo, camera.capture_video, flashlight.set, flashlight.status, media.pick_image, media.pick_images, media.pick_video, file.pick_system_file, audio.record_start, audio.record_stop, audio.record_cancel, contacts.pick, barcode.scan_camera, barcode.scan_image, share.text, system.haptic_feedback, system.sound_alert, system.volume.set, system.volume.status, system.ui.set, system.ui.status, permission.open_settings, url.open_external, screen.keep_awake, screen.keep_awake_status, screen.brightness.set, screen.brightness.status, screen.metrics, screen.orientation.set, screen.orientation.status, sensor.accelerometer.read, sensor.gyroscope.read, sensor.magnetometer.read, location.get_current, notification.schedule, notification.pending, notification.cancel, notification.cancel_all, calendar.event.create, web.search, web.fetch, memory.query, workspace.switch。',
+      ToolPromptRegistry.generateJsBridgeApis(),
       '- 用户反馈已生成 Web App 的问题时，先读取 .phone-agent/runtime.log 和相关项目文件，再定位并修复。',
       '</web_app_contract>',
       '',
@@ -757,9 +1017,9 @@ class AgentLoop {
   bool _shouldRetryModelStream({
     required ModelRequestException error,
     required int retryAttempts,
-    required bool hasReceivedModelDelta,
+    required bool hasReceivedContentDelta,
   }) {
-    return error.isRetryable && retryAttempts < 1 && !hasReceivedModelDelta;
+    return error.isRetryable && retryAttempts < 1 && !hasReceivedContentDelta;
   }
 
   Future<void> _waitForForegroundBeforeRetryIfNeeded({
@@ -837,41 +1097,22 @@ class AgentLoop {
   }
 
   String _toolPreparationDetail(String toolName, int argumentChars) {
-    final size = _compactCharCount(argumentChars);
+    final sizeStr = _formatChars(argumentChars);
+    final progress = argumentChars > 0 ? '（已生成 $sizeStr）' : '';
     return switch (toolName) {
-      'project_create_web_app' => '正在生成 Web App 文件内容，已接收约 $size；参数完整后会立即创建。',
-      'project_update_web_app' => '正在生成 Web App 修改内容，已接收约 $size；参数完整后会立即更新。',
-      'file_write_app_file' => '正在生成文件写入内容，已接收约 $size；参数完整后会立即写入。',
-      '' => '正在接收工具参数，已接收约 $size；参数完整后会立即执行。',
-      _ => '正在生成 ${_toolDisplayName(toolName)} 的调用参数，已接收约 $size。',
+      'project_create_web_app' => '正在生成 Web App 文件内容$progress，参数完整后会创建项目并自动检查。',
+      'project_update_web_app' => '正在生成 Web App 修改内容$progress，参数完整后会更新项目并自动检查。',
+      'file_write_app_file' => '正在生成文件写入内容$progress，参数完整后会立即写入。',
+      '' => '正在接收工具参数$progress，参数完整后会立即执行。',
+      _ => '正在生成 ${agentToolDisplayName(toolName)} 的调用参数$progress。',
     };
   }
 
-  String _compactCharCount(int count) {
-    if (count < 1024) {
-      return '$count 字符';
+  String _formatChars(int chars) {
+    if (chars >= 1024) {
+      return '${(chars / 1024).toStringAsFixed(1)} KB';
     }
-    final value = count / 1024;
-    if (value < 10) {
-      return '${value.toStringAsFixed(1)}K 字符';
-    }
-    return '${value.round()}K 字符';
-  }
-
-  String _toolDisplayName(String name) {
-    return switch (name) {
-      'project_create_web_app' => '创建 Web App',
-      'project_update_web_app' => '更新 Web App',
-      'project_test_web_app' => '检查 Web App',
-      'artifact_create' => '创建 Artifact',
-      'artifact_query' => '查询 Artifact',
-      'file_write_app_file' => '写入文件',
-      'file_read_app_file' => '读取文件',
-      'file_search_app_files' => '搜索文件',
-      'web_search' => '联网搜索',
-      'web_fetch' => '读取网页',
-      _ => name.replaceAll('_', ' '),
-    };
+    return '$chars 字符';
   }
 
   bool _requiredToolsSatisfied(
@@ -886,43 +1127,86 @@ class AgentLoop {
         .map((result) => result.capabilityId)
         .toSet();
     return toolRoute.requiredToolNames.every((toolName) {
-      final capabilityId = _capabilityIdForToolName(toolName);
+      final capabilityId = CapabilityRuntime.capabilityIdForToolName(toolName);
       return capabilityId != null &&
           successfulCapabilityIds.contains(capabilityId);
     });
   }
 
-  String? _capabilityIdForToolName(String toolName) {
-    switch (toolName) {
-      case 'project_create_web_app':
-        return 'project.create_web_app';
-      case 'artifact_create':
-        return 'artifact.create';
-      case 'file_write_app_file':
-        return 'file.write_app_file';
-      default:
-        return toolName.replaceFirst('_', '.');
+  AgentMessage _assistantFinalMessage(
+    String id,
+    String text,
+    List<MessageBlock> processBlocks,
+  ) {
+    final blocks = <MessageBlock>[];
+    if (text.trim().isNotEmpty) {
+      blocks.add(MessageBlock.markdown(text));
     }
-  }
-
-  bool _looksLikeRawToolProcess(String text) {
-    final normalized = text.toLowerCase();
-    return text.contains('工具调用') ||
-        text.contains('工具结果') ||
-        normalized.contains('tool_call') ||
-        normalized.contains('tool result') ||
-        normalized.contains('capability') ||
-        normalized.contains('{ok:') ||
-        normalized.contains('"ok":');
-  }
-
-  AgentMessage _assistantMarkdownMessage(String id, String text) {
+    final foldedProcessBlocks = processBlocks
+        .where(_isFoldedProcessBlock)
+        .toList(growable: false);
+    if (foldedProcessBlocks.any(_isMeaningfulProcessBlock)) {
+      blocks.add(
+        MessageBlock(
+          type: MessageBlockType.taskProgress,
+          data: {'blocks': foldedProcessBlocks, 'status': 'completed'},
+        ),
+      );
+    }
+    blocks.addAll(processBlocks.where(_isVisibleProcessArtifact));
     return AgentMessage(
       id: id,
       role: MessageRole.assistant,
       createdAt: DateTime.now(),
-      blocks: [MessageBlock.markdown(text)],
+      blocks: blocks,
     );
+  }
+
+  bool _isFoldedProcessBlock(MessageBlock block) {
+    if (block.type == MessageBlockType.markdownText &&
+        block.data['intermediate'] == true) {
+      return true;
+    }
+    switch (block.type) {
+      case MessageBlockType.toolCall:
+      case MessageBlockType.toolResult:
+      case MessageBlockType.approvalRequest:
+      case MessageBlockType.citation:
+        return true;
+      case MessageBlockType.markdownText:
+      case MessageBlockType.codeBlock:
+      case MessageBlockType.image:
+      case MessageBlockType.fileAttachment:
+      case MessageBlockType.taskProgress:
+      case MessageBlockType.todoList:
+      case MessageBlockType.artifactCard:
+      case MessageBlockType.webAppCard:
+      case MessageBlockType.errorCard:
+        return false;
+    }
+  }
+
+  bool _isMeaningfulProcessBlock(MessageBlock block) {
+    return switch (block.type) {
+      MessageBlockType.toolCall ||
+      MessageBlockType.toolResult ||
+      MessageBlockType.approvalRequest ||
+      MessageBlockType.citation => true,
+      MessageBlockType.markdownText ||
+      MessageBlockType.codeBlock ||
+      MessageBlockType.image ||
+      MessageBlockType.fileAttachment ||
+      MessageBlockType.taskProgress ||
+      MessageBlockType.todoList ||
+      MessageBlockType.artifactCard ||
+      MessageBlockType.webAppCard ||
+      MessageBlockType.errorCard => false,
+    };
+  }
+
+  bool _isVisibleProcessArtifact(MessageBlock block) {
+    return block.type == MessageBlockType.artifactCard ||
+        block.type == MessageBlockType.webAppCard;
   }
 
   AgentMessage _assistantIntermediateMessage(String id, String text) {
@@ -940,12 +1224,13 @@ class AgentLoop {
     String partialText,
     String detail,
   ) {
+    final visibleText = partialText.trim();
     return AgentMessage(
       id: id,
       role: MessageRole.assistant,
       createdAt: DateTime.now(),
       blocks: [
-        MessageBlock.markdown(partialText),
+        if (visibleText.isNotEmpty) MessageBlock.markdown(visibleText),
         MessageBlock.error('模型连接中断', detail),
       ],
     );
@@ -955,18 +1240,23 @@ class AgentLoop {
     String id,
     List<String> requiredToolNames,
   ) {
+    final requiredTools = _requiredToolDisplayNames(requiredToolNames);
     return AgentMessage(
       id: id,
       role: MessageRole.assistant,
       createdAt: DateTime.now(),
       blocks: [
         MessageBlock.error(
-          '未创建真实产物',
-          '必需工具没有成功完成：${requiredToolNames.join('、')}。'
-              '系统已阻止模型把未完成的创建、保存或预览操作当作成功结果展示。',
+          '必需动作未完成',
+          '必需工具没有成功完成：$requiredTools。'
+              '系统已阻止模型把未完成的创建、保存、切换、预览或其它必须执行动作当作成功结果展示。',
         ),
       ],
     );
+  }
+
+  String _requiredToolDisplayNames(List<String> requiredToolNames) {
+    return requiredToolNames.map(agentToolDisplayName).join('、');
   }
 
   AgentMessage _modelErrorResponse(String detail) {
