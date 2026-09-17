@@ -307,6 +307,7 @@ Map<String, Object?> modelObservationForCapability({
     case 'document.apply_text_patch':
     case 'spreadsheet.generate':
     case 'presentation.generate':
+    case 'presentation.export':
     case 'pdf.generate':
       observation.addAll({
         'path': output['path'],
@@ -424,6 +425,8 @@ String _titleFor(String capabilityId) {
       return '演示文稿提取';
     case 'presentation.generate':
       return '演示文稿生成';
+    case 'presentation.export':
+      return '演示文稿导出';
     case 'pdf.extract':
       return 'PDF 提取';
     case 'pdf.generate':

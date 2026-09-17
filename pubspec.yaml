@@ -67,6 +67,9 @@ dependencies:
   wakelock_plus: ^1.5.2
   archive: ^4.0.7
   logger: ^2.5.0
+  docx_creator: ^1.3.2
+  pdf: ^3.12.0
+  excel_community: ^1.0.10
 
 dev_dependencies:
   flutter_test:

@@ -22,13 +22,15 @@ class ToolPromptRegistry {
     ToolPromptConfig(
       toolName: 'memory_create',
       groupName: 'memory',
-      triggeringRule: '仅在用户明确要求记住长期偏好、事实或规则时使用；普通回答直接使用 <current_context> 中已注入的长期记忆。',
+      triggeringRule:
+          '仅在用户明确要求记住长期偏好、事实或规则时使用；普通回答直接使用 <current_context> 中已注入的长期记忆。',
       jsBridgeApi: 'memory.query',
     ),
     ToolPromptConfig(
       toolName: 'memory_query',
       groupName: 'memory',
-      triggeringRule: '仅在用户明确要求查看或管理长期记忆时使用；普通回答直接使用 <current_context> 中已注入的长期记忆。',
+      triggeringRule:
+          '仅在用户明确要求查看或管理长期记忆时使用；普通回答直接使用 <current_context> 中已注入的长期记忆。',
       contracts: ['普通对话：没有暴露工具时直接回答；不要为了使用已注入记忆而调用 memory_query。'],
       jsBridgeApi: 'memory.query',
     ),
@@ -88,7 +90,9 @@ class ToolPromptRegistry {
       toolName: 'file_apply_text_patch',
       groupName: 'files',
       triggeringRule: '精确修改当前工作区沙箱内的相对路径文件。',
-      contracts: ['文件维护：先 file_search_app_files 定位，再 file_read_app_file 读局部内容，最后 file_apply_text_patch 精确修改；补丁不唯一或目标不存在时返回错误。'],
+      contracts: [
+        '文件维护：先 file_search_app_files 定位，再 file_read_app_file 读局部内容，最后 file_apply_text_patch 精确修改；补丁不唯一或目标不存在时返回错误。',
+      ],
     ),
 
     // artifacts
@@ -96,7 +100,9 @@ class ToolPromptRegistry {
       toolName: 'artifact_create',
       groupName: 'artifacts',
       triggeringRule: '报告、文档、任务清单、文件摘要、Web App 卡片或其它可复用产物必须保存为 Artifact。',
-      contracts: ['可复用产物：生成报告、文档、任务清单、文件摘要或 Web App 时，必须调用 artifact_create 或更专用的创建工具。'],
+      contracts: [
+        '可复用产物：生成报告、文档、任务清单、文件摘要或 Web App 时，必须调用 artifact_create 或更专用的创建工具。',
+      ],
       jsBridgeApi: 'artifact.create',
     ),
     ToolPromptConfig(
@@ -122,7 +128,7 @@ class ToolPromptRegistry {
       groupName: 'projects',
       triggeringRule: '反馈、修复或迭代已有 Web App 时更新原项目，不创建新卡片；更新会在结果中返回受控静态检查结论。',
       contracts: [
-        'Web App 维护：用户反馈已有 Web App/网页/小游戏问题时，先 artifact_query 定位原 Artifact，必要时 artifact_inspect_logs 读运行日志，再读取相关项目文件，最后用 project_update_web_app 更新原项目；更新结果中的 test 未通过时继续修复或说明剩余问题；用户明确要求复测时再调用 project_test_web_app；不要调用 project_create_web_app 复制新项目。'
+        'Web App 维护：用户反馈已有 Web App/网页/小游戏问题时，先 artifact_query 定位原 Artifact，必要时 artifact_inspect_logs 读运行日志，再读取相关项目文件，最后用 project_update_web_app 更新原项目；更新结果中的 test 未通过时继续修复或说明剩余问题；用户明确要求复测时再调用 project_test_web_app；不要调用 project_create_web_app 复制新项目。',
       ],
     ),
     ToolPromptConfig(
@@ -146,7 +152,11 @@ class ToolPromptRegistry {
       toolName: 'document_extract',
       groupName: 'office',
       triggeringRule: '用于 Word 的内容提取。',
-      contracts: ['Office/PDF：上传或处理 Word、Excel、PPT、PDF 时先提取；生成新文件时写入当前 Workspace 文件区；局部替换不承诺保留复杂原格式。'],
+      contracts: [
+        'Office/PDF：上传或处理 Word、Excel、PPT、PDF 时先提取；生成新文件时写入当前 Workspace 文件区。',
+        'PPT 的可编辑源是 Markdown 幻灯片，pptx 只用于导入和导出。Word/Excel/PDF 各自使用独立 Capability，不要混用。',
+        '局部替换只用于 Word/文档，不承诺保留复杂原格式。',
+      ],
     ),
     ToolPromptConfig(
       toolName: 'document_generate',
@@ -176,7 +186,12 @@ class ToolPromptRegistry {
     ToolPromptConfig(
       toolName: 'presentation_generate',
       groupName: 'office',
-      triggeringRule: '生成 PPT。',
+      triggeringRule: '生成 Markdown 幻灯片源，或同时导出 pptx。',
+    ),
+    ToolPromptConfig(
+      toolName: 'presentation_export',
+      groupName: 'office',
+      triggeringRule: '把已有 Markdown 幻灯片源导出为 pptx。',
     ),
     ToolPromptConfig(
       toolName: 'pdf_extract',
@@ -207,7 +222,9 @@ class ToolPromptRegistry {
       toolName: 'time_get_current',
       groupName: 'native',
       triggeringRule: '获取手机当前本地时间。',
-      contracts: ['相对时间：处理今天、明天、今晚、几分钟后等表达时，以 <current_context> 的本地时间为准；需要校准时调用 time_get_current。'],
+      contracts: [
+        '相对时间：处理今天、明天、今晚、几分钟后等表达时，以 <current_context> 的本地时间为准；需要校准时调用 time_get_current。',
+      ],
       jsBridgeApi: 'time.get_current',
     ),
     ToolPromptConfig(
@@ -536,7 +553,9 @@ class ToolPromptRegistry {
       final layerTitle = layer.$1;
       final groups = layer.$2;
 
-      final activeGroupsInLayer = groups.where((g) => activeGroups.contains(g)).toList();
+      final activeGroupsInLayer = groups
+          .where((g) => activeGroups.contains(g))
+          .toList();
       if (activeGroupsInLayer.isEmpty) {
         continue;
       }
@@ -544,25 +563,37 @@ class ToolPromptRegistry {
       buffer.writeln('\n$layerTitle:');
 
       for (final group in activeGroupsInLayer) {
-        final groupConfigs = _configs.where((c) => c.groupName == group).toList();
+        final groupConfigs = _configs
+            .where((c) => c.groupName == group)
+            .toList();
         String triggeringRule = '';
         final tools = <String>{};
 
         if (group == 'office') {
-          triggeringRule = '用于 Office/PDF 的提取、生成和受控局部文本替换。';
-          tools.addAll(['document_*', 'spreadsheet_*', 'presentation_*', 'pdf_*']);
+          triggeringRule =
+              '用于 Word、Excel、PPT、PDF 的提取与生成。PPT 改 Markdown 源再导出；Word 局部替换不保留复杂原格式。';
+          tools.addAll([
+            'document_*',
+            'spreadsheet_*',
+            'presentation_*',
+            'pdf_*',
+          ]);
         } else {
-          triggeringRule = groupConfigs.isNotEmpty ? groupConfigs.first.triggeringRule : '';
+          triggeringRule = groupConfigs.isNotEmpty
+              ? groupConfigs.first.triggeringRule
+              : '';
           tools.addAll(groupConfigs.map((c) => c.toolName));
         }
 
         // 仅保留在当前 toolIndex 中有的工具
-        final activeTools = tools.where((t) {
-          if (t.contains('*')) {
-            return true; // 通配符保留
-          }
-          return toolIndex.contains(t);
-        }).join(' / ');
+        final activeTools = tools
+            .where((t) {
+              if (t.contains('*')) {
+                return true; // 通配符保留
+              }
+              return toolIndex.contains(t);
+            })
+            .join(' / ');
 
         if (activeTools.isNotEmpty) {
           buffer.writeln('  - $group: $activeTools。$triggeringRule');
@@ -579,7 +610,7 @@ class ToolPromptRegistry {
 
     // 默认全局通用契约
     contracts.add('1. 普通对话：没有暴露工具时直接回答；不要为了使用已注入记忆而调用 memory_query。');
-    
+
     // 检查其他特定工具，拉取对应的契约
     final activeContracts = <String>{};
     for (final config in _configs) {
@@ -593,7 +624,9 @@ class ToolPromptRegistry {
         toolIndex.contains('spreadsheet_') ||
         toolIndex.contains('presentation_') ||
         toolIndex.contains('pdf_')) {
-      activeContracts.add('Office/PDF：上传或处理 Word、Excel、PPT、PDF 时先提取；生成新文件时写入当前 Workspace 文件区；局部替换不承诺保留复杂原格式。');
+      activeContracts.add(
+        'Office/PDF：上传或处理 Word、Excel、PPT、PDF 时先提取；生成新文件时写入当前 Workspace 文件区；局部替换不承诺保留复杂原格式。',
+      );
     }
 
     int index = 2;
@@ -606,14 +639,15 @@ class ToolPromptRegistry {
   }
 
   static String generateJsBridgeApis() {
-    final apis = _configs
-        .map((c) => c.jsBridgeApi)
-        .where((api) => api != null && api.isNotEmpty)
-        .cast<String>()
-        .toSet()
-        .toList()
-      ..sort();
-    
+    final apis =
+        _configs
+            .map((c) => c.jsBridgeApi)
+            .where((api) => api != null && api.isNotEmpty)
+            .cast<String>()
+            .toSet()
+            .toList()
+          ..sort();
+
     return '- JSBridge 当前可用能力：${apis.join(", ")}。';
   }
 }

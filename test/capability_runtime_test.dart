@@ -2445,6 +2445,25 @@ void main() {
         fileStore: fileStore,
       );
       expect(pdfText.output['content'], contains('这是 PDF 内容'));
+
+      final exported = await runtime.execute(
+        toolCall: const ToolCallRequest(
+          id: 'call-ppt-export',
+          name: 'presentation_export',
+          arguments: {
+            'path': 'office/deck.slides.md',
+            'output_path': 'office/deck.exported.pptx',
+          },
+        ),
+        workspaceId: 'work',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+        fileStore: fileStore,
+      );
+      expect(exported.capabilityId, 'presentation.export');
+      expect(exported.output['ok'], isTrue);
+      expect(exported.output['path'], 'office/deck.exported.pptx');
     },
   );
 }

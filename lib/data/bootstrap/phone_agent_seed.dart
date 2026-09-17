@@ -184,6 +184,11 @@ class PhoneAgentSeed {
       CapabilityAdapter.file,
       CapabilityRisk.medium,
     ),
+    _capability(
+      'presentation.export',
+      CapabilityAdapter.file,
+      CapabilityRisk.medium,
+    ),
     _capability('pdf.extract', CapabilityAdapter.file, CapabilityRisk.low),
     _capability('pdf.generate', CapabilityAdapter.file, CapabilityRisk.medium),
     _capability(

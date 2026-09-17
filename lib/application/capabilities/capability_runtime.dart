@@ -24,7 +24,10 @@ import 'mcp_manager.dart';
 import 'memory_capability_handler.dart';
 import 'native_capability_handler.dart';
 import 'note_capability_handler.dart';
-import 'office_capability_handler.dart';
+import 'office/document/document_capability_handler.dart';
+import 'office/pdf/pdf_capability_handler.dart';
+import 'office/presentation/presentation_capability_handler.dart';
+import 'office/spreadsheet/spreadsheet_capability_handler.dart';
 import 'project_capability_handler.dart';
 import 'skill_sandbox.dart';
 import 'web_capability_handler.dart';
@@ -104,6 +107,7 @@ class CapabilityRuntime {
     'spreadsheet_generate': 'spreadsheet.generate',
     'presentation_extract': 'presentation.extract',
     'presentation_generate': 'presentation.generate',
+    'presentation_export': 'presentation.export',
     'pdf_extract': 'pdf.extract',
     'pdf_generate': 'pdf.generate',
     'web_search': 'web.search',
@@ -148,8 +152,13 @@ class CapabilityRuntime {
       const WorkspaceCapabilityHandler();
   final WebCapabilityHandler _webHandler;
   final NativeCapabilityHandler _nativeHandler;
-  final OfficeCapabilityHandler _officeHandler =
-      const OfficeCapabilityHandler();
+  final DocumentCapabilityHandler _documentHandler =
+      const DocumentCapabilityHandler();
+  final SpreadsheetCapabilityHandler _spreadsheetHandler =
+      const SpreadsheetCapabilityHandler();
+  final PresentationCapabilityHandler _presentationHandler =
+      const PresentationCapabilityHandler();
+  final PdfCapabilityHandler _pdfHandler = const PdfCapabilityHandler();
   final McpManager _mcpManager = McpManager();
   final CapabilityToolDefinitions _toolDefinitions =
       const CapabilityToolDefinitions();
@@ -661,59 +670,61 @@ class CapabilityRuntime {
           arguments: toolCall.arguments,
         );
       case 'document_extract':
-        return await _officeHandler.extract(
+        return await _documentHandler.extract(
           workspaceId: workspaceId,
-          capabilityId: 'document.extract',
           arguments: toolCall.arguments,
           fileStore: fileStore,
         );
       case 'document_generate':
-        return await _officeHandler.generateDocument(
+        return await _documentHandler.generate(
           workspaceId: workspaceId,
           arguments: toolCall.arguments,
           fileStore: fileStore,
         );
       case 'document_apply_text_patch':
-        return await _officeHandler.applyTextPatch(
+        return await _documentHandler.applyTextPatch(
           workspaceId: workspaceId,
           arguments: toolCall.arguments,
           fileStore: fileStore,
         );
       case 'spreadsheet_extract':
-        return await _officeHandler.extract(
+        return await _spreadsheetHandler.extract(
           workspaceId: workspaceId,
-          capabilityId: 'spreadsheet.extract',
           arguments: toolCall.arguments,
           fileStore: fileStore,
         );
       case 'spreadsheet_generate':
-        return await _officeHandler.generateSpreadsheet(
+        return await _spreadsheetHandler.generate(
           workspaceId: workspaceId,
           arguments: toolCall.arguments,
           fileStore: fileStore,
         );
       case 'presentation_extract':
-        return await _officeHandler.extract(
+        return await _presentationHandler.extract(
           workspaceId: workspaceId,
-          capabilityId: 'presentation.extract',
           arguments: toolCall.arguments,
           fileStore: fileStore,
         );
       case 'presentation_generate':
-        return await _officeHandler.generatePresentation(
+        return await _presentationHandler.generate(
+          workspaceId: workspaceId,
+          arguments: toolCall.arguments,
+          fileStore: fileStore,
+        );
+      case 'presentation_export':
+        return await _presentationHandler.export(
           workspaceId: workspaceId,
           arguments: toolCall.arguments,
           fileStore: fileStore,
         );
       case 'pdf_extract':
-        return await _officeHandler.extract(
+        return await _pdfHandler.extract(
           workspaceId: workspaceId,
-          capabilityId: 'pdf.extract',
           arguments: toolCall.arguments,
           fileStore: fileStore,
         );
       case 'pdf_generate':
-        return await _officeHandler.generatePdf(
+        return await _pdfHandler.generate(
           workspaceId: workspaceId,
           arguments: toolCall.arguments,
           fileStore: fileStore,

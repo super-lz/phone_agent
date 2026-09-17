@@ -11,7 +11,7 @@ import '../../../application/agent/context_budget.dart';
 import '../../../application/capabilities/capability_execution_result.dart';
 import '../../../application/capabilities/capability_result_presentation.dart';
 import '../../../application/capabilities/capability_runtime.dart';
-import '../../../application/capabilities/office_document_codec.dart';
+import '../../../application/capabilities/office/office_text_extract.dart';
 import '../../../core/logging/app_logger.dart';
 import '../../../data/background/agent_run_background_service.dart';
 import '../../../data/bootstrap/phone_agent_seed.dart';
@@ -115,7 +115,6 @@ class WorkbenchController extends ChangeNotifier {
   final List<McpConnection> _mcpConnections = [];
   final List<AgentSkill> _skills = [];
   final List<Completer<void>> _foregroundWaiters = [];
-  final OfficeDocumentCodec _officeCodec = const OfficeDocumentCodec();
 
   PermissionMode _permissionMode = PermissionMode.defaultMode;
   String _workspaceId = 'default';
@@ -1257,7 +1256,7 @@ class WorkbenchController extends ChangeNotifier {
 
       if (isOfficeOrPdf) {
         final bytes = await file.readAsBytes();
-        final content = _officeCodec.extractText(file.path, bytes);
+        final content = await extractOfficeText(file.path, bytes);
         final normalized = content.replaceAll(RegExp(r'\s+'), ' ').trim();
         if (normalized.length <= 800) {
           return normalized;

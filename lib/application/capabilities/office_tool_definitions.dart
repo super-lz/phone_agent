@@ -20,7 +20,7 @@ const officeToolDefinitions = <Map<String, Object?>>[
     'function': {
       'name': 'document_generate',
       'description':
-          '生成新的 docx、pdf、html、md 或 txt 文档文件。第一版生成可导出文件，不承诺完整 Office 编辑器体验。',
+          '生成新的 docx、html、md 或 txt 文档文件。PDF 请用 pdf_generate。不承诺完整 Word 编辑器体验。',
       'parameters': {
         'type': 'object',
         'properties': {
@@ -28,7 +28,7 @@ const officeToolDefinitions = <Map<String, Object?>>[
           'body': {'type': 'string', 'description': '文档正文。'},
           'format': {
             'type': 'string',
-            'description': 'docx、pdf、html、md 或 txt，默认 docx。',
+            'description': 'docx、html、md 或 txt，默认 docx。',
           },
           'path': {'type': 'string', 'description': '输出相对路径。'},
         },
@@ -40,7 +40,8 @@ const officeToolDefinitions = <Map<String, Object?>>[
     'type': 'function',
     'function': {
       'name': 'document_apply_text_patch',
-      'description': '对文档提取出的文本做受控局部替换，并生成新的 docx 或 pdf 文件。该能力不保留复杂原格式。',
+      'description':
+          '对 Word/文档提取出的文本做受控局部替换并生成新文件。不保留复杂原格式，也不处理 xlsx/pptx/pdf。',
       'parameters': {
         'type': 'object',
         'properties': {
@@ -103,7 +104,7 @@ const officeToolDefinitions = <Map<String, Object?>>[
     'type': 'function',
     'function': {
       'name': 'presentation_extract',
-      'description': '从 pptx、md 或 html 演示文稿中提取文本，用于总结和审阅。',
+      'description': '从 pptx 或 Markdown 幻灯片中提取文本。可编辑源是 Markdown，pptx 只用于导入和导出。',
       'parameters': {
         'type': 'object',
         'properties': {
@@ -121,14 +122,15 @@ const officeToolDefinitions = <Map<String, Object?>>[
     'type': 'function',
     'function': {
       'name': 'presentation_generate',
-      'description': '根据 slides 生成 pptx、md 或 html 演示文稿。',
+      'description':
+          '生成可编辑的 Markdown 幻灯片源。format=pptx 时同时导出 pptx。后续修改应改 Markdown，再用 presentation_export 导出。',
       'parameters': {
         'type': 'object',
         'properties': {
           'title': {'type': 'string', 'description': '演示文稿标题。'},
           'format': {
             'type': 'string',
-            'description': 'pptx、md 或 html，默认 pptx。',
+            'description': 'md、html 或 pptx。未指定路径时默认 md。',
           },
           'path': {'type': 'string', 'description': '输出相对路径。'},
           'slides': {
@@ -147,6 +149,38 @@ const officeToolDefinitions = <Map<String, Object?>>[
           },
         },
         'required': ['slides'],
+      },
+    },
+  },
+  {
+    'type': 'function',
+    'function': {
+      'name': 'presentation_export',
+      'description': '把 Markdown 幻灯片源或 slides 参数编译成 pptx。这是导出，不是原地编辑 pptx。',
+      'parameters': {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string', 'description': '可编辑 Markdown 幻灯片源的相对路径。'},
+          'output_path': {
+            'type': 'string',
+            'description': '导出 pptx 的相对路径。默认与源文件同名。',
+          },
+          'title': {'type': 'string', 'description': '演示文稿标题。'},
+          'slides': {
+            'type': 'array',
+            'description': '若未提供 path，可直接传入 slides。',
+            'items': {
+              'type': 'object',
+              'properties': {
+                'title': {'type': 'string'},
+                'bullets': {
+                  'type': 'array',
+                  'items': {'type': 'string'},
+                },
+              },
+            },
+          },
+        },
       },
     },
   },

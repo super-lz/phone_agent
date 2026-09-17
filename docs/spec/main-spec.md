@@ -197,7 +197,7 @@
 - 当动作已经收敛时，系统必须进入最终回答阶段并停止暴露副作用工具；最终阶段即使模型再次请求副作用工具，也不得实际执行。
 - 可选的任务预算、连续失败和无进展保护是防止失控的兜底边界，不是默认的正常完成任务判定；默认情况下模型可以在有需要时继续工具链，并在自身判断完成后返回最终回答。
 - Agent Loop 必须携带同一会话的近期原文上下文，并在上下文过长时携带较早内容的压缩摘要。
-- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`file.search_app_files`、`file.apply_text_patch`、`project.create_web_app`、`project.update_web_app`、`project.test_web_app`、`project.version_history`、`project.revert_web_app`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`document.extract`、`document.generate`、`document.apply_text_patch`、`spreadsheet.extract`、`spreadsheet.generate`、`presentation.extract`、`presentation.generate`、`pdf.extract`、`pdf.generate`、`app.info`、`device.info`、`time.get_current`、`battery.status`、`network.status`、`clipboard.read`、`clipboard.write`、`camera.capture_photo`、`camera.capture_video`、`flashlight.set`、`flashlight.status`、`media.pick_image`、`media.pick_images`、`media.pick_video`、`file.pick_system_file`、`audio.record_start`、`audio.record_stop`、`audio.record_cancel`、`contacts.pick`、`barcode.scan_camera`、`barcode.scan_image`、`share.text`、`system.haptic_feedback`、`system.sound_alert`、`system.volume.set`、`system.volume.status`、`system.ui.set`、`system.ui.status`、`permission.open_settings`、`url.open_external`、`screen.keep_awake`、`screen.keep_awake_status`、`screen.brightness.set`、`screen.brightness.status`、`screen.metrics`、`screen.orientation.set`、`screen.orientation.status`、`sensor.accelerometer.read`、`sensor.gyroscope.read`、`sensor.magnetometer.read`、`location.get_current`、`notification.schedule`、`notification.pending`、`notification.cancel`、`notification.cancel_all` 和 `calendar.event.create`。
+- 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`file.search_app_files`、`file.apply_text_patch`、`project.create_web_app`、`project.update_web_app`、`project.test_web_app`、`project.version_history`、`project.revert_web_app`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`document.extract`、`document.generate`、`document.apply_text_patch`、`spreadsheet.extract`、`spreadsheet.generate`、`presentation.extract`、`presentation.generate`、`presentation.export`、`pdf.extract`、`pdf.generate`、`app.info`、`device.info`、`time.get_current`、`battery.status`、`network.status`、`clipboard.read`、`clipboard.write`、`camera.capture_photo`、`camera.capture_video`、`flashlight.set`、`flashlight.status`、`media.pick_image`、`media.pick_images`、`media.pick_video`、`file.pick_system_file`、`audio.record_start`、`audio.record_stop`、`audio.record_cancel`、`contacts.pick`、`barcode.scan_camera`、`barcode.scan_image`、`share.text`、`system.haptic_feedback`、`system.sound_alert`、`system.volume.set`、`system.volume.status`、`system.ui.set`、`system.ui.status`、`permission.open_settings`、`url.open_external`、`screen.keep_awake`、`screen.keep_awake_status`、`screen.brightness.set`、`screen.brightness.status`、`screen.metrics`、`screen.orientation.set`、`screen.orientation.status`、`sensor.accelerometer.read`、`sensor.gyroscope.read`、`sensor.magnetometer.read`、`location.get_current`、`notification.schedule`、`notification.pending`、`notification.cancel`、`notification.cancel_all` 和 `calendar.event.create`。
 - 当用户要求新建或切换工作区时，Agent 可以调用 `workspace.create` 或 `workspace.switch`；创建成功后当前 Workspace 必须切换到新工作区，切换目标不存在时必须返回结构化错误。
 - 当用户要求记录备忘、保存信息、整理事项或查询已保存笔记时，Agent 可以调用 `db.note.create` 或 `db.note.query` 读写当前 Workspace 的 Note。
 - `db.note.create` 写入的 Note 必须落到设备本地数据库，而不是只停留在当前进程内存。
@@ -211,9 +211,11 @@
 - 当用户要求维护或迭代已生成的本地项目时，Agent 应先搜索或读取相关文件片段，再用精确文本补丁修改文件；需要新增图片、样式、脚本或其它资源时，应写入原 Web App 项目目录内并更新原项目文件清单；补丁原文无法唯一匹配、目标路径越界或试图跨项目写入时必须返回结构化错误，避免盲目覆盖。
 - Web App 创建或更新工具必须在写入后自动返回项目级静态测试结果；Agent 也可以在后续维护中单独调用项目级测试能力复测原项目。测试失败时应基于错误继续修复，或在无法继续时向用户说明剩余问题和未通过项，不得在测试失败后声称项目完全完成。
 - 当前 Workspace 的 App File 必须有可发现入口；运行时区域提供工作区文件管理器入口，而不是直接平铺所有文件。文件管理器按相对路径展示顶层目录和文件，用户可以进入文件夹、通过层级导航或返回上级按钮切换目录，点击文件后按类型预览、分享或导出。
-- 第一版 Office/PDF 能力必须支持上传或导入后的 Word、Excel、PPT、PDF 文件内容提取，并让 Agent 基于提取文本完成总结、问答和审阅；扫描版 PDF 的 OCR 不作为第一版承诺。
-- 第一版 Office/PDF 能力必须支持生成新的 `docx`、`xlsx`、`pptx` 和 `pdf` 文件，并写入当前 Workspace 文件区供用户预览、分享或导出。
-- 第一版 Office/PDF 能力可以做受控局部文本替换并生成新文件，但不承诺保留复杂 Office 原格式；完整所见即所得编辑仍应交给外部 App 或后续 OnlyOffice/Collabora 类适配。
+- 第一版 Office/PDF 能力是 Agent 可调用的文件能力，不是应用内 Office 套件；四种格式各自独立，不得把一种格式的编辑语义套到另一种格式上。
+- 第一版必须支持上传或导入后的 Word、Excel、PPT、PDF 内容提取，并让 Agent 基于提取文本完成总结、问答和审阅；扫描版 PDF 的 OCR 不作为第一版承诺。
+- PPT 的可编辑产物是 Markdown 幻灯片源；`pptx` 只用于导入提取和导出交付。Agent 修改演示文稿应改 Markdown 源，再导出 `pptx`。
+- Word、Excel、PDF 以各自文件格式作为读写对象，生成新的 `docx`、`xlsx` 和 `pdf` 文件到当前 Workspace 文件区供用户预览、分享或导出。
+- Word 可以做受控局部文本替换并生成新文件，但不承诺保留复杂原格式；Excel 和 PDF 第一版不提供原地版式编辑；完整所见即所得编辑仍应交给外部 App 或后续 OnlyOffice/Collabora 类适配。
 - 当用户要求查看当前应用版本、构建号、包名或 Bundle ID 时，Agent 可以调用 `app.info`；结果必须包含应用名、平台、包名或 Bundle ID、版本号、构建号和面向用户的摘要。该能力只读取当前 Phone Agent 应用本身的信息，不读取其它 App 信息。
 - 当用户要求查看当前设备环境、读取剪贴板或复制内容时，Agent 可以调用 `device.info`、`clipboard.read` 或 `clipboard.write`；设备信息结果必须包含面向用户的摘要和规范化平台、型号、系统版本等基础字段；剪贴板读取不应在用户未明确要求时主动触发。
 - 当用户明确要求拍照、拍视频、从相册选择单张图片、多张图片或视频、从系统文件选择器选择文件时，Agent 可以调用 `camera.capture_photo`、`camera.capture_video`、`media.pick_image`、`media.pick_images`、`media.pick_video` 或 `file.pick_system_file`；这些能力必须触发系统 UI 并允许用户取消，成功时返回文件名、本地 URI、媒体类型、MIME 类型和大小等结构化元数据，多图选择还必须返回数量和每张图片的结构化元数据列表。成功取得的文件必须复制进当前 Workspace 文件区，并按类型和日期自动归档，例如图片、视频、音频和导入文件分别进入稳定目录；返回结果必须保留原始本地 URI，并补充工作区相对路径。
@@ -285,8 +287,8 @@
 - 用户能查看、编辑、删除全局长期记忆。
 - 用户上传文件后，AI 能总结、问答，并生成 Artifact。
 - 用户上传或导入 Word、Excel、PPT、PDF 后，AI 能通过对应 `document.*`、`spreadsheet.*`、`presentation.*`、`pdf.*` Capability 提取文本，并基于文本总结、问答或审阅。
-- AI 能生成新的 `docx`、`xlsx`、`pptx` 和 `pdf` 文件到当前 Workspace 文件区；用户可在文件列表中找到并导出。
-- AI 能对文档提取文本做受控局部替换并生成新文件；当无法唯一匹配原文或会丢失复杂格式时，系统必须返回结构化结果并向用户说明边界。
+- AI 能生成新的 `docx`、`xlsx`、`pdf` 文件，以及可编辑的 Markdown 幻灯片源；需要 PPT 交付时能导出 `pptx`。用户可在文件列表中找到并导出。
+- AI 能对 Word/文档提取文本做受控局部替换并生成新文件；当无法唯一匹配原文或会丢失复杂格式时，系统必须返回结构化结果并向用户说明边界。
 - 用户上传图片后，AI 能识别图片内容或提取文字。
 - 用户能在模型设置页选择接入方、填写该接入方 API Key，并可使用内置默认模型或自定义模型名称测试连接。
 - 用户保存当前接入方 API Key 后，普通对话能调用当前配置的模型名称获得模型回复；未自定义时使用该接入方内置默认模型。
