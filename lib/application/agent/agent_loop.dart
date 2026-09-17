@@ -222,7 +222,11 @@ class AgentLoop {
     var accumulatedProcessBlocks = <MessageBlock>[];
     var finalizeOnly = false;
 
-    for (var round = 0; round < budget.maxModelRounds; round += 1) {
+    for (
+      var round = 0;
+      budget.maxModelRounds == null || round < budget.maxModelRounds!;
+      round += 1
+    ) {
       throwIfCancelled();
 
       final assistantMessageId = firstAssistantMessageId;

@@ -27,7 +27,7 @@ class AgentRunSnapshot {
   final AgentRunPhase phase;
   final String detail;
   final int toolCallsUsed;
-  final int maxToolCalls;
+  final int? maxToolCalls;
   final DateTime startedAt;
   final String? currentToolName;
   final ContextBudgetSnapshot? contextBudget;
