@@ -1476,6 +1476,60 @@ void main() {
     expect(controller.messages.last.blocks.first.data['text'], '已生成报告。');
   });
 
+  test(
+    'completed side effect is replayed without executing it twice',
+    () async {
+      final duplicateArguments =
+          '{"type":"report","title":"只创建一次","summary":"重复调用回归测试"}';
+      final chatClient = _FakeChatClient([
+        [
+          ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-report-1',
+                name: 'artifact_create',
+                argumentsDelta: duplicateArguments,
+              ),
+            ],
+          ),
+        ],
+        [
+          ChatStreamEvent(
+            toolCallDeltas: [
+              ToolCallDelta(
+                index: 0,
+                id: 'call-report-2',
+                name: 'artifact_create',
+                argumentsDelta: duplicateArguments,
+              ),
+            ],
+          ),
+        ],
+        [const ChatStreamEvent(contentDelta: '已完成，且没有重复创建。')],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+      );
+
+      await controller.sendPrompt('生成一份可复用报告');
+
+      expect(
+        controller.workspaceArtifacts.where(
+          (artifact) => artifact.title == '只创建一次',
+        ),
+        hasLength(1),
+      );
+      expect(chatClient.callCount, 3);
+      expect(chatClient.capturedTools[2], isEmpty);
+      expect(
+        controller.messages.last.blocks.first.data['text'],
+        '已完成，且没有重复创建。',
+      );
+    },
+  );
+
   test('model tool call can create runnable web app card', () async {
     final controller = WorkbenchController(
       apiKeyStore: _FakeApiKeyStore('test-key'),

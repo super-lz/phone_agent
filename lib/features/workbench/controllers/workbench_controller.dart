@@ -1356,6 +1356,7 @@ class WorkbenchController extends ChangeNotifier {
         replaceMessage: _replaceMessage,
         notifyChange: notifyListeners,
         switchWorkspace: _switchWorkspaceFromAgent,
+        runId: activePendingRun.id,
         isForeground: () => _isAppInForeground,
         waitUntilForeground: _waitUntilForeground,
         runControl: runControl,

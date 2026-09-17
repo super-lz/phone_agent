@@ -15,6 +15,7 @@ import '../../domain/notes/note_store.dart';
 import '../../domain/permissions/permission_policy.dart';
 import '../../domain/workbench/workbench_store.dart';
 import '../../domain/workspace/workspace.dart';
+import '../agent/agent_action_ledger.dart';
 import 'artifact_capability_handler.dart';
 import 'capability_execution_result.dart';
 import 'capability_tool_definitions.dart';
@@ -152,6 +153,7 @@ class CapabilityRuntime {
   final McpManager _mcpManager = McpManager();
   final CapabilityToolDefinitions _toolDefinitions =
       const CapabilityToolDefinitions();
+  final Map<String, CapabilityExecutionResult> _resultsByCallId = {};
 
   McpManager get mcpManager => _mcpManager;
 
@@ -177,10 +179,22 @@ class CapabilityRuntime {
     String? apiKey,
     PermissionMode permissionMode = PermissionMode.fullAccess,
     bool skipPermissionCheck = false,
+    AgentExecutionContext? executionContext,
   }) async {
+    final capabilityId = capabilityIdForToolNameOrFallback(toolCall.name);
+    final argumentsHash = actionFingerprint(
+      capabilityId: capabilityId,
+      arguments: toolCall.arguments,
+    ).split(':').last;
+    final runId = executionContext?.runId;
     AppLogger.info('capability.execute.start', {
       'tool': toolCall.name,
+      'capabilityId': capabilityId,
       'workspaceId': workspaceId,
+      'runId': runId,
+      'round': executionContext?.round,
+      'callId': toolCall.id,
+      'argumentsHash': argumentsHash,
     });
     final permissionBlocked = skipPermissionCheck
         ? null
@@ -190,31 +204,148 @@ class CapabilityRuntime {
             permissionMode: permissionMode,
           );
     final stopwatch = Stopwatch()..start();
-    final result =
-        permissionBlocked ??
-        await _executeAllowed(
-          toolCall: toolCall,
-          workspaceId: workspaceId,
-          memories: memories,
-          notes: notes,
-          artifacts: artifacts,
-          workspaces: workspaces,
-          skills: skills,
-          noteStore: noteStore,
-          fileStore: fileStore,
-          workbenchStore: workbenchStore,
-          apiKey: apiKey,
-          permissionMode: permissionMode,
+    if (permissionBlocked != null) {
+      final result = permissionBlocked.withReceipt(
+        actionId: 'pending-${toolCall.id}',
+        argumentsHash: argumentsHash,
+      );
+      stopwatch.stop();
+      AppLogger.info('capability.execute.completed', {
+        'tool': toolCall.name,
+        'capabilityId': result.capabilityId,
+        'workspaceId': workspaceId,
+        'runId': runId,
+        'round': executionContext?.round,
+        'callId': toolCall.id,
+        'argumentsHash': argumentsHash,
+        'durationMs': stopwatch.elapsedMilliseconds,
+        'ok': false,
+        'receiptStatus': 'pending',
+      });
+      await _recordInvocation(
+        toolCall: toolCall,
+        workspaceId: workspaceId,
+        result: result,
+        workbenchStore: workbenchStore,
+        permissionMode: permissionMode,
+        skippedPermissionCheck: skipPermissionCheck,
+      );
+      return result;
+    }
+
+    final replayProtected =
+        _replayPolicyFor(
+          capabilityId: capabilityId,
+          capabilities: capabilities,
+        ) ==
+        CapabilityReplayPolicy.deduplicate;
+    if (executionContext == null) {
+      final previousResult = _resultsByCallId[toolCall.id];
+      if (previousResult != null) {
+        final previousReceipt = previousResult.output['receipt'];
+        final previousActionId = previousReceipt is Map
+            ? previousReceipt['actionId']
+            : null;
+        final result = previousResult.withReceipt(
+          actionId: previousActionId is String
+              ? previousActionId
+              : 'action-${toolCall.id}',
+          argumentsHash: argumentsHash,
+          replayed: true,
+          replayProtected: replayProtected,
+          duplicateOf: previousActionId is String ? previousActionId : null,
         );
+        AppLogger.info('capability.execute.replayed', {
+          'tool': toolCall.name,
+          'capabilityId': result.capabilityId,
+          'workspaceId': workspaceId,
+          'runId': runId,
+          'callId': toolCall.id,
+          'argumentsHash': argumentsHash,
+          'reason': 'same_call_id',
+        });
+        return result;
+      }
+    }
+    final decision = executionContext?.ledger.begin(
+      toolCall: toolCall,
+      capabilityId: capabilityId,
+      deduplicate: replayProtected,
+    );
+    if (decision?.replayedResult != null) {
+      final result = decision!.replayedResult!.withReceipt(
+        actionId: decision.record.actionId,
+        argumentsHash: argumentsHash,
+        replayed: true,
+        replayProtected: replayProtected,
+        duplicateOf: decision.duplicateOf,
+      );
+      stopwatch.stop();
+      AppLogger.info('capability.execute.replayed', {
+        'tool': toolCall.name,
+        'capabilityId': result.capabilityId,
+        'workspaceId': workspaceId,
+        'runId': runId,
+        'round': executionContext?.round,
+        'callId': toolCall.id,
+        'actionId': decision.record.actionId,
+        'duplicateOf': decision.duplicateOf,
+        'argumentsHash': argumentsHash,
+        'durationMs': stopwatch.elapsedMilliseconds,
+      });
+      await _recordInvocation(
+        toolCall: toolCall,
+        workspaceId: workspaceId,
+        result: result,
+        workbenchStore: workbenchStore,
+        permissionMode: permissionMode,
+        skippedPermissionCheck: skipPermissionCheck,
+      );
+      return result;
+    }
+
+    final result = await _executeAllowed(
+      toolCall: toolCall,
+      workspaceId: workspaceId,
+      memories: memories,
+      notes: notes,
+      artifacts: artifacts,
+      workspaces: workspaces,
+      skills: skills,
+      noteStore: noteStore,
+      fileStore: fileStore,
+      workbenchStore: workbenchStore,
+      apiKey: apiKey,
+      permissionMode: permissionMode,
+    );
     stopwatch.stop();
+    final receiptResult = result.withReceipt(
+      actionId: decision?.record.actionId ?? 'action-${toolCall.id}',
+      argumentsHash: argumentsHash,
+    );
+    if (decision != null) {
+      executionContext!.ledger.complete(decision.record, receiptResult);
+    } else {
+      _resultsByCallId[toolCall.id] = receiptResult;
+    }
     AppLogger.info('capability.execute.completed', {
       'tool': toolCall.name,
       'workspaceId': workspaceId,
+      'runId': runId,
+      'round': executionContext?.round,
+      'callId': toolCall.id,
+      'actionId': receiptResult.output['receipt'] is Map
+          ? (receiptResult.output['receipt']! as Map)['actionId']
+          : null,
+      'argumentsHash': argumentsHash,
       'durationMs': stopwatch.elapsedMilliseconds,
-      'ok': result.output['ok'] == true,
+      'ok': receiptResult.output['ok'] == true,
+      'receiptStatus': receiptResult.output['receipt'] is Map
+          ? (receiptResult.output['receipt']! as Map)['status']
+          : null,
     });
     await _persistResultSideEffects(
-      result: result,
+      result: receiptResult,
       memories: memories,
       artifacts: artifacts,
       workspaces: workspaces,
@@ -223,12 +354,12 @@ class CapabilityRuntime {
     await _recordInvocation(
       toolCall: toolCall,
       workspaceId: workspaceId,
-      result: result,
+      result: receiptResult,
       workbenchStore: workbenchStore,
       permissionMode: permissionMode,
       skippedPermissionCheck: skipPermissionCheck,
     );
-    return result;
+    return receiptResult;
   }
 
   Future<CapabilityExecutionResult> _executeAllowed({
@@ -1173,6 +1304,18 @@ class CapabilityRuntime {
       }
     }
     return null;
+  }
+
+  CapabilityReplayPolicy _replayPolicyFor({
+    required String capabilityId,
+    required List<CapabilityDefinition>? capabilities,
+  }) {
+    for (final capability in capabilities ?? const <CapabilityDefinition>[]) {
+      if (capability.id == capabilityId) {
+        return capability.replayPolicy;
+      }
+    }
+    return defaultReplayPolicyForCapability(capabilityId);
   }
 
   String? _toolNameForCapabilityId(String capabilityId) {

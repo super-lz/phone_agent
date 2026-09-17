@@ -450,6 +450,7 @@ class PhoneAgentSeed {
       risk: risk,
       requiredPermissions: requiredPermissions,
       adapter: adapter,
+      replayPolicy: defaultReplayPolicyForCapability(id),
     );
   }
 }

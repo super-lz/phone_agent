@@ -13,6 +13,30 @@ enum CapabilityAdapter {
   webview,
 }
 
+enum CapabilityReplayPolicy { allowRepeat, deduplicate }
+
+CapabilityReplayPolicy defaultReplayPolicyForCapability(String capabilityId) {
+  final normalized = capabilityId.toLowerCase();
+  const readMarkers = <String>[
+    'query',
+    'read',
+    'search',
+    'fetch',
+    'inspect',
+    'status',
+    'info',
+    'get_current',
+    'extract',
+    'history',
+    'metrics',
+    'pending',
+    'test',
+  ];
+  return readMarkers.any(normalized.contains)
+      ? CapabilityReplayPolicy.allowRepeat
+      : CapabilityReplayPolicy.deduplicate;
+}
+
 class CapabilityDefinition {
   const CapabilityDefinition({
     required this.id,
@@ -22,6 +46,7 @@ class CapabilityDefinition {
     required this.risk,
     required this.requiredPermissions,
     required this.adapter,
+    this.replayPolicy = CapabilityReplayPolicy.deduplicate,
   });
 
   final String id;
@@ -31,6 +56,7 @@ class CapabilityDefinition {
   final CapabilityRisk risk;
   final List<String> requiredPermissions;
   final CapabilityAdapter adapter;
+  final CapabilityReplayPolicy replayPolicy;
 }
 
 class CapabilityInvocation {

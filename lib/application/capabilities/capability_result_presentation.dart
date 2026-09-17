@@ -39,6 +39,12 @@ Map<String, Object?> modelObservationForCapability({
     'ok': presentation.ok,
     'summary': presentation.summary,
   };
+  final receipt = output['receipt'];
+  if (receipt is Map<Object?, Object?>) {
+    observation['receipt'] = receipt.map(
+      (key, value) => MapEntry(key.toString(), value),
+    );
+  }
   if (!presentation.ok) {
     observation['error'] = output['error'];
     observation['detail'] = output['userMessage'] ?? output['detail'];

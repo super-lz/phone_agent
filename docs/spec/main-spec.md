@@ -191,6 +191,11 @@
 - 模型设置页，支持多个模型接入方的 API Key 独立保存、模型预设选择、自定义模型名称、恢复默认模型、接口文档入口和连接测试。
 - 正式对话的最小 Agent Loop：模型流式输出、自动发起工具调用、Capability Runtime 执行工具、工具结果回传模型、模型继续回答。
 - Agent Loop 必须具备可调任务预算，并在日志中暴露当前工具调用消耗，方便定位过早停止或循环调用。
+- Agent Loop 必须以逻辑动作而不是具体工具名判断任务进展；一个逻辑动作可以由内建能力、MCP 或后续其它适配器完成。
+- 每次真实能力执行必须返回可供 Agent 判断的 execution receipt，至少表达动作 ID、完成状态、效果、资源标识（若有）以及是否为 replay。
+- 同一任务中已经 completed 的逻辑动作不得被静默重复执行；同一 call ID 绝不能再次执行。只有用户明确提出新的动作时，才创建新的逻辑 action；只读能力可以按需重复读取。
+- 当动作已经收敛时，系统必须进入最终回答阶段并停止暴露副作用工具；最终阶段即使模型再次请求副作用工具，也不得实际执行。
+- 任务预算、连续失败和无进展保护是防止失控的兜底边界，不是正常完成任务的判定条件；模型可以在有真实进展时超过历史上的短轮次阈值继续工作。
 - Agent Loop 必须携带同一会话的近期原文上下文，并在上下文过长时携带较早内容的压缩摘要。
 - 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`file.search_app_files`、`file.apply_text_patch`、`project.create_web_app`、`project.update_web_app`、`project.test_web_app`、`project.version_history`、`project.revert_web_app`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`document.extract`、`document.generate`、`document.apply_text_patch`、`spreadsheet.extract`、`spreadsheet.generate`、`presentation.extract`、`presentation.generate`、`pdf.extract`、`pdf.generate`、`app.info`、`device.info`、`time.get_current`、`battery.status`、`network.status`、`clipboard.read`、`clipboard.write`、`camera.capture_photo`、`camera.capture_video`、`flashlight.set`、`flashlight.status`、`media.pick_image`、`media.pick_images`、`media.pick_video`、`file.pick_system_file`、`audio.record_start`、`audio.record_stop`、`audio.record_cancel`、`contacts.pick`、`barcode.scan_camera`、`barcode.scan_image`、`share.text`、`system.haptic_feedback`、`system.sound_alert`、`system.volume.set`、`system.volume.status`、`system.ui.set`、`system.ui.status`、`permission.open_settings`、`url.open_external`、`screen.keep_awake`、`screen.keep_awake_status`、`screen.brightness.set`、`screen.brightness.status`、`screen.metrics`、`screen.orientation.set`、`screen.orientation.status`、`sensor.accelerometer.read`、`sensor.gyroscope.read`、`sensor.magnetometer.read`、`location.get_current`、`notification.schedule`、`notification.pending`、`notification.cancel`、`notification.cancel_all` 和 `calendar.event.create`。
 - 当用户要求新建或切换工作区时，Agent 可以调用 `workspace.create` 或 `workspace.switch`；创建成功后当前 Workspace 必须切换到新工作区，切换目标不存在时必须返回结构化错误。
@@ -292,7 +297,8 @@
 - 模型流式连接如果在接收阶段空闲超时，系统必须向对话返回模型连接错误、恢复输入区，并在日志中记录 provider、model、阶段和是否可重试。
 - 单次用户请求中的多轮 Agent 中间过程必须来自真实系统状态，而不是模型伪造的过程描述；工具调用开始时应先在对话中展示进行中的过程块，工具结果返回后更新同一过程块。进行中的过程默认展开，完成后默认收起为摘要；用户可展开查看工具调用、工具结果和中间输出，最终回答和 Web App/Artifact 卡片不应被中间过程淹没；Markdown 代码围栏在流式展示中应以折叠代码块呈现，避免网页源码、脚本或工具参数持续占据大面积会话空间。
 - AI 能自动调用 `web.search` 和 `web.fetch` 回答需要联网的问题，并展示调用轨迹和来源。
-- AI 在复杂任务中能连续完成超过三轮的工具调用；除非达到任务预算、连续失败保护、权限拒绝或模型自然结束，系统不得过早停止工具链。
+- AI 在复杂任务中能连续完成超过三轮的工具调用；除非达到任务预算、连续失败/无进展保护、权限拒绝或模型自然结束，系统不得过早停止工具链。
+- 当模型重复请求已经完成的副作用动作时，系统必须返回原 execution receipt、保持资源数量不变并收敛到最终回答；重复请求不得生成第二个等价资源或再次触发外部副作用。
 - `web.search` 或 `web.fetch` 的网络请求、解析或读取失败时，系统必须向 Agent 返回结构化错误，不能导致对话或应用崩溃。
 - AI 能调用本地数据库创建和查询 Note；Note 归属当前 Workspace，切换 Workspace 后不会展示或查询到其它 Workspace 的 Note。
 - 应用重启后，用户此前通过 `db.note.create` 保存的 Note 仍能在对应 Workspace 中展示，并能被 `db.note.query` 查询到。

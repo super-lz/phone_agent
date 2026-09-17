@@ -15,6 +15,7 @@ import '../capabilities/capability_execution_result.dart';
 import '../capabilities/capability_runtime.dart';
 import '../capabilities/mcp_manager.dart';
 import '../capabilities/tool_prompt_registry.dart';
+import 'agent_action_ledger.dart';
 import 'agent_loop_budget.dart';
 import 'agent_run_state.dart';
 import 'context_budget.dart';
@@ -113,6 +114,7 @@ class AgentLoop {
     required ReplaceAgentMessage replaceMessage,
     required NotifyAgentLoopChange notifyChange,
     required SwitchAgentWorkspace switchWorkspace,
+    String? runId,
     IsAgentAppForeground? isForeground,
     WaitUntilAgentAppForeground? waitUntilForeground,
     AgentRunControl? runControl,
@@ -120,6 +122,9 @@ class AgentLoop {
   }) async {
     final startedAt = DateTime.now();
     final runState = AgentLoopRunState(budget);
+    final effectiveRunId =
+        runId ?? 'agent-run-${startedAt.microsecondsSinceEpoch}';
+    final actionLedger = AgentActionLedger();
     var activeWorkspaceId = workspaceId;
     ContextBudgetSnapshot? contextBudget;
 
@@ -215,6 +220,7 @@ class AgentLoop {
     var requiredToolCorrectionAttempts = 0;
     var rawFinalCorrectionAttempts = 0;
     var accumulatedProcessBlocks = <MessageBlock>[];
+    var finalizeOnly = false;
 
     for (var round = 0; round < budget.maxModelRounds; round += 1) {
       throwIfCancelled();
@@ -264,6 +270,10 @@ class AgentLoop {
 
       publishProcessBlocks();
 
+      if (finalizeOnly) {
+        report(AgentRunPhase.finalizing, '动作已收敛，正在生成最终回答。');
+      }
+
       // START MODEL STREAMING
       final streamStopwatch = Stopwatch()..start();
       var firstTokenLatency = 0;
@@ -278,7 +288,8 @@ class AgentLoop {
             provider: provider,
             apiKey: apiKey,
             messages: _snapshotModelMessages(modelMessages),
-            tools: provider.supportsTools && runState.canUseTools
+            tools:
+                provider.supportsTools && runState.canUseTools && !finalizeOnly
                 ? toolRoute.tools
                 : const [],
           )) {
@@ -421,6 +432,39 @@ class AgentLoop {
       }
 
       final requests = toolCalls.toRequests();
+      AppLogger.info('agent_loop.round.decision', {
+        'runId': effectiveRunId,
+        'round': round,
+        'finalizeOnly': finalizeOnly,
+        'toolCallCount': requests.length,
+        'toolCallsUsed': runState.toolCallsUsed,
+        'actionCount': actionLedger.records.length,
+      });
+
+      if (finalizeOnly && requests.isNotEmpty) {
+        report(AgentRunPhase.finalizing, '已拦截重复工具请求，正在要求模型直接总结。');
+        modelMessages.add({
+          'role': 'assistant',
+          'content': stripInternalToolProgressText(contentBuffer.toString()),
+          'tool_calls': requests
+              .map((request) => request.toAssistantMessageToolCall())
+              .toList(growable: false),
+        });
+        for (final request in requests) {
+          final result = _finalizeGateBlockedResult(request);
+          modelMessages.add({
+            'role': 'tool',
+            'tool_call_id': request.id,
+            'name': request.name,
+            'content': result.encodedModelObservation,
+          });
+        }
+        modelMessages.add(const {
+          'role': 'user',
+          'content': 'Finalize gate 已生效：不要再发起任何工具调用。请只输出面向用户的自然语言结论。',
+        });
+        continue;
+      }
 
       // CASE 1: NO TOOL CALLS -> WE ARE DONE
       if (requests.isEmpty) {
@@ -639,6 +683,7 @@ class AgentLoop {
         if (_hasInvalidToolArguments(request)) {
           final result = _invalidToolArgumentsResult(request);
           runState.recordToolResult(false);
+          runState.recordProgress(false);
           currentTurnToolResults.add(result);
           processBlocks.add(
             MessageBlock.toolResult(result.capabilityId, result.output),
@@ -683,9 +728,19 @@ class AgentLoop {
           workbenchStore: workbenchStore,
           apiKey: apiKey,
           permissionMode: permissionMode,
+          executionContext: AgentExecutionContext(
+            runId: effectiveRunId,
+            round: round,
+            ledger: actionLedger,
+          ),
         );
 
         runState.recordToolResult(result.output['ok'] == true);
+        runState.recordProgress(
+          result.output['ok'] == true &&
+              (result.output['receipt'] is! Map ||
+                  (result.output['receipt']! as Map)['replayed'] != true),
+        );
         currentTurnToolResults.add(result);
 
         activeWorkspaceId = _switchWorkspaceIfNeeded(
@@ -726,6 +781,27 @@ class AgentLoop {
           'name': request.name,
           'content': result.encodedModelObservation,
         });
+
+        final receipt = result.output['receipt'];
+        if (receipt is Map &&
+            receipt['replayed'] == true &&
+            receipt['replayProtected'] == true &&
+            receipt['status'] == 'completed') {
+          finalizeOnly = true;
+          modelMessages.add(const {
+            'role': 'user',
+            'content':
+                '这个逻辑动作已经完成，系统返回了已有 execution receipt，未再次执行副作用。'
+                '请立即进入最终回答阶段，基于已有结果给用户自然语言结论；不要再次调用工具。',
+          });
+          AppLogger.info('agent_loop.finalize_gate.entered', {
+            'runId': effectiveRunId,
+            'round': round,
+            'tool': request.name,
+            'actionId': receipt['actionId'],
+            'duplicateOf': receipt['duplicateOf'],
+          });
+        }
       }
       accumulatedProcessBlocks = List<MessageBlock>.of(processBlocks);
     }
@@ -775,6 +851,22 @@ class AgentLoop {
         'ok': false,
         'error': 'tool_budget_exceeded',
         'detail': detail,
+        'tool': request.name,
+      },
+    );
+  }
+
+  CapabilityExecutionResult _finalizeGateBlockedResult(
+    ToolCallRequest request,
+  ) {
+    return CapabilityExecutionResult(
+      capabilityId: CapabilityRuntime.capabilityIdForToolNameOrFallback(
+        request.name,
+      ),
+      output: {
+        'ok': false,
+        'error': 'finalize_gate_blocked',
+        'detail': '逻辑动作已经完成，Finalize Gate 已阻止重复副作用工具调用。',
         'tool': request.name,
       },
     );
@@ -949,7 +1041,8 @@ class AgentLoop {
       '- 工具结果是内部观察。最终回答不要直接展示原始 JSON、字段名、tool_call、tool_result 或 capability 元数据。',
       '- 工具参数生成进度是系统内部状态，不要在正文里说“已接收约 N 字符”或复述参数接收进度。',
       '- 如果工具结果包含 summary 或 userMessage，优先把它转成用户能理解的结论和下一步。',
-      '- 可以连续调用工具完成复杂任务，但证据足够后要及时总结，避免重复调用。',
+      '- 每次工具调用后必须阅读 execution receipt 和逻辑 action 状态。状态为 completed 的同一逻辑动作不得再次调用；如果仍需给用户答复，直接进入总结阶段。',
+      '- 只有存在未完成、pending 或可重试失败的逻辑动作时才继续调用工具；不要把“工具成功”当成还需要再次确认而重复执行。',
       '</operating_principles>',
       '',
       '<capability_index>',
