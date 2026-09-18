@@ -51,6 +51,76 @@ bool looksLikeInternalToolProgressText(String text) =>
         text.contains('正在生成文件写入内容') ||
         text.contains('正在接收工具参数'));
 
+bool looksLikeTruncatedAssistantText(String text) {
+  final trimmed = text.trim();
+  if (trimmed.length < 6) {
+    return false;
+  }
+  const completeShortReplies = {
+    '好的',
+    '是的',
+    '可以',
+    '不行',
+    '谢谢',
+    '收到',
+    'okay',
+    'yes',
+    'no',
+  };
+  if (completeShortReplies.contains(trimmed.toLowerCase())) {
+    return false;
+  }
+  if (RegExp(r'[。！？!?…]$').hasMatch(trimmed)) {
+    return false;
+  }
+  const tails = [
+    '的',
+    '了',
+    '是',
+    '和',
+    '与',
+    '在',
+    '把',
+    '被',
+    '从',
+    '对',
+    '为',
+    '而',
+    '但',
+    '或',
+    '以及',
+    '因为',
+    '所以',
+    '可能',
+    '应该',
+    '会',
+    '能',
+    '要',
+    '就',
+    '才',
+    '也',
+    '还',
+    '再',
+    '并',
+    '且',
+    '，',
+    ',',
+    '：',
+    ':',
+    '、',
+    ' the',
+    ' a',
+    ' an',
+    ' to',
+    ' of',
+    ' and',
+    ' or',
+    ' my',
+  ];
+  final lower = trimmed.toLowerCase();
+  return tails.any(lower.endsWith);
+}
+
 final _internalToolProgressPatterns = [
   RegExp(
     r'正在生成\s*Web\s*App\s*文件内容[，,；;\s]*已接收约\s*\d+(?:\.\d+)?\s*[Kk]?\s*字符[，,；;。\.\s]*(?:参数完整后会(?:立即创建|创建项目并自动检查)[。\.]?)?',

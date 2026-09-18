@@ -1051,7 +1051,7 @@ class CapabilityToolDefinitions {
         'type': 'function',
         'function': {
           'name': 'web_search',
-          'description': '当用户需要最新信息、外部资料或网页来源时搜索互联网。',
+          'description': '在互联网上查找最新信息、外部资料、图片或网页来源。用于网上查找，不是从本机相册选图。',
           'parameters': {
             'type': 'object',
             'properties': {

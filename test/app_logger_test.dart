@@ -23,5 +23,12 @@ void main() {
     expect(logs.length, greaterThan(1));
     expect(logs.first, contains('[chunk 1/'));
     expect(logs.last, contains('END'));
+    expect(
+      logs
+          .map((line) => line.replaceFirst(RegExp(r'^\[chunk \d+/\d+\] '), ''))
+          .join(),
+      contains('${'x' * 6500}END'),
+    );
+    expect(logs.join(), isNot(contains('│')));
   });
 }

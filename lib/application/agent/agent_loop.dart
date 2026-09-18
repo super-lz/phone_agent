@@ -219,6 +219,7 @@ class AgentLoop {
     final currentTurnToolResults = <CapabilityExecutionResult>[];
     var requiredToolCorrectionAttempts = 0;
     var rawFinalCorrectionAttempts = 0;
+    var truncatedCorrectionAttempts = 0;
     var accumulatedProcessBlocks = <MessageBlock>[];
     var finalizeOnly = false;
 
@@ -244,6 +245,7 @@ class AgentLoop {
       var retryAttempts = 0;
       var hasReceivedContentDelta = false;
       var hasReceivedToolCallDelta = false;
+      String? streamFinishReason;
 
       void publishProcessBlocks() {
         replaceMessage(
@@ -298,6 +300,10 @@ class AgentLoop {
                 : const [],
           )) {
             throwIfCancelled();
+
+            if (event.finishReason != null) {
+              streamFinishReason = event.finishReason;
+            }
 
             if (!hasReceivedFirstToken &&
                 (event.contentDelta.isNotEmpty ||
@@ -390,6 +396,7 @@ class AgentLoop {
             'round': round,
             'contentLength': contentBuffer.length,
             'toolCallCount': toolCalls.toRequests().length,
+            'finishReason': streamFinishReason,
           });
           break;
         } on ModelRequestException catch (error) {
@@ -400,6 +407,7 @@ class AgentLoop {
             hasReceivedContentDelta: hasReceivedContentDelta,
           )) {
             retryAttempts += 1;
+            streamFinishReason = null;
             if (hasReceivedToolCallDelta) {
               toolCalls.clear();
               isPreparingToolCall = false;
@@ -618,6 +626,34 @@ class AgentLoop {
             notifyChange();
             report(AgentRunPhase.failed, '模型输出了未执行的伪工具调用');
             return;
+          }
+
+          final looksTruncated =
+              streamFinishReason == 'length' ||
+              looksLikeTruncatedAssistantText(finalText);
+          if (looksTruncated &&
+              truncatedCorrectionAttempts < 1 &&
+              !finalizeOnly) {
+            truncatedCorrectionAttempts += 1;
+            AppLogger.warning('agent_loop.stream.truncated_retry', {
+              'round': round,
+              'contentLength': finalText.length,
+              'finishReason': streamFinishReason,
+            });
+            replaceMessage(
+              assistantMessageId,
+              _assistantIntermediateMessage(assistantMessageId, finalText),
+            );
+            modelMessages
+              ..add({'role': 'assistant', 'content': finalText})
+              ..add({
+                'role': 'user',
+                'content':
+                    '上一条回复没有说完。请从中断处继续，输出完整的面向用户回答；'
+                    '不要重复已经说过的句子开头，也不要解释这次续写。',
+              });
+            notifyChange();
+            continue;
           }
 
           replaceMessage(

@@ -490,7 +490,7 @@ class ToolPromptRegistry {
     ToolPromptConfig(
       toolName: 'web_search',
       groupName: 'web',
-      triggeringRule: '需要最新信息、网页资料、来源引用时使用。',
+      triggeringRule: '需要网上的最新信息、图片、资料或来源时使用；不是从本机相册选图。',
       jsBridgeApi: 'web.search',
     ),
     ToolPromptConfig(

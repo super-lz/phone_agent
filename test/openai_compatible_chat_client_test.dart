@@ -375,6 +375,92 @@ void main() {
     },
   );
 
+  test('stream chat keeps list content deltas and finish_reason', () async {
+    final sse = [
+      'data: ${jsonEncode({
+        'choices': [
+          {
+            'delta': {
+              'content': [
+                {'type': 'text', 'text': '你好'},
+              ],
+            },
+          },
+        ],
+      })}',
+      'data: ${jsonEncode({
+        'choices': [
+          {
+            'delta': {'content': '，世界'},
+            'finish_reason': null,
+          },
+        ],
+      })}',
+      'data: ${jsonEncode({
+        'choices': [
+          {'delta': <String, Object?>{}, 'finish_reason': 'stop'},
+        ],
+      })}',
+      'data: [DONE]',
+      '',
+    ].join('\n');
+    final httpClient = _CapturingHttpClient(
+      http.Response.bytes(
+        utf8.encode(sse),
+        200,
+        headers: const {'content-type': 'text/event-stream; charset=utf-8'},
+      ),
+    );
+    final client = OpenAiCompatibleChatClient(httpClient: httpClient);
+
+    final events = await client
+        .streamChat(
+          provider: ModelProviders.aliyunBailianQwenFlash,
+          apiKey: 'test-key',
+          messages: const [
+            {'role': 'user', 'content': '你好'},
+          ],
+        )
+        .toList();
+
+    expect(events.map((event) => event.contentDelta).join(), '你好，世界');
+    expect(events.last.finishReason, 'stop');
+  });
+
+  test('completeText keeps list message content', () async {
+    final httpClient = _CapturingHttpClient(
+      http.Response.bytes(
+        utf8.encode(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {
+                  'content': [
+                    {'type': 'text', 'text': '列表正文'},
+                  ],
+                },
+              },
+            ],
+          }),
+        ),
+        200,
+        headers: const {'content-type': 'application/json; charset=utf-8'},
+      ),
+    );
+    final client = OpenAiCompatibleChatClient(httpClient: httpClient);
+
+    final result = await client.completeText(
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+      messages: const [
+        {'role': 'user', 'content': 'hello'},
+      ],
+    );
+
+    expect(result.ok, isTrue);
+    expect(result.content, '列表正文');
+  });
+
   test('mimo connection test uses chat completions endpoint', () async {
     final httpClient = _CapturingHttpClient(
       http.Response(

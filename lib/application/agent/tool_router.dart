@@ -225,10 +225,7 @@ class AgentToolRouter {
       '录像',
       '摄像',
     ]);
-    final wantsPickVideo =
-        _containsAny(prompt, const ['选视频', '选择视频', '上传视频', '从相册选视频']) ||
-        (prompt.contains('相册') && prompt.contains('视频')) ||
-        (!wantsCaptureVideo && _containsAny(prompt, const ['视频', 'video']));
+    final wantsPickVideo = _looksLikeVideoPick(prompt);
     final wantsPickMultipleImages = _containsAny(prompt, const [
       '多张图片',
       '多张照片',
@@ -578,14 +575,7 @@ class AgentToolRouter {
     }
     if (wantsPickMultipleImages) {
       addIfAvailable('media_pick_images');
-    } else if (_containsAny(prompt, const [
-      '选图',
-      '选一张图',
-      '相册',
-      '图片',
-      '照片',
-      'image',
-    ])) {
+    } else if (_looksLikeImagePick(prompt)) {
       addIfAvailable('media_pick_image');
     }
     if (wantsPickVideo) {
@@ -783,8 +773,10 @@ class AgentToolRouter {
   String _routingSystemPrompt() {
     return [
       '你是 Phone Agent 的工具路由器，只做工具 schema 选择，不回答用户、不执行任务。',
-      '根据 latest_user_message 判断本轮需要暴露哪些工具；recent_context 只用于语义上确实承接上一轮任务的短跟进。',
+      '根据 latest_user_message 和 available_tools 里的能力描述，选择本轮需要暴露的最小工具集合。',
+      'recent_context 只用于判断当前消息是否在承接上一轮尚未完成的任务；若是承接，保留完成该任务所需的工具。',
       '不要因为 recent_context 或 assistant 自我介绍里出现工具、能力、Web App、创建等字样就选择工具。',
+      '按能力语义选择：网上查找信息、图片或来源用联网搜索；只有用户要从本机相册或文件里选出内容时，才用本地选择器。',
       '普通聊天、问候、身份追问、闲聊应返回空工具列表。',
       '如果用户最新消息要求创建、保存、写入、修改、查询、搜索、读取、调用手机能力或生成可复用产物，选择能完成真实动作的最小工具集合。',
       '如果用户最新消息要求创建真实本地 Web 工程、网页、网站、小游戏、Web App 或原型，project_create_web_app 必须同时出现在 selected_tool_names 和 required_tool_names。',
@@ -1113,6 +1105,41 @@ class AgentToolRouter {
       'latest',
       'news',
     ]);
+  }
+
+  bool _looksLikeImagePick(String prompt) {
+    if (_containsAny(prompt, const [
+      '选图',
+      '选一张图',
+      '选张图',
+      '选张照片',
+      '选择图片',
+      '选择照片',
+      '上传图片',
+      '上传照片',
+      '从相册',
+      '相册选',
+      'pick image',
+      'pick photo',
+    ])) {
+      return true;
+    }
+    return _containsAny(prompt, const ['相册', '图库', 'gallery']) &&
+        _containsAny(prompt, const ['图', '照片', 'photo', 'image']);
+  }
+
+  bool _looksLikeVideoPick(String prompt) {
+    if (_containsAny(prompt, const [
+      '选视频',
+      '选择视频',
+      '上传视频',
+      '从相册选视频',
+      'pick video',
+    ])) {
+      return true;
+    }
+    return _containsAny(prompt, const ['相册', '图库', 'gallery']) &&
+        _containsAny(prompt, const ['视频', 'video']);
   }
 
   bool _looksLikeWebFetch(String prompt) {

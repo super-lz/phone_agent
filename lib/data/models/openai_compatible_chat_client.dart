@@ -59,12 +59,17 @@ class ChatStreamEvent {
   const ChatStreamEvent({
     this.contentDelta = '',
     this.toolCallDeltas = const [],
+    this.finishReason,
   });
 
   final String contentDelta;
   final List<ToolCallDelta> toolCallDeltas;
+  final String? finishReason;
 
-  bool get isEmpty => contentDelta.isEmpty && toolCallDeltas.isEmpty;
+  bool get isEmpty =>
+      contentDelta.isEmpty &&
+      toolCallDeltas.isEmpty &&
+      (finishReason == null || finishReason!.isEmpty);
 }
 
 class ModelRequestException implements Exception {
@@ -192,6 +197,8 @@ class OpenAiCompatibleChatClient {
     }
 
     var eventCount = 0;
+    var rawChunkCount = 0;
+    String? finishReason;
     final idleTimeout = _streamIdleTimeout(hasTools: tools.isNotEmpty);
     try {
       await for (final line
@@ -219,11 +226,17 @@ class OpenAiCompatibleChatClient {
             'provider': provider.id,
             'model': provider.model,
             'eventCount': eventCount,
+            'rawChunkCount': rawChunkCount,
+            'finishReason': finishReason,
           });
           return;
         }
 
+        rawChunkCount += 1;
         final event = _extractStreamEvent(chunk);
+        if (event.finishReason != null) {
+          finishReason = event.finishReason;
+        }
         if (!event.isEmpty) {
           eventCount += 1;
           yield event;
@@ -233,6 +246,8 @@ class OpenAiCompatibleChatClient {
         'provider': provider.id,
         'model': provider.model,
         'eventCount': eventCount,
+        'rawChunkCount': rawChunkCount,
+        'finishReason': finishReason,
       });
     } on Object catch (error, stackTrace) {
       throw _modelRequestExceptionFor(
@@ -559,15 +574,22 @@ class OpenAiCompatibleChatClient {
     if (content is String) {
       return content;
     }
-    if (content is List<Object?>) {
+    if (content is List) {
       final buffer = StringBuffer();
       for (final part in content) {
-        if (part is Map<String, Object?>) {
-          final text = part['text'];
-          if (text is String && text.isNotEmpty) {
-            if (buffer.isNotEmpty) buffer.write('\n');
-            buffer.write(text);
-          }
+        if (part is String && part.isNotEmpty) {
+          if (buffer.isNotEmpty) buffer.write('\n');
+          buffer.write(part);
+          continue;
+        }
+        final mapped = _asStringKeyedMap(part);
+        if (mapped == null) {
+          continue;
+        }
+        final text = mapped['text'];
+        if (text is String && text.isNotEmpty) {
+          if (buffer.isNotEmpty) buffer.write('\n');
+          buffer.write(text);
         }
       }
       return buffer.toString();
@@ -634,56 +656,53 @@ class OpenAiCompatibleChatClient {
   }
 
   ChatStreamEvent _extractStreamEvent(String chunk) {
-    final decoded = jsonDecode(chunk);
-    if (decoded is! Map<String, Object?>) {
+    final decoded = _asStringKeyedMap(jsonDecode(chunk));
+    if (decoded == null) {
       return const ChatStreamEvent();
     }
 
-    final delta = _firstDelta(decoded);
-    if (delta == null) {
+    final choices = decoded['choices'];
+    if (choices is! List || choices.isEmpty) {
       return const ChatStreamEvent();
     }
 
-    final content = delta['content'];
-    final toolCallDeltas = _extractToolCallDeltas(delta['tool_calls']);
+    final first = _asStringKeyedMap(choices.first);
+    if (first == null) {
+      return const ChatStreamEvent();
+    }
+
+    final finishReasonRaw = first['finish_reason'];
+    final finishReason = finishReasonRaw is String && finishReasonRaw.isNotEmpty
+        ? finishReasonRaw
+        : null;
+    final delta = _asStringKeyedMap(first['delta']);
+    final content = _messageContentAsText(delta?['content']);
+    final toolCallDeltas = _extractToolCallDeltas(delta?['tool_calls']);
     return ChatStreamEvent(
-      contentDelta: content is String ? content : '',
+      contentDelta: content,
       toolCallDeltas: toolCallDeltas,
+      finishReason: finishReason,
     );
   }
 
-  Map<String, Object?>? _firstDelta(Map<String, Object?> decoded) {
-    final choices = decoded['choices'];
-    if (choices is! List<Object?> || choices.isEmpty) {
-      return null;
-    }
-
-    final first = choices.first;
-    if (first is! Map<String, Object?>) {
-      return null;
-    }
-
-    final delta = first['delta'];
-    return delta is Map<String, Object?> ? delta : null;
-  }
-
   List<ToolCallDelta> _extractToolCallDeltas(Object? rawToolCalls) {
-    if (rawToolCalls is! List<Object?>) {
+    if (rawToolCalls is! List) {
       return const [];
     }
 
     final deltas = <ToolCallDelta>[];
     for (final rawToolCall in rawToolCalls) {
-      if (rawToolCall is! Map<String, Object?>) {
+      final mapped = _asStringKeyedMap(rawToolCall);
+      if (mapped == null) {
         continue;
       }
 
-      final rawIndex = rawToolCall['index'];
-      final function = rawToolCall['function'];
-      final id = rawToolCall['id'];
+      final rawIndex = mapped['index'];
+      final function = _asStringKeyedMap(mapped['function']);
+      final id = mapped['id'];
       String? name;
       String? argumentsDelta;
-      if (function is Map<String, Object?>) {
+      if (function != null) {
         final rawName = function['name'];
         final rawArguments = function['arguments'];
         name = rawName is String ? rawName : null;
@@ -882,8 +901,8 @@ class OpenAiCompatibleChatClient {
   }
 
   String _extractAssistantTextFromBody(String body) {
-    final decoded = jsonDecode(body);
-    if (decoded is! Map<String, Object?>) {
+    final decoded = _asStringKeyedMap(jsonDecode(body));
+    if (decoded == null) {
       return '';
     }
     return _extractAssistantText(decoded);
@@ -891,21 +910,32 @@ class OpenAiCompatibleChatClient {
 
   String _extractAssistantText(Map<String, Object?> decoded) {
     final choices = decoded['choices'];
-    if (choices is! List<Object?> || choices.isEmpty) {
+    if (choices is! List || choices.isEmpty) {
       return '';
     }
 
-    final first = choices.first;
-    if (first is! Map<String, Object?>) {
+    final first = _asStringKeyedMap(choices.first);
+    if (first == null) {
       return '';
     }
 
-    final message = first['message'];
-    if (message is! Map<String, Object?>) {
+    final message = _asStringKeyedMap(first['message']);
+    if (message == null) {
       return '';
     }
 
-    final content = message['content'];
-    return content is String ? content : '';
+    return _messageContentAsText(message['content']);
+  }
+
+  Map<String, Object?>? _asStringKeyedMap(Object? value) {
+    if (value is Map<String, Object?>) {
+      return value;
+    }
+    if (value is Map) {
+      return {
+        for (final entry in value.entries) entry.key.toString(): entry.value,
+      };
+    }
+    return null;
   }
 }

@@ -29,6 +29,7 @@ class AppLogger {
   AppLogger._();
 
   static const int _consoleChunkSize = 3000;
+  static const int _prettyConsoleMaxLength = 500;
   static File? _logFile;
   static IOSink? _sink;
   static AppLogLevel consoleLevel = AppLogLevel.info;
@@ -104,7 +105,8 @@ class AppLogger {
         '${DateTime.now().toIso8601String()} ${level.label} $event ${_formatData(data)}'
             .trimRight();
     if (level.index >= consoleLevel.index) {
-      if (Platform.environment.containsKey('FLUTTER_TEST')) {
+      if (Platform.environment.containsKey('FLUTTER_TEST') ||
+          line.length > _prettyConsoleMaxLength) {
         _printToConsole(line);
       } else {
         final msg = '$event ${_formatData(data)}';
@@ -127,7 +129,9 @@ class AppLogger {
             _prettyLogger.e(
               '$event ${_formatData(cleanData)}',
               error: err,
-              stackTrace: stackStr != null ? StackTrace.fromString(stackStr) : null,
+              stackTrace: stackStr != null
+                  ? StackTrace.fromString(stackStr)
+                  : null,
             );
             break;
         }

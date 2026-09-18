@@ -61,4 +61,12 @@ void main() {
       '已创建待办清单，可以从上方卡片打开预览。',
     );
   });
+
+  test('detects mid-sentence truncated assistant replies', () {
+    expect(looksLikeTruncatedAssistantText('抱歉，刚才可能是我的'), isTrue);
+    expect(looksLikeTruncatedAssistantText('I think it was my'), isTrue);
+    expect(looksLikeTruncatedAssistantText('我现在暂时没办法直接为您搜索美食。'), isFalse);
+    expect(looksLikeTruncatedAssistantText('我现在暂时没办法直接为您搜索美食'), isFalse);
+    expect(looksLikeTruncatedAssistantText('好的'), isFalse);
+  });
 }

@@ -649,6 +649,81 @@ void main() {
     expect(route.selectedToolNames, contains('barcode_scan_image'));
     expect(route.requiredToolNames, isEmpty);
   });
+
+  test('online image lookup is not treated as album pick', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': ['web_search', 'web_fetch'],
+        'required_tool_names': ['web_search'],
+        'uses_context': false,
+        'reason': 'user wants images from the web',
+      }),
+    );
+
+    final route = await router.route(
+      prompt: '找找美食图片',
+      context: '',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(chatClient.lastMessages, isNotEmpty);
+    final payload =
+        jsonDecode(chatClient.lastMessages.last['content']! as String)
+            as Map<String, Object?>;
+    expect(payload['latest_user_message'], '找找美食图片');
+    expect(payload['available_tools'], isA<List<Object?>>());
+    expect(route.selectedToolNames, containsAll(['web_search', 'web_fetch']));
+    expect(route.selectedToolNames, isNot(contains('media_pick_image')));
+    expect(route.selectedToolNames, isNot(contains('media_pick_images')));
+  });
+
+  test('album pick wording still exposes local image picker', () async {
+    final chatClient = _FailingRoutingChatClient('路由模型暂时不可用');
+
+    final route = await router.route(
+      prompt: '从相册选一张图片',
+      context: '',
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(route.selectedToolNames, contains('media_pick_image'));
+    expect(route.selectedToolNames, isNot(contains('web_search')));
+  });
+
+  test('short follow-up asks routing model with recent context', () async {
+    final chatClient = _RoutingChatClient(
+      jsonEncode({
+        'selected_tool_names': ['web_search'],
+        'required_tool_names': <String>[],
+        'uses_context': true,
+        'reason': 'follow-up continues previous web lookup',
+      }),
+    );
+    const recentContext = 'user: 找找美食图片\nassistant: 我现在暂时没办法直接为您搜索美食';
+
+    final route = await router.route(
+      prompt: '为啥',
+      context: recentContext,
+      allTools: tools,
+      chatClient: chatClient,
+      provider: ModelProviders.aliyunBailianQwenFlash,
+      apiKey: 'test-key',
+    );
+
+    expect(chatClient.lastMessages, isNotEmpty);
+    final payload =
+        jsonDecode(chatClient.lastMessages.last['content']! as String)
+            as Map<String, Object?>;
+    expect(payload['latest_user_message'], '为啥');
+    expect(payload['recent_context'], contains('找找美食图片'));
+    expect(route.selectedToolNames, contains('web_search'));
+  });
 }
 
 class _RoutingChatClient extends OpenAiCompatibleChatClient {
