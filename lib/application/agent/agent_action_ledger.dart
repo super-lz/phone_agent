@@ -6,7 +6,7 @@ import '../capabilities/capability_execution_result.dart';
 /// The lifecycle of a logical user action. It is deliberately independent of
 /// a tool name: one action may be implemented by a built-in capability, MCP,
 /// or a future adapter.
-enum AgentActionStatus { running, completed, pending, failed }
+enum AgentActionStatus { running, completed, pending, failed, resultUnknown }
 
 class AgentActionRecord {
   AgentActionRecord({
@@ -15,6 +15,7 @@ class AgentActionRecord {
     required this.capabilityId,
     required this.fingerprint,
     required this.status,
+    required this.deduplicate,
     this.result,
   });
 
@@ -23,7 +24,55 @@ class AgentActionRecord {
   final String capabilityId;
   final String fingerprint;
   AgentActionStatus status;
+  final bool deduplicate;
   CapabilityExecutionResult? result;
+
+  Map<String, Object?> toJson() => {
+    'actionId': actionId,
+    'callId': callId,
+    'capabilityId': capabilityId,
+    'fingerprint': fingerprint,
+    'status': status.name,
+    'deduplicate': deduplicate,
+    if (result != null)
+      'result': {
+        'capabilityId': result!.capabilityId,
+        'output': result!.output,
+      },
+  };
+
+  static AgentActionRecord fromJson(Map<String, Object?> json) {
+    final rawResult = json['result'];
+    final rawOutput = rawResult is Map ? rawResult['output'] : null;
+    final result =
+        rawResult is Map &&
+            rawResult['capabilityId'] is String &&
+            rawOutput is Map
+        ? CapabilityExecutionResult(
+            capabilityId: rawResult['capabilityId'] as String,
+            output: rawOutput.map(
+              (key, value) => MapEntry(key.toString(), value),
+            ),
+          )
+        : null;
+    final statusName = json['status'] as String?;
+    final storedStatus = AgentActionStatus.values
+        .where((status) => status.name == statusName)
+        .firstOrNull;
+    return AgentActionRecord(
+      actionId: json['actionId']! as String,
+      callId: json['callId']! as String,
+      capabilityId: json['capabilityId']! as String,
+      fingerprint: json['fingerprint']! as String,
+      // A process can die after an action was marked running but before its
+      // adapter returned. Treat that as unknown; never retry it blindly.
+      status: storedStatus == null || storedStatus == AgentActionStatus.running
+          ? AgentActionStatus.resultUnknown
+          : storedStatus,
+      deduplicate: json['deduplicate'] != false,
+      result: result,
+    );
+  }
 }
 
 class AgentActionDecision {
@@ -36,6 +85,10 @@ class AgentActionDecision {
   final AgentActionRecord record;
   final CapabilityExecutionResult? replayedResult;
   final String? duplicateOf;
+
+  bool get requiresResolution =>
+      record.status == AgentActionStatus.resultUnknown &&
+      replayedResult == null;
 
   bool get isReplay => replayedResult != null;
 }
@@ -50,6 +103,37 @@ class AgentActionLedger {
   final Map<String, AgentActionRecord> _byCallId = {};
   final Map<String, AgentActionRecord> _records = {};
   int _nextActionNumber = 0;
+
+  AgentActionLedger();
+
+  factory AgentActionLedger.fromJson(Object? value) {
+    final ledger = AgentActionLedger();
+    if (value is! Iterable) {
+      return ledger;
+    }
+    for (final item in value) {
+      if (item is! Map) {
+        continue;
+      }
+      final record = AgentActionRecord.fromJson(
+        item.map((key, value) => MapEntry(key.toString(), value)),
+      );
+      ledger._records[record.actionId] = record;
+      ledger._byCallId[record.callId] = record;
+      if (record.deduplicate) {
+        ledger._byFingerprint[record.fingerprint] = record;
+      }
+      final match = RegExp(r'^action-(\d+)$').firstMatch(record.actionId);
+      final sequence = match == null ? null : int.tryParse(match.group(1)!);
+      if (sequence != null && sequence > ledger._nextActionNumber) {
+        ledger._nextActionNumber = sequence;
+      }
+    }
+    return ledger;
+  }
+
+  List<Map<String, Object?>> toJson() =>
+      _records.values.map((record) => record.toJson()).toList(growable: false);
 
   AgentActionDecision begin({
     required ToolCallRequest toolCall,
@@ -71,6 +155,15 @@ class AgentActionLedger {
     );
     final previous = deduplicate ? _byFingerprint[fingerprint] : null;
     if (previous != null &&
+        previous.result == null &&
+        (previous.status == AgentActionStatus.running ||
+            previous.status == AgentActionStatus.resultUnknown)) {
+      return AgentActionDecision(
+        record: previous,
+        duplicateOf: previous.actionId,
+      );
+    }
+    if (previous != null &&
         previous.result != null &&
         previous.status != AgentActionStatus.failed) {
       _byCallId[toolCall.id] = previous;
@@ -91,6 +184,7 @@ class AgentActionLedger {
       capabilityId: capabilityId,
       fingerprint: fingerprint,
       status: AgentActionStatus.running,
+      deduplicate: deduplicate,
     );
     _byCallId[toolCall.id] = record;
     _records[actionId] = record;
@@ -106,6 +200,16 @@ class AgentActionLedger {
   }
 
   Iterable<AgentActionRecord> get records => _records.values;
+
+  List<Map<String, Object?>> get modelCheckpoint => [
+    for (final record in records)
+      {
+        'actionId': record.actionId,
+        'capabilityId': record.capabilityId,
+        'status': record.status.name,
+        if (record.result != null) 'output': record.result!.output,
+      },
+  ];
 
   static AgentActionStatus _statusFor(CapabilityExecutionResult result) {
     if (result.output['ok'] == true) {

@@ -85,6 +85,40 @@ class CapabilityInvocation {
 
 enum CapabilityInvocationStatus { pending, approved, completed, denied, failed }
 
+/// A one-use approval bound to the exact capability request shown to the user.
+///
+/// This is deliberately narrower than a permission mode: approving one high-risk
+/// request must not authorize a different tool, Workspace, arguments, or a
+/// nested Skill call.
+class ApprovedCapabilityExecution {
+  const ApprovedCapabilityExecution({
+    required this.requestId,
+    required this.runId,
+    required this.workspaceId,
+    required this.toolName,
+    required this.argumentsHash,
+  });
+
+  final String requestId;
+  final String runId;
+  final String workspaceId;
+  final String toolName;
+  final String argumentsHash;
+
+  bool matches({
+    required String requestId,
+    required String runId,
+    required String workspaceId,
+    required String toolName,
+    required String argumentsHash,
+  }) =>
+      this.requestId == requestId &&
+      this.runId == runId &&
+      this.workspaceId == workspaceId &&
+      this.toolName == toolName &&
+      this.argumentsHash == argumentsHash;
+}
+
 class McpConnection {
   const McpConnection({
     required this.url,
@@ -117,6 +151,8 @@ class AgentSkill {
     required this.script,
     required this.createdAt,
     this.manifestPath,
+    this.instructions = '',
+    this.sourcePath,
   });
 
   final String id;
@@ -125,6 +161,8 @@ class AgentSkill {
   final String script;
   final DateTime createdAt;
   final String? manifestPath;
+  final String instructions;
+  final String? sourcePath;
 
   Map<String, Object?> toJson() => {
     'id': id,
@@ -133,6 +171,8 @@ class AgentSkill {
     'script': script,
     'createdAt': createdAt.toIso8601String(),
     'manifestPath': manifestPath,
+    'instructions': instructions,
+    'sourcePath': sourcePath,
   };
 
   factory AgentSkill.fromJson(Map<String, Object?> json) => AgentSkill(
@@ -142,5 +182,7 @@ class AgentSkill {
     script: json['script']! as String,
     createdAt: DateTime.parse(json['createdAt']! as String),
     manifestPath: json['manifestPath'] as String?,
+    instructions: json['instructions'] as String? ?? '',
+    sourcePath: json['sourcePath'] as String?,
   );
 }

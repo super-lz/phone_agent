@@ -1,13 +1,5 @@
 bool looksLikeRawToolProcess(String text) {
-  final normalized = text.toLowerCase();
-  if (looksLikePseudoToolCallText(text) ||
-      text.contains('工具调用') ||
-      text.contains('工具结果') ||
-      normalized.contains('tool_call') ||
-      normalized.contains('tool result') ||
-      normalized.contains('tool_result') ||
-      normalized.contains('toolresult') ||
-      normalized.contains('capability')) {
+  if (looksLikePseudoToolCallText(text)) {
     return true;
   }
 

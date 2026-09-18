@@ -44,6 +44,18 @@ void main() {
       looksLikeRawToolProcess('下面是一个示例 JSON：{"name":"Phone Agent"}'),
       isFalse,
     );
+    expect(
+      looksLikeRawToolProcess(
+        '我可以解释工具调用、Capability 和 tool_result 的协议含义，但不会执行它们。',
+      ),
+      isFalse,
+    );
+    expect(
+      looksLikeRawToolProcess(
+        '例如，JSON 响应可包含 {"tool_call_id":"example"}；这只是教学示例。',
+      ),
+      isFalse,
+    );
   });
 
   test('strips internal tool argument progress from visible text', () {

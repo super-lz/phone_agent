@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../../core/logging/app_logger.dart';
+import '../skills/skill_document.dart';
 import '../../data/capabilities/native_capability_adapter.dart';
 import '../../data/capabilities/web_capability_adapter.dart';
 import '../../data/models/openai_compatible_chat_client.dart';
@@ -187,8 +188,9 @@ class CapabilityRuntime {
     WorkbenchStore? workbenchStore,
     String? apiKey,
     PermissionMode permissionMode = PermissionMode.fullAccess,
-    bool skipPermissionCheck = false,
+    ApprovedCapabilityExecution? approval,
     AgentExecutionContext? executionContext,
+    Future<void> Function(AgentActionLedger ledger)? onActionLedgerChanged,
   }) async {
     final capabilityId = capabilityIdForToolNameOrFallback(toolCall.name);
     final argumentsHash = actionFingerprint(
@@ -205,13 +207,15 @@ class CapabilityRuntime {
       'callId': toolCall.id,
       'argumentsHash': argumentsHash,
     });
-    final permissionBlocked = skipPermissionCheck
-        ? null
-        : _permissionBlockedResult(
-            toolCall: toolCall,
-            capabilities: capabilities,
-            permissionMode: permissionMode,
-          );
+    final permissionBlocked = _permissionBlockedResult(
+      toolCall: toolCall,
+      workspaceId: workspaceId,
+      runId: runId,
+      argumentsHash: argumentsHash,
+      capabilities: capabilities,
+      permissionMode: permissionMode,
+      approval: approval,
+    );
     final stopwatch = Stopwatch()..start();
     if (permissionBlocked != null) {
       final result = permissionBlocked.withReceipt(
@@ -229,7 +233,9 @@ class CapabilityRuntime {
         'argumentsHash': argumentsHash,
         'durationMs': stopwatch.elapsedMilliseconds,
         'ok': false,
-        'receiptStatus': 'pending',
+        'receiptStatus': result.output['receipt'] is Map
+            ? (result.output['receipt']! as Map)['status']
+            : null,
       });
       await _recordInvocation(
         toolCall: toolCall,
@@ -237,7 +243,7 @@ class CapabilityRuntime {
         result: result,
         workbenchStore: workbenchStore,
         permissionMode: permissionMode,
-        skippedPermissionCheck: skipPermissionCheck,
+        approvedRequest: approval,
       );
       return result;
     }
@@ -281,6 +287,35 @@ class CapabilityRuntime {
       capabilityId: capabilityId,
       deduplicate: replayProtected,
     );
+    if (decision != null) {
+      await onActionLedgerChanged?.call(executionContext!.ledger);
+    }
+    if (decision?.requiresResolution == true) {
+      final result =
+          CapabilityExecutionResult(
+            capabilityId: capabilityId,
+            output: {
+              'ok': false,
+              'error': 'action_result_unknown',
+              'detail': '此前动作已提交但进程中断，系统无法确认结果。请先对账、复用原幂等 key，或请用户决定是否重试。',
+              'actionId': decision!.record.actionId,
+            },
+          ).withReceipt(
+            actionId: decision.record.actionId,
+            argumentsHash: argumentsHash,
+            replayProtected: replayProtected,
+            status: 'result_unknown',
+          );
+      await _recordInvocation(
+        toolCall: toolCall,
+        workspaceId: workspaceId,
+        result: result,
+        workbenchStore: workbenchStore,
+        permissionMode: permissionMode,
+        approvedRequest: approval,
+      );
+      return result;
+    }
     if (decision?.replayedResult != null) {
       final result = decision!.replayedResult!.withReceipt(
         actionId: decision.record.actionId,
@@ -308,7 +343,7 @@ class CapabilityRuntime {
         result: result,
         workbenchStore: workbenchStore,
         permissionMode: permissionMode,
-        skippedPermissionCheck: skipPermissionCheck,
+        approvedRequest: approval,
       );
       return result;
     }
@@ -334,6 +369,7 @@ class CapabilityRuntime {
     );
     if (decision != null) {
       executionContext!.ledger.complete(decision.record, receiptResult);
+      await onActionLedgerChanged?.call(executionContext.ledger);
     } else {
       _resultsByCallId[toolCall.id] = receiptResult;
     }
@@ -366,7 +402,7 @@ class CapabilityRuntime {
       result: receiptResult,
       workbenchStore: workbenchStore,
       permissionMode: permissionMode,
-      skippedPermissionCheck: skipPermissionCheck,
+      approvedRequest: approval,
     );
     return receiptResult;
   }
@@ -815,21 +851,20 @@ class CapabilityRuntime {
         },
       );
     }
-    final manifest = File('${directory.path}/SKILL.md');
-    if (!manifest.existsSync()) {
+    late final SkillDocument document;
+    try {
+      document = SkillDocument.loadFromDirectory(directory.path);
+    } on FormatException catch (error) {
       return CapabilityExecutionResult(
         capabilityId: 'skill.install',
         output: {
           'ok': false,
           'error': 'invalid_skill',
-          'detail': 'Skill 目录缺少 SKILL.md。',
+          'detail': error.message,
           'source': normalized,
         },
       );
     }
-    final name = directory.uri.pathSegments
-        .where((segment) => segment.isNotEmpty)
-        .last;
 
     String script = '';
     final scriptFile = File('${directory.path}/index.js');
@@ -842,10 +877,13 @@ class CapabilityRuntime {
       output: {
         'ok': true,
         'skill': {
-          'id': name,
-          'name': name,
+          'id': document.name,
+          'name': document.name,
           'source': normalized,
-          'manifest': manifest.path,
+          'description': document.description,
+          'instructions': document.instructions,
+          'manifest': document.manifestPath,
+          'sourcePath': document.rootPath,
           'script': script,
           'status': 'installed',
         },
@@ -877,13 +915,71 @@ class CapabilityRuntime {
       );
     }
 
+    AgentSkill? installedSkill;
+    for (final skill in skills ?? const <AgentSkill>[]) {
+      if (skill.id == skillId) {
+        installedSkill = skill;
+        break;
+      }
+    }
+
+    final resourcePath =
+        arguments['resource_path'] ?? arguments['resourcePath'];
+    if (resourcePath != null) {
+      if (resourcePath is! String || resourcePath.trim().isEmpty) {
+        return const CapabilityExecutionResult(
+          capabilityId: 'skill.invoke',
+          output: {'ok': false, 'error': 'resource_path_required'},
+        );
+      }
+      if (installedSkill?.sourcePath == null) {
+        return const CapabilityExecutionResult(
+          capabilityId: 'skill.invoke',
+          output: {'ok': false, 'error': 'resource_root_unavailable'},
+        );
+      }
+      try {
+        final document = SkillDocument.loadFromDirectory(
+          installedSkill!.sourcePath!,
+        );
+        return CapabilityExecutionResult(
+          capabilityId: 'skill.invoke',
+          output: {
+            'ok': true,
+            'type': 'skill_resource',
+            'skillId': installedSkill.id,
+            'path': resourcePath,
+            'content': document.readRelativeResource(resourcePath),
+          },
+        );
+      } on FormatException catch (error) {
+        return CapabilityExecutionResult(
+          capabilityId: 'skill.invoke',
+          output: {
+            'ok': false,
+            'error': 'invalid_skill_resource',
+            'detail': error.message,
+          },
+        );
+      }
+    }
+
     var script = arguments['script'] as String?;
     if (script == null || script.trim().isEmpty) {
-      final skill = skills?.firstWhere(
-        (s) => s.id == skillId,
-        orElse: () => throw StateError('Skill not found: $skillId'),
+      script = installedSkill?.script;
+    }
+
+    if ((script == null || script.trim().isEmpty) && installedSkill != null) {
+      return CapabilityExecutionResult(
+        capabilityId: 'skill.invoke',
+        output: {
+          'ok': true,
+          'type': 'skill_instructions',
+          'skillId': installedSkill.id,
+          'name': installedSkill.name,
+          'instructions': installedSkill.instructions,
+        },
       );
-      script = skill?.script;
     }
 
     if (script == null || script.trim().isEmpty) {
@@ -916,8 +1012,8 @@ class CapabilityRuntime {
         workbenchStore: workbenchStore,
         apiKey: apiKey,
         permissionMode: permissionMode,
-        skipPermissionCheck:
-            true, // Callback is pre-approved by the skill execution
+        // A Skill is only a workflow. Each nested capability is independently
+        // checked against the current permission policy.
       );
       return res.output;
     };
@@ -1075,7 +1171,7 @@ class CapabilityRuntime {
     required CapabilityExecutionResult result,
     required WorkbenchStore? workbenchStore,
     required PermissionMode permissionMode,
-    required bool skippedPermissionCheck,
+    required ApprovedCapabilityExecution? approvedRequest,
   }) async {
     if (workbenchStore == null) {
       return;
@@ -1090,7 +1186,7 @@ class CapabilityRuntime {
         capabilityId: result.capabilityId,
         input: toolCall.arguments,
         status: status,
-        permissionDecision: skippedPermissionCheck
+        permissionDecision: approvedRequest != null
             ? 'approved'
             : permissionDecision is String
             ? permissionDecision
@@ -1262,11 +1358,48 @@ class CapabilityRuntime {
 
   CapabilityExecutionResult? _permissionBlockedResult({
     required ToolCallRequest toolCall,
+    required String workspaceId,
+    required String? runId,
+    required String argumentsHash,
     required List<CapabilityDefinition>? capabilities,
     required PermissionMode permissionMode,
+    required ApprovedCapabilityExecution? approval,
   }) {
     final definition = _definitionForToolName(toolCall.name, capabilities);
     if (definition == null) {
+      if (capabilities == null) {
+        // Direct unit calls that do not supply the application catalog retain
+        // their historical behavior. Agent runs always supply the catalog.
+        return null;
+      }
+      return CapabilityExecutionResult(
+        capabilityId: capabilityIdForToolNameOrFallback(toolCall.name),
+        output: {
+          'ok': false,
+          'error': 'unknown_tool_definition',
+          'detail':
+              'Tool ${toolCall.name} has no registered capability definition.',
+        },
+      );
+    }
+    if (approval != null) {
+      if (runId == null ||
+          !approval.matches(
+            requestId: toolCall.id,
+            runId: runId,
+            workspaceId: workspaceId,
+            toolName: toolCall.name,
+            argumentsHash: argumentsHash,
+          )) {
+        return CapabilityExecutionResult(
+          capabilityId: definition.id,
+          output: {
+            'ok': false,
+            'error': 'approval_mismatch',
+            'detail': 'The approval does not match this capability request.',
+          },
+        );
+      }
       return null;
     }
     final decision = PermissionPolicy(permissionMode).decide(definition);
@@ -1305,14 +1438,27 @@ class CapabilityRuntime {
     String toolName,
     List<CapabilityDefinition>? capabilities,
   ) {
-    if (capabilities == null || capabilities.isEmpty) {
-      return null;
-    }
-    final capabilityId = _capabilityIdForToolName(toolName);
-    for (final capability in capabilities) {
-      if (capability.id == capabilityId) {
-        return capability;
+    if (capabilities != null) {
+      final capabilityId = _capabilityIdForToolName(toolName);
+      for (final capability in capabilities) {
+        if (capability.id == capabilityId) {
+          return capability;
+        }
       }
+    }
+    if (_mcpManager.hasTool(toolName)) {
+      return CapabilityDefinition(
+        id: toolName,
+        description: 'Dynamic MCP tool $toolName',
+        inputSchema: const {'type': 'object'},
+        outputSchema: const {'type': 'object'},
+        // Remote tools have no trustworthy local risk declaration. Require a
+        // confirmation outside full-access mode until an explicit policy is
+        // introduced for that server and tool.
+        risk: CapabilityRisk.high,
+        requiredPermissions: const ['mcp.dynamic'],
+        adapter: CapabilityAdapter.mcp,
+      );
     }
     return null;
   }

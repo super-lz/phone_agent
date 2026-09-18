@@ -178,7 +178,6 @@ class _FakeChatClient extends OpenAiCompatibleChatClient {
           'file_search_app_files',
           'file_apply_text_patch',
         ],
-        'required_tool_names': ['project_create_web_app'],
         'uses_context': false,
         'reason': 'test web app route',
       }),

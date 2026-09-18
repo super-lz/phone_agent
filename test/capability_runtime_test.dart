@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:phone_agent/application/agent/agent_action_ledger.dart';
 import 'package:phone_agent/application/capabilities/capability_runtime.dart';
 import 'package:phone_agent/data/capabilities/native_capability_adapter.dart';
 import 'package:phone_agent/data/capabilities/web_capability_adapter.dart';
@@ -173,6 +174,80 @@ void main() {
       expect(result.output['ok'], isFalse);
       expect(result.output['error'], 'permission_confirmation_required');
       expect(memories.single.id, 'memory-one');
+    },
+  );
+
+  test(
+    'agent execution rejects a tool absent from its capability catalog',
+    () async {
+      final result = await CapabilityRuntime().execute(
+        toolCall: const ToolCallRequest(
+          id: 'unknown-tool',
+          name: 'not_registered',
+          arguments: {},
+        ),
+        workspaceId: 'default',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+        capabilities: const [],
+      );
+
+      expect(result.output['ok'], isFalse);
+      expect(result.output['error'], 'unknown_tool_definition');
+    },
+  );
+
+  test(
+    'approved execution is bound to one request, run, workspace and input',
+    () async {
+      final memories = [
+        AgentMemory(
+          id: 'memory-one',
+          content: '不能静默删除',
+          createdAt: DateTime(2026),
+        ),
+      ];
+      const input = {'memory_id': 'memory-one'};
+      final result = await CapabilityRuntime().execute(
+        toolCall: const ToolCallRequest(
+          id: 'approval-request',
+          name: 'memory_delete',
+          arguments: input,
+        ),
+        workspaceId: 'workspace-a',
+        memories: memories,
+        notes: const [],
+        artifacts: const [],
+        capabilities: const [
+          CapabilityDefinition(
+            id: 'memory.delete',
+            description: 'delete memory',
+            inputSchema: {'type': 'object'},
+            outputSchema: {'type': 'object'},
+            risk: CapabilityRisk.high,
+            requiredPermissions: [],
+            adapter: CapabilityAdapter.memory,
+          ),
+        ],
+        permissionMode: PermissionMode.defaultMode,
+        approval: const ApprovedCapabilityExecution(
+          requestId: 'approval-request',
+          runId: 'run-a',
+          workspaceId: 'workspace-b',
+          toolName: 'memory_delete',
+          argumentsHash: 'wrong-hash',
+        ),
+        executionContext: AgentExecutionContext(
+          runId: 'run-a',
+          round: 0,
+          ledger: AgentActionLedger(),
+        ),
+      );
+
+      expect(result.output['ok'], isFalse);
+      expect(result.output['error'], 'approval_mismatch');
+      expect(memories, hasLength(1));
     },
   );
 
@@ -2464,6 +2539,36 @@ void main() {
       expect(exported.capabilityId, 'presentation.export');
       expect(exported.output['ok'], isTrue);
       expect(exported.output['path'], 'office/deck.exported.pptx');
+    },
+  );
+  test(
+    'pure instruction skill returns its body without requiring a script',
+    () async {
+      final result = await CapabilityRuntime().execute(
+        toolCall: const ToolCallRequest(
+          id: 'load-instruction-skill',
+          name: 'skill_invoke',
+          arguments: {'skill_id': 'release-check'},
+        ),
+        workspaceId: 'default',
+        memories: const [],
+        notes: const [],
+        artifacts: const [],
+        skills: [
+          AgentSkill(
+            id: 'release-check',
+            name: 'release-check',
+            description: 'Validate releases.',
+            instructions: 'Read the changelog before publishing.',
+            script: '',
+            createdAt: DateTime(2026),
+          ),
+        ],
+      );
+
+      expect(result.output['ok'], isTrue);
+      expect(result.output['type'], 'skill_instructions');
+      expect(result.output['instructions'], contains('changelog'));
     },
   );
 }

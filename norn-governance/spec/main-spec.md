@@ -26,8 +26,8 @@
 
 1. 用户在当前 Workspace 中发起对话，可输入文字、图片、文件或系统分享内容。
 2. 系统把全局长期记忆、同一会话上下文、当前 Workspace 数据上下文、附件摘要和可用 Capability 一起提供给 Agent；用户不应需要重复告诉 AI 已保存的偏好、稳定事实或本会话前面已经说过的关键信息。
-3. 系统必须先通过结构化工具路由步骤，基于用户最新消息、近期上下文和真实 Capability 描述选择本轮需要暴露的最小工具集合；近期对话只能作为模型路由的语义消歧输入，不能让上一轮 assistant 能力介绍或系统提示独立触发工具 schema 或必需工具；若当前消息在语义上承接上一轮尚未完成的任务，应继续暴露完成该任务所需的工具。路由结果必须经过真实工具名白名单校验；普通聊天不应默认暴露全量工具 schema，未暴露的工具组视为本轮不可用，以降低 token 消耗和误调用概率。工具选择依据能力描述，不靠个别口头禅或关键词补丁。
-4. 工具路由模型失败、超时或输出不可解析时，系统仍必须对用户最新消息应用本地确定性兜底规则；明显的长期记忆写入、笔记记录、工作区创建或切换、联网查询、报告、文档、任务清单等可复用产物创建、Web App 创建、手机能力调用等请求不得因为路由模型不可用而退化成普通聊天。网上查找图片或资料属于联网查询；只有用户要从本机相册或文件选出内容时，才视为本地选择器请求。
+3. 系统必须先通过结构化工具发现步骤，基于用户最新消息、近期上下文和真实 Capability 描述选择本轮需要暴露的最小工具集合；近期对话只能作为模型路由的语义消歧输入，不能让上一轮 assistant 能力介绍或系统提示独立触发工具 schema。若当前消息在语义上承接上一轮尚未完成的任务，应继续暴露完成该任务所需的工具。路由结果必须经过真实工具名白名单校验；普通聊天不应默认暴露全量工具 schema，以降低 token 消耗和误调用概率。发现结果只提供候选能力，不直接强制执行副作用；需要更多能力时，Agent 可以在同一任务的后续模型步骤发现并选择它们。工具选择依据能力描述和当前目标，不靠个别口头禅或关键词补丁。
+4. 工具发现模型失败、超时或输出不可解析时，系统必须提供受控的能力目录或请求澄清，而不是把关键词命中转换为强制动作；已暴露工具仍可被模型选择。联网查询、本机选择器、记忆、笔记、工作区和可复用产物的区分必须由用户的当前目标和工具描述决定。网上查找图片或资料属于联网查询；只有用户要从本机相册或文件选出内容时，才视为本地选择器请求。
 5. Agent 必须在正式对话中以流式方式输出 Markdown，也可以通过 OpenAI 兼容工具调用协议发起工具调用、权限请求、TODO 更新、任务进度和 Artifact 创建。
 6. 每次 Agent 运行都必须向 UI 和日志持续报告当前阶段，例如工具规划、模型流式响应、生成工具参数、执行工具、等待前台和整理最终回答；长任务还必须及时把处理过程写入对话中的折叠执行过程，用户不能只看到“发送中”或底部状态而不知道当前卡在哪一步。工具参数生成阶段必须和工具实际执行阶段区分展示；当模型正在流式生成 Web App 文件内容、文件写入内容或其它大参数时，界面应说明正在接收参数而不是笼统显示“准备调用工具”，但不应把已接收字符数或大段原始参数作为主文案展示给用户；即使模型把内部参数接收进度输出成普通正文，系统也必须过滤这类内部状态，不能让它作为对话内容展示；对支持增量工具参数的模型提供方，系统必须启用对应流式工具参数能力，避免复杂参数在生成期间长时间没有新流式数据而触发空闲超时。
 7. 如果模型把 `<tool_call>`、`<function=...>` 或 `<parameter=...>` 等伪工具调用标签输出为普通正文，系统不得把它展示为最终回答，也不得把它当作已执行工具；应要求模型改用真实工具调用协议，重试后仍未形成真实工具调用时必须返回可读错误，并且这类泄漏正文不得作为后续对话语义历史污染上下文。
@@ -39,11 +39,11 @@
 13. 模型流式连接必须有接收空闲超时；如果连接已经建立但长时间没有新 token、工具调用或完成事件，系统必须返回可诊断错误并恢复输入，而不是无限保持发送中。
 14. 单次用户请求的 Agent Loop 默认由模型决定何时完成：模型返回说完的最终自然语言回答时结束；若流式结束原因是长度截断，或回复明显停在半句，系统不得把半成品作为最终回答落库，应要求模型续写。系统不应把固定模型轮次、总工具调用次数或连续无进展次数作为正常完成条件。部署方可以显式配置这些可选的失控保护边界。
 15. 工具结果、失败和已完成动作必须回传给模型，由模型结合当前目标判断继续、修正、重试还是结束；只有用户取消、权限等待、上下文窗口、模型流空闲超时、传输失败或显式配置的保护边界才可以中断自动调用。
-16. 对被路由标记为必需的工具动作，系统必须在这些动作成功执行前阻止模型声称任务完成；必需动作可以是创建产物，也可以是保存笔记、写入长期记忆、创建或切换工作区等真实状态变更。重试后仍未完成时，错误提示必须描述“必需动作未完成”，不能把所有失败都写成“未创建真实产物”。
+16. Agent 只能依据真实 execution receipt、资源标识或结构化失败结果描述状态变更；用户请求明确要求创建、保存、切换、查询最新信息或读取指定网页时，模型必须实际调用相应 Capability 后才能声称该动作已经完成。系统不得以路由阶段给出的工具名称强制整个任务结束，也不得把未执行、失败、拒绝或结果未知的动作展示成成功。重试后仍未完成时，错误提示必须准确说明未完成或结果未知的动作。
 17. 当用户明确要求联网搜索、查询最新信息、提供来源、找网上图片或资料，或读取具体网页 URL 时，对应联网工具调用是必需动作；在搜索或网页读取成功前，Agent 不得基于模型内置知识声称已经完成最新信息查询或网页读取。
 18. 普通对话必须使用当前已配置的模型提供方；若缺少 API Key，系统必须在对话中提示用户先完成模型设置。
 19. 当用户已经发起 Agent 会话且任务仍在运行时，Android 应通过用户可见的前台服务维持运行中的网络会话；运行完成、失败或用户停止后必须停止前台服务。
-20. 运行中的 Agent 会话必须写入可恢复记录；如果系统在后台暂停、断网或杀掉进程，应用重新启动后应识别未完成记录，切回对应 Workspace，并继续或重试该用户已发起的请求。
+20. 运行中的 Agent 会话必须写入可恢复记录，至少保留任务目标、模型协议历史、工具调用状态、权限等待、execution receipt 和资源标识；如果系统在后台暂停、断网或杀掉进程，应用重新启动后应识别未完成记录，切回对应 Workspace，并基于检查点继续。已确认完成的动作不得重放；已提交但未能确认结果的外部副作用必须标记为结果未知，优先对账或复用同一幂等 key，无法确认时请求用户决定，不能盲目重试。
 21. iOS 不承诺普通 LLM 网络长连接可以无限后台运行；除非任务属于系统认可的后台模式，否则必须以短暂延长和恢复机制保证不丢失用户请求。
 
 ### 模型配置
@@ -101,11 +101,11 @@
 ### Skill 与 MCP
 
 1. Skill 遵循 Agent Skills / Claude Code 当前规范，不自定义新 Skill 格式。
-2. 用户可以从本地目录、zip 或 Git URL 安装 Skill。
+2. 用户可以从本地目录、zip 或公开 HTTPS Git URL 的指定 ref 安装 Skill；私有 Git、SSH Git、任意本机 shell 和未实现的认证方式必须明确报告不可用。
 3. 系统扫描、索引并按 progressive disclosure 加载 Skill。
 4. `allowed-tools` 只能映射到本项目权限策略，不直接无条件放权。
-5. 脚本执行必须走 Capability Runtime；无可用执行后端时返回明确不可用。
-6. MCP 第一版本优先支持 HTTP/SSE 类连接；stdio MCP、Android 本机进程执行和终端能力仅保留扩展入口。
+5. 纯指令 Skill 不要求脚本入口；脚本执行必须走 Capability Runtime，且无可用执行后端时返回明确不可用。
+6. MCP 第一版本优先支持 HTTP/SSE 类连接及安全存储的 token/header 认证；完整 OAuth、stdio MCP、Android 本机进程执行和终端能力仅保留扩展入口。
 
 ## 组件与边界
 
@@ -194,7 +194,7 @@
 - Agent Loop 必须以逻辑动作而不是具体工具名判断任务进展；一个逻辑动作可以由内建能力、MCP 或后续其它适配器完成。
 - 每次真实能力执行必须返回可供 Agent 判断的 execution receipt，至少表达动作 ID、完成状态、效果、资源标识（若有）以及是否为 replay。
 - 同一任务中已经 completed 的逻辑动作不得被静默重复执行；同一 call ID 绝不能再次执行。只有用户明确提出新的动作时，才创建新的逻辑 action；只读能力可以按需重复读取。
-- 当动作已经收敛时，系统必须进入最终回答阶段并停止暴露副作用工具；最终阶段即使模型再次请求副作用工具，也不得实际执行。
+- 已完成动作的 replay 只阻止该动作再次产生副作用，不得自动停止任务中的其它独立动作；模型必须基于 receipt 继续完成剩余目标或自然结束。只有模型自然结束、用户取消、权限等待、上下文或传输边界、明确配置的保护边界，才能停止自动工具链。
 - 可选的任务预算、连续失败和无进展保护是防止失控的兜底边界，不是默认的正常完成任务判定；默认情况下模型可以在有需要时继续工具链，并在自身判断完成后返回最终回答。
 - Agent Loop 必须携带同一会话的近期原文上下文，并在上下文过长时携带较早内容的压缩摘要。
 - 第一批接入 Agent Loop 的真实内建能力是 `memory.create`、`memory.query`、`memory.delete`、`db.note.create`、`db.note.query`、`file.write_app_file`、`file.read_app_file`、`file.search_app_files`、`file.apply_text_patch`、`project.create_web_app`、`project.update_web_app`、`project.test_web_app`、`project.version_history`、`project.revert_web_app`、`artifact.create`、`artifact.query`、`workspace.create`、`workspace.switch`、`document.extract`、`document.generate`、`document.apply_text_patch`、`spreadsheet.extract`、`spreadsheet.generate`、`presentation.extract`、`presentation.generate`、`presentation.export`、`pdf.extract`、`pdf.generate`、`app.info`、`device.info`、`time.get_current`、`battery.status`、`network.status`、`clipboard.read`、`clipboard.write`、`camera.capture_photo`、`camera.capture_video`、`flashlight.set`、`flashlight.status`、`media.pick_image`、`media.pick_images`、`media.pick_video`、`file.pick_system_file`、`audio.record_start`、`audio.record_stop`、`audio.record_cancel`、`contacts.pick`、`barcode.scan_camera`、`barcode.scan_image`、`share.text`、`system.haptic_feedback`、`system.sound_alert`、`system.volume.set`、`system.volume.status`、`system.ui.set`、`system.ui.status`、`permission.open_settings`、`url.open_external`、`screen.keep_awake`、`screen.keep_awake_status`、`screen.brightness.set`、`screen.brightness.status`、`screen.metrics`、`screen.orientation.set`、`screen.orientation.status`、`sensor.accelerometer.read`、`sensor.gyroscope.read`、`sensor.magnetometer.read`、`location.get_current`、`notification.schedule`、`notification.pending`、`notification.cancel`、`notification.cancel_all` 和 `calendar.event.create`。

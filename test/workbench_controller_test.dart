@@ -1016,7 +1016,10 @@ void main() {
 
       expect(restoredChatClient.callCount, 1);
       expect(
-        restoredChatClient.capturedMessages.single.last['content'],
+        restoredChatClient.capturedMessages.single
+            .map((message) => message['content'])
+            .whereType<String>()
+            .join('\n'),
         contains('用户原始请求是：忘记第一条记忆。'),
       );
       expect(restoredChatClient.capturedTools.single, isEmpty);
@@ -1222,7 +1225,7 @@ void main() {
     );
   });
 
-  test('required web search prevents latest answer without search', () async {
+  test('tool discovery does not force a search after a model answer', () async {
     final chatClient = _FakeChatClient([
       [const ChatStreamEvent(contentDelta: 'Flutter 最新版本是 X。')],
       [const ChatStreamEvent(contentDelta: 'Flutter 最新版本是 X。')],
@@ -1235,13 +1238,13 @@ void main() {
 
     await controller.sendPrompt('搜索 Flutter 最新信息并给出来源');
 
-    expect(chatClient.callCount, 3);
+    expect(chatClient.callCount, 1);
     final toolNames = _capturedToolNames(chatClient.capturedTools.first);
-    expect(toolNames, contains('web_search'));
-    final finalBlock = controller.messages.last.blocks.single;
-    expect(finalBlock.type, MessageBlockType.errorCard);
-    expect(finalBlock.data['title'], '必需动作未完成');
-    expect(finalBlock.data['detail'], contains('联网搜索'));
+    expect(toolNames, containsAll(['web_search', 'web_fetch']));
+    expect(
+      controller.messages.last.blocks.single.data['text'],
+      'Flutter 最新版本是 X。',
+    );
   });
 
   test('model tool call can create workspace note', () async {
@@ -1402,7 +1405,7 @@ void main() {
     expect(finalText, isNot(contains('<tool_call>')));
     expect(
       chatClient.capturedMessages[1].last['content'],
-      contains('正文里的伪工具标签不会被系统执行'),
+      contains('正文里的伪工具标签不会被执行'),
     );
   });
 
@@ -1522,7 +1525,10 @@ void main() {
         hasLength(1),
       );
       expect(chatClient.callCount, 3);
-      expect(chatClient.capturedTools[2], isEmpty);
+      expect(
+        _capturedToolNames(chatClient.capturedTools[2]),
+        contains('artifact_create'),
+      );
       expect(
         controller.messages.last.blocks.first.data['text'],
         '已完成，且没有重复创建。',
@@ -1693,7 +1699,7 @@ void main() {
   );
 
   test(
-    'web page request cannot be completed without real project tool',
+    'tool discovery does not force project creation after a model answer',
     () async {
       final chatClient = _FakeChatClient([
         [const ChatStreamEvent(contentDelta: '个人网站已创建！点击上方卡片预览。')],
@@ -1729,65 +1735,63 @@ void main() {
 
       await controller.sendPrompt('写一个个人网页');
 
-      expect(chatClient.callCount, 3);
-      expect(controller.workspaceFiles.map((file) => file.path), [
-        'personal-site/.phone-agent/manifest.json',
-        'personal-site/.phone-agent/versions/v0001.json',
-        'personal-site/index.html',
-      ]);
-      expect(controller.workspaceArtifacts.last.title, '个人网页');
-      final finalText = controller.messages.last.blocks.first.data['text'];
-      expect(finalText, '个人网页已创建，可以从卡片打开预览。');
-    },
-  );
-
-  test(
-    'failed required project tool does not count as completed web app',
-    () async {
-      final chatClient = _FakeChatClient([
-        [
-          ChatStreamEvent(
-            toolCallDeltas: [
-              ToolCallDelta(
-                index: 0,
-                id: 'call-project-create-bad',
-                name: 'project_create_web_app',
-                argumentsDelta: jsonEncode({
-                  'title': '个人网页',
-                  'summary': '个人介绍网页。',
-                }),
-              ),
-            ],
-          ),
-        ],
-        [const ChatStreamEvent(contentDelta: '个人网站已创建！点击上方卡片即可预览。')],
-        [const ChatStreamEvent(contentDelta: '个人网站已创建！点击上方卡片即可预览。')],
-        [const ChatStreamEvent(contentDelta: '个人网站已创建！点击上方卡片即可预览。')],
-      ]);
-      final controller = WorkbenchController(
-        apiKeyStore: _FakeApiKeyStore('test-key'),
-        chatClient: chatClient,
-      );
-
-      await controller.sendPrompt('写一个个人网页');
-
-      expect(chatClient.callCount, 4);
+      expect(chatClient.callCount, 1);
       expect(controller.workspaceFiles, isEmpty);
       expect(
-        controller.workspaceArtifacts.where(
-          (artifact) => artifact.type == ArtifactType.webApp,
+        controller.workspaceArtifacts.any(
+          (artifact) => artifact.title == '个人网页',
         ),
-        isEmpty,
+        isFalse,
       );
-      final finalBlock = controller.messages.last.blocks.single;
-      expect(finalBlock.type, MessageBlockType.errorCard);
-      expect(finalBlock.data['title'], '必需动作未完成');
-      expect(finalBlock.data['detail'], contains('必需工具没有成功完成'));
+      final finalText = controller.messages.last.blocks.first.data['text'];
+      expect(finalText, '个人网站已创建！点击上方卡片预览。');
     },
   );
 
+  test('failed project tool result is returned to the model', () async {
+    final chatClient = _FakeChatClient([
+      [
+        ChatStreamEvent(
+          toolCallDeltas: [
+            ToolCallDelta(
+              index: 0,
+              id: 'call-project-create-bad',
+              name: 'project_create_web_app',
+              argumentsDelta: jsonEncode({
+                'title': '个人网页',
+                'summary': '个人介绍网页。',
+              }),
+            ),
+          ],
+        ),
+      ],
+      [const ChatStreamEvent(contentDelta: '个人网站已创建！点击上方卡片即可预览。')],
+      [const ChatStreamEvent(contentDelta: '个人网站已创建！点击上方卡片即可预览。')],
+      [const ChatStreamEvent(contentDelta: '个人网站已创建！点击上方卡片即可预览。')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+
+    await controller.sendPrompt('写一个个人网页');
+
+    expect(chatClient.callCount, 2);
+    expect(controller.workspaceFiles, isEmpty);
+    expect(
+      controller.workspaceArtifacts.where(
+        (artifact) => artifact.type == ArtifactType.webApp,
+      ),
+      isEmpty,
+    );
+    expect(
+      controller.messages.last.blocks.first.data['text'],
+      '个人网站已创建！点击上方卡片即可预览。',
+    );
+  });
+
   test(
-    'failed required note tool reports generic required action error',
+    'tool discovery does not force note creation after a model answer',
     () async {
       final chatClient = _FakeChatClient([
         [const ChatStreamEvent(contentDelta: '已记录这个待办。')],
@@ -1802,16 +1806,12 @@ void main() {
 
       await controller.sendPrompt('记录一个待办：整理需求清单');
 
-      expect(chatClient.callCount, 3);
+      expect(chatClient.callCount, 1);
       expect(
         controller.workspaceNotes.where((n) => n.content.contains('需求清单')),
         isEmpty,
       );
-      final finalBlock = controller.messages.last.blocks.single;
-      expect(finalBlock.type, MessageBlockType.errorCard);
-      expect(finalBlock.data['title'], '必需动作未完成');
-      expect(finalBlock.data['detail'], contains('记录笔记'));
-      expect(finalBlock.data['detail'], isNot(contains('未创建真实产物')));
+      expect(controller.messages.last.blocks.first.data['text'], '已记录这个待办。');
     },
   );
 
@@ -2739,9 +2739,6 @@ class _CreateThenUpdateWebAppChatClient extends OpenAiCompatibleChatClient {
                 'file_write_app_file',
                 'project_create_web_app',
               ],
-        'required_tool_names': isUpdate
-            ? const <String>[]
-            : ['project_create_web_app'],
         'uses_context': isUpdate,
         'reason': isUpdate
             ? 'test update existing web app route'
@@ -2881,9 +2878,7 @@ class _RequiredNoteToolChatClient extends OpenAiCompatibleChatClient {
   }) async {
     return ChatCompletionResult(
       ok: true,
-      content: jsonEncode(
-        _routeDecision({'db_note_create', 'db_note_query'}, {'db_note_create'}),
-      ),
+      content: jsonEncode(_routeDecision({'db_note_create', 'db_note_query'})),
     );
   }
 
@@ -2930,10 +2925,11 @@ class _BlockingWebAppToolChatClient extends OpenAiCompatibleChatClient {
     return ChatCompletionResult(
       ok: true,
       content: jsonEncode(
-        _routeDecision(
-          {'project_create_web_app', 'artifact_query', 'file_write_app_file'},
-          {'project_create_web_app'},
-        ),
+        _routeDecision({
+          'project_create_web_app',
+          'artifact_query',
+          'file_write_app_file',
+        }),
       ),
     );
   }
@@ -2975,10 +2971,11 @@ class _SlowWebAppArgumentsChatClient extends OpenAiCompatibleChatClient {
     return ChatCompletionResult(
       ok: true,
       content: jsonEncode(
-        _routeDecision(
-          {'project_create_web_app', 'artifact_query', 'file_write_app_file'},
-          {'project_create_web_app'},
-        ),
+        _routeDecision({
+          'project_create_web_app',
+          'artifact_query',
+          'file_write_app_file',
+        }),
       ),
     );
   }
@@ -3035,10 +3032,11 @@ class _RetryAfterPartialToolArgumentsChatClient
     return ChatCompletionResult(
       ok: true,
       content: jsonEncode(
-        _routeDecision(
-          {'project_create_web_app', 'artifact_query', 'file_write_app_file'},
-          {'project_create_web_app'},
-        ),
+        _routeDecision({
+          'project_create_web_app',
+          'artifact_query',
+          'file_write_app_file',
+        }),
       ),
     );
   }
@@ -3101,20 +3099,19 @@ class _BlockingSecondRouteChatClient extends _FakeChatClient {
 
 Map<String, Object?> _routeDecisionForTest(String latest, String context) {
   final selected = <String>{};
-  final required = <String>{};
 
   void add(Iterable<String> names) => selected.addAll(names);
 
   if (latest.startsWith('用户已批准并执行了刚才的能力请求') ||
       latest.contains('继续处理已批准的能力结果')) {
-    return _routeDecision(selected, required);
+    return _routeDecision(selected);
   }
 
   if (latest == '你好' ||
       latest == '你是' ||
       latest == '我叫张三' ||
       latest == '我叫什么？') {
-    return _routeDecision(selected, required);
+    return _routeDecision(selected);
   }
   if (latest.contains('搜索') ||
       latest.contains('天气') ||
@@ -3161,7 +3158,6 @@ Map<String, Object?> _routeDecisionForTest(String latest, String context) {
       'file_search_app_files',
       'file_apply_text_patch',
     ]);
-    required.add('project_create_web_app');
   }
   if (latest.contains('复制')) {
     add(['clipboard_read', 'clipboard_write']);
@@ -3175,16 +3171,12 @@ Map<String, Object?> _routeDecisionForTest(String latest, String context) {
   if (latest.contains('连续查询记忆')) {
     add(['memory_create', 'memory_query', 'memory_delete']);
   }
-  return _routeDecision(selected, required);
+  return _routeDecision(selected);
 }
 
-Map<String, Object?> _routeDecision(
-  Set<String> selected,
-  Set<String> required,
-) {
+Map<String, Object?> _routeDecision(Set<String> selected) {
   return {
     'selected_tool_names': selected.toList(growable: false)..sort(),
-    'required_tool_names': required.toList(growable: false)..sort(),
     'uses_context': false,
     'reason': 'test route decision',
   };
@@ -3284,7 +3276,6 @@ ChatCompletionResult _emptyRouteDecision() {
     ok: true,
     content: jsonEncode({
       'selected_tool_names': <String>[],
-      'required_tool_names': <String>[],
       'uses_context': false,
       'reason': 'test empty route',
     }),

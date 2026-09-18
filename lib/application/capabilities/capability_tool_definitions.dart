@@ -1087,7 +1087,8 @@ class CapabilityToolDefinitions {
         'type': 'function',
         'function': {
           'name': 'skill_install',
-          'description': '从本地目录安装并索引 Agent Skill。脚本执行仍必须走 Capability Runtime。',
+          'description':
+              '从本地目录安装并索引标准 SKILL.md。纯指令 Skill 可加载并指导后续工具调用；脚本执行仍必须走 Capability Runtime。',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -1104,13 +1105,17 @@ class CapabilityToolDefinitions {
         'type': 'function',
         'function': {
           'name': 'skill_invoke',
-          'description': '调用已安装的 Agent Skill。',
+          'description': '按需加载已安装 Skill 的正文、相对资源，或调用其受控脚本。加载正文不会授予底层能力权限。',
           'parameters': {
             'type': 'object',
             'properties': {
               'skill_id': {'type': 'string', 'description': '要调用的 Skill ID。'},
               'input': {'type': 'object', 'description': '传递给脚本的参数对象。'},
               'script': {'type': 'string', 'description': '可选：直接提供脚本执行，不推荐。'},
+              'resource_path': {
+                'type': 'string',
+                'description': '可选：读取 Skill 包内相对资源路径，不能越出 Skill 根目录。',
+              },
             },
             'required': ['skill_id'],
           },

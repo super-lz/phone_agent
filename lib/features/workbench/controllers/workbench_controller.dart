@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../../../application/agent/agent_loop.dart';
+import '../../../application/agent/agent_action_ledger.dart';
 import '../../../application/agent/agent_loop_budget.dart';
 import '../../../application/agent/agent_run_state.dart';
 import '../../../application/agent/context_budget.dart';
@@ -336,6 +337,14 @@ class WorkbenchController extends ChangeNotifier {
       );
       await _workbenchStore.saveCurrentWorkspaceId(_workspaceId);
     }
+    if (_hasPendingApprovalForRun(pendingRun.id)) {
+      AppLogger.info('workbench.agent_run.awaiting_approval', {
+        'runId': pendingRun.id,
+        'workspaceId': pendingRun.workspaceId,
+      });
+      notifyListeners();
+      return;
+    }
     AppLogger.warning('workbench.agent_run.resume_pending', {
       'runId': pendingRun.id,
       'workspaceId': pendingRun.workspaceId,
@@ -642,10 +651,12 @@ class WorkbenchController extends ChangeNotifier {
     }
     final requestId = data['requestId'];
     final toolName = data['toolName'];
+    final runId = data['runId'];
     final workspaceId = data['workspaceId'];
     final rawInput = data['input'];
     if (requestId is! String ||
         toolName is! String ||
+        runId is! String ||
         workspaceId is! String ||
         rawInput is! Map<Object?, Object?>) {
       return;
@@ -666,6 +677,12 @@ class WorkbenchController extends ChangeNotifier {
       contextBudget: _contextBudget,
     );
     notifyListeners();
+
+    var pendingRun = await _workbenchStore.loadPendingAgentRun();
+    if (pendingRun?.id != runId) {
+      pendingRun = null;
+    }
+    final approvalLedger = AgentActionLedger.fromJson(pendingRun?.actionLedger);
 
     final apiKey = await _apiKeyStore.readApiKey(
       ModelProviders.aliyunBailianQwenFlash.id,
@@ -691,6 +708,26 @@ class WorkbenchController extends ChangeNotifier {
         apiKey: apiKey,
         permissionMode: _permissionMode,
         switchWorkspace: _switchWorkspaceFromAgent,
+        approval: ApprovedCapabilityExecution(
+          requestId: requestId,
+          runId: runId,
+          workspaceId: workspaceId,
+          toolName: toolName,
+          argumentsHash: actionFingerprint(
+            capabilityId: CapabilityRuntime.capabilityIdForToolNameOrFallback(
+              toolName,
+            ),
+            arguments: input,
+          ).split(':').last,
+        ),
+        restoredActionLedger: approvalLedger,
+        persistActionLedger: (ledger) async {
+          if (pendingRun == null) {
+            return;
+          }
+          pendingRun = pendingRun!.copyWith(actionLedger: ledger.toJson());
+          await _workbenchStore.savePendingAgentRun(pendingRun!);
+        },
       );
     } on Object catch (error) {
       _addMessage(_modelErrorResponse('已批准能力执行失败：$error'));
@@ -725,6 +762,8 @@ class WorkbenchController extends ChangeNotifier {
           description: skillData['description'] as String? ?? '',
           script: skillData['script'] as String? ?? '',
           manifestPath: skillData['manifest'] as String?,
+          instructions: skillData['instructions'] as String? ?? '',
+          sourcePath: skillData['sourcePath'] as String?,
           createdAt: DateTime.now(),
         );
         _skills.add(skill);
@@ -762,6 +801,7 @@ class WorkbenchController extends ChangeNotifier {
       ),
       priorMessages: [...priorMessagesBeforeApproval, approvedMessage],
       userPrompt: '继续处理已批准的能力结果',
+      pendingRun: pendingRun,
     );
   }
 
@@ -795,6 +835,11 @@ class WorkbenchController extends ChangeNotifier {
       return;
     }
     _setApprovalStatus(requestId, 'denied');
+    final runId = data['runId'];
+    final storedPendingRun = await _workbenchStore.loadPendingAgentRun();
+    final pendingRun = runId is String && storedPendingRun?.id == runId
+        ? storedPendingRun
+        : null;
     final priorMessagesBeforeDenial = List<AgentMessage>.unmodifiable(
       _messages,
     );
@@ -839,6 +884,7 @@ class WorkbenchController extends ChangeNotifier {
       ),
       priorMessages: [...priorMessagesBeforeDenial, deniedMessage],
       userPrompt: '继续处理已拒绝的能力请求',
+      pendingRun: pendingRun,
     );
   }
 
@@ -1306,7 +1352,7 @@ class WorkbenchController extends ChangeNotifier {
       return;
     }
 
-    final activePendingRun =
+    var activePendingRun =
         pendingRun ??
         await _createPendingAgentRun(
           modelPrompt: prompt,
@@ -1314,6 +1360,17 @@ class WorkbenchController extends ChangeNotifier {
           priorMessages: priorMessages,
         );
     if (pendingRun == null) {
+      await _workbenchStore.savePendingAgentRun(activePendingRun);
+    } else if (prompt != pendingRun.modelPrompt) {
+      // Approval/denial starts a new model step in the same run. Its new
+      // continuation prompt must not be hidden by the pre-approval protocol
+      // snapshot, while the persisted action ledger remains authoritative.
+      activePendingRun = activePendingRun.copyWith(
+        modelMessages: const [],
+        toolSchema: const [],
+        toolIndex: '',
+        modelStep: 0,
+      );
       await _workbenchStore.savePendingAgentRun(activePendingRun);
     }
 
@@ -1360,6 +1417,35 @@ class WorkbenchController extends ChangeNotifier {
         waitUntilForeground: _waitUntilForeground,
         runControl: runControl,
         reportRunSnapshot: _setCurrentRun,
+        restoredActionLedger: AgentActionLedger.fromJson(
+          activePendingRun.actionLedger,
+        ),
+        restoredModelMessages: activePendingRun.modelMessages,
+        restoredToolSchema: activePendingRun.toolSchema,
+        restoredToolIndex: activePendingRun.toolIndex,
+        restoredModelStep: activePendingRun.modelStep,
+        persistActionLedger: (ledger) async {
+          activePendingRun = activePendingRun.copyWith(
+            actionLedger: ledger.toJson(),
+          );
+          await _workbenchStore.savePendingAgentRun(activePendingRun);
+        },
+        persistProtocolCheckpoint:
+            ({
+              required modelStep,
+              required modelMessages,
+              required toolSchema,
+              required toolIndex,
+            }) async {
+              activePendingRun = activePendingRun.copyWith(
+                protocolVersion: 1,
+                modelMessages: modelMessages,
+                toolSchema: toolSchema,
+                toolIndex: toolIndex,
+                modelStep: modelStep,
+              );
+              await _workbenchStore.savePendingAgentRun(activePendingRun);
+            },
       );
     } on AgentRunCancelledException catch (error) {
       AppLogger.warning('workbench.agent_run.cancelled', {
@@ -1385,7 +1471,8 @@ class WorkbenchController extends ChangeNotifier {
       final didPersistCompletion = await _persistRunCompletionState(
         activePendingRun,
       );
-      if (didPersistCompletion) {
+      if (didPersistCompletion &&
+          !_hasPendingApprovalForRun(activePendingRun.id)) {
         try {
           await _workbenchStore.clearPendingAgentRun(activePendingRun.id);
         } on Object catch (error, stackTrace) {
@@ -1435,6 +1522,17 @@ class WorkbenchController extends ChangeNotifier {
       );
       return false;
     }
+  }
+
+  bool _hasPendingApprovalForRun(String runId) {
+    return _messages.any(
+      (message) => message.blocks.any(
+        (block) =>
+            block.type == MessageBlockType.approvalRequest &&
+            block.data['runId'] == runId &&
+            block.data['status'] == 'pending',
+      ),
+    );
   }
 
   Future<void> _recordTokenUsage(PendingAgentRun run) async {

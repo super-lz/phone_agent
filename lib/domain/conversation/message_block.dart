@@ -128,6 +128,7 @@ class MessageBlock {
     required String workspaceId,
     required Map<String, Object?> input,
     required String detail,
+    String? runId,
     String? userPrompt,
   }) => MessageBlock(
     type: MessageBlockType.approvalRequest,
@@ -138,6 +139,7 @@ class MessageBlock {
       'workspaceId': workspaceId,
       'input': input,
       'detail': detail,
+      if (runId != null && runId.trim().isNotEmpty) 'runId': runId,
       if (userPrompt != null && userPrompt.trim().isNotEmpty)
         'userPrompt': userPrompt.trim(),
       'status': 'pending',

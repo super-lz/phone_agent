@@ -24,11 +24,12 @@ class CapabilityExecutionResult {
     bool replayed = false,
     bool replayProtected = false,
     String? duplicateOf,
+    String? status,
   }) {
     final nextOutput = Map<String, Object?>.from(output);
     final receipt = <String, Object?>{
       'actionId': actionId,
-      'status': _receiptStatus(nextOutput),
+      'status': status ?? _receiptStatus(nextOutput),
       'effect': _effectFor(capabilityId, nextOutput),
       'replayed': replayed,
       'replayProtected': replayProtected,

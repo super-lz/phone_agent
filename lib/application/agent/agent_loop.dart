@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../core/logging/app_logger.dart';
 import '../../data/models/openai_compatible_chat_client.dart';
 import '../../domain/artifacts/artifact.dart';
@@ -34,6 +36,15 @@ typedef SwitchAgentWorkspace = void Function(String workspaceId);
 typedef IsAgentAppForeground = bool Function();
 typedef WaitUntilAgentAppForeground = Future<void> Function();
 typedef ReportAgentRunSnapshot = void Function(AgentRunSnapshot snapshot);
+typedef PersistAgentActionLedger =
+    Future<void> Function(AgentActionLedger ledger);
+typedef PersistAgentProtocolCheckpoint =
+    Future<void> Function({
+      required int modelStep,
+      required List<Map<String, Object?>> modelMessages,
+      required List<Map<String, Object?>> toolSchema,
+      required String toolIndex,
+    });
 
 class AgentLoop {
   AgentLoop({
@@ -67,6 +78,9 @@ class AgentLoop {
     required String? apiKey,
     required PermissionMode permissionMode,
     required SwitchAgentWorkspace switchWorkspace,
+    required ApprovedCapabilityExecution approval,
+    AgentActionLedger? restoredActionLedger,
+    PersistAgentActionLedger? persistActionLedger,
   }) async {
     final result = await _capabilityRuntime.execute(
       toolCall: toolCall,
@@ -82,7 +96,13 @@ class AgentLoop {
       workbenchStore: workbenchStore,
       apiKey: apiKey,
       permissionMode: permissionMode,
-      skipPermissionCheck: true,
+      approval: approval,
+      executionContext: AgentExecutionContext(
+        runId: approval.runId,
+        round: 0,
+        ledger: restoredActionLedger ?? AgentActionLedger(),
+      ),
+      onActionLedgerChanged: persistActionLedger,
     );
     _switchWorkspaceIfNeeded(
       result: result,
@@ -119,12 +139,19 @@ class AgentLoop {
     WaitUntilAgentAppForeground? waitUntilForeground,
     AgentRunControl? runControl,
     ReportAgentRunSnapshot? reportRunSnapshot,
+    AgentActionLedger? restoredActionLedger,
+    PersistAgentActionLedger? persistActionLedger,
+    List<Map<String, Object?>>? restoredModelMessages,
+    List<Map<String, Object?>>? restoredToolSchema,
+    String? restoredToolIndex,
+    int restoredModelStep = 0,
+    PersistAgentProtocolCheckpoint? persistProtocolCheckpoint,
   }) async {
     final startedAt = DateTime.now();
     final runState = AgentLoopRunState(budget);
     final effectiveRunId =
         runId ?? 'agent-run-${startedAt.microsecondsSinceEpoch}';
-    final actionLedger = AgentActionLedger();
+    final actionLedger = restoredActionLedger ?? AgentActionLedger();
     var activeWorkspaceId = workspaceId;
     ContextBudgetSnapshot? contextBudget;
 
@@ -165,63 +192,98 @@ class AgentLoop {
     report(AgentRunPhase.thinking, '正在处理您的请求...');
     publishInitialProcess();
     final latestRoutingPrompt = _extractTextForRouting(prompt);
-    final routingContext = _routingContextText(
-      priorMessages: priorMessages,
-      allSkills: allSkills,
-    );
-
-    report(AgentRunPhase.routing, '正在分析这次请求。');
-    final routingStopwatch = Stopwatch()..start();
-    final toolRoute = await _toolRouter.route(
-      prompt: latestRoutingPrompt,
-      context: routingContext,
-      allTools: _capabilityRuntime.toolDefinitions,
-      chatClient: _chatClient,
+    final hasProtocolCheckpoint =
+        restoredModelMessages != null && restoredModelMessages.isNotEmpty;
+    late final ToolRoute toolRoute;
+    late final List<Map<String, Object?>> modelMessages;
+    var usedSummary = false;
+    if (hasProtocolCheckpoint) {
+      toolRoute = ToolRoute.fromSnapshot(
+        tools: List<Map<String, Object?>>.from(restoredToolSchema ?? const []),
+        index: restoredToolIndex ?? '',
+      );
+      modelMessages = _snapshotModelMessages(restoredModelMessages);
+      AppLogger.info('agent_loop.protocol_checkpoint.restored', {
+        'runId': effectiveRunId,
+        'modelStep': restoredModelStep,
+        'messageCount': modelMessages.length,
+        'selectedTools': toolRoute.selectedToolNames,
+      });
+    } else {
+      final routingContext = _routingContextText(
+        priorMessages: priorMessages,
+        allSkills: allSkills,
+      );
+      report(AgentRunPhase.routing, '正在分析这次请求。');
+      final routingStopwatch = Stopwatch()..start();
+      toolRoute = await _toolRouter.route(
+        prompt: latestRoutingPrompt,
+        context: routingContext,
+        allTools: _capabilityRuntime.toolDefinitions,
+        chatClient: _chatClient,
+        provider: provider,
+        apiKey: apiKey,
+      );
+      routingStopwatch.stop();
+      final buildMessagesStopwatch = Stopwatch()..start();
+      final modelMessageResult = await _buildModelMessages(
+        prompt: prompt,
+        workspace: workspace,
+        visibleMemories: visibleMemories,
+        priorMessages: priorMessages,
+        toolIndex: toolRoute.index,
+        toolSchema: toolRoute.tools,
+        chatClient: _chatClient,
+        provider: provider,
+        apiKey: apiKey,
+      );
+      buildMessagesStopwatch.stop();
+      usedSummary = modelMessageResult.usedSummary;
+      modelMessages = modelMessageResult.messages;
+      if (actionLedger.records.isNotEmpty) {
+        modelMessages.add({
+          'role': 'system',
+          'content':
+              '这是上一次中断后恢复的执行检查点。只能依据其中真实 receipt、资源或失败结果描述状态；'
+              'status=resultUnknown 时不得盲目重试，必须先对账、复用幂等 key 或请求用户决定。\n'
+              '${jsonEncode(actionLedger.modelCheckpoint)}',
+        });
+      }
+      AppLogger.info('agent_loop.routing.completed', {
+        'durationMs': routingStopwatch.elapsedMilliseconds,
+        'selectedTools': toolRoute.selectedToolNames,
+      });
+      AppLogger.info('agent_loop.build_messages.completed', {
+        'durationMs': buildMessagesStopwatch.elapsedMilliseconds,
+        'messageCount': modelMessages.length,
+        'usedSummary': usedSummary,
+      });
+    }
+    contextBudget = _contextBudgetPlanner.snapshotForModelMessages(
       provider: provider,
-      apiKey: apiKey,
+      messages: modelMessages,
+      tools: toolRoute.tools,
     );
-    routingStopwatch.stop();
-    AppLogger.info('agent_loop.routing.completed', {
-      'durationMs': routingStopwatch.elapsedMilliseconds,
-      'selectedTools': toolRoute.selectedToolNames,
-      'requiredTools': toolRoute.requiredToolNames,
-    });
-
-    final buildMessagesStopwatch = Stopwatch()..start();
-    final modelMessageResult = await _buildModelMessages(
-      prompt: prompt,
-      workspace: workspace,
-      visibleMemories: visibleMemories,
-      priorMessages: priorMessages,
-      toolIndex: toolRoute.index,
-      toolSchema: toolRoute.tools,
-      chatClient: _chatClient,
-      provider: provider,
-      apiKey: apiKey,
-    );
-    buildMessagesStopwatch.stop();
-    AppLogger.info('agent_loop.build_messages.completed', {
-      'durationMs': buildMessagesStopwatch.elapsedMilliseconds,
-      'messageCount': modelMessageResult.messages.length,
-      'usedSummary': modelMessageResult.usedSummary,
-    });
-
-    final modelMessages = modelMessageResult.messages;
-    contextBudget = modelMessageResult.contextBudget;
     if (contextBudget.exceedsWindow) {
       throw ContextBudgetExceededException(contextBudget);
     }
     report(
       AgentRunPhase.routing,
-      modelMessageResult.usedSummary ? '已压缩早期上下文，正在组织回答。' : '已整理上下文，正在组织回答。',
+      usedSummary ? '已压缩早期上下文，正在组织回答。' : '已整理上下文，正在组织回答。',
     );
 
-    final currentTurnToolResults = <CapabilityExecutionResult>[];
-    var requiredToolCorrectionAttempts = 0;
+    Future<void> persistProtocol(int modelStep) async {
+      await persistProtocolCheckpoint?.call(
+        modelStep: modelStep,
+        modelMessages: _snapshotModelMessages(modelMessages),
+        toolSchema: _snapshotModelMessages(toolRoute.tools),
+        toolIndex: toolRoute.index,
+      );
+    }
+
     var rawFinalCorrectionAttempts = 0;
     var truncatedCorrectionAttempts = 0;
     var accumulatedProcessBlocks = <MessageBlock>[];
-    var finalizeOnly = false;
 
     for (
       var round = 0;
@@ -229,6 +291,15 @@ class AgentLoop {
       round += 1
     ) {
       throwIfCancelled();
+      contextBudget = _contextBudgetPlanner.snapshotForModelMessages(
+        provider: provider,
+        messages: modelMessages,
+        tools: toolRoute.tools,
+      );
+      if (contextBudget.exceedsWindow) {
+        throw ContextBudgetExceededException(contextBudget);
+      }
+      await persistProtocol(restoredModelStep + round);
 
       final assistantMessageId = firstAssistantMessageId;
       final contentBuffer = StringBuffer();
@@ -276,10 +347,6 @@ class AgentLoop {
 
       publishProcessBlocks();
 
-      if (finalizeOnly) {
-        report(AgentRunPhase.finalizing, '动作已收敛，正在生成最终回答。');
-      }
-
       // START MODEL STREAMING
       final streamStopwatch = Stopwatch()..start();
       var firstTokenLatency = 0;
@@ -294,8 +361,7 @@ class AgentLoop {
             provider: provider,
             apiKey: apiKey,
             messages: _snapshotModelMessages(modelMessages),
-            tools:
-                provider.supportsTools && runState.canUseTools && !finalizeOnly
+            tools: provider.supportsTools && runState.canUseTools
                 ? toolRoute.tools
                 : const [],
           )) {
@@ -447,36 +513,10 @@ class AgentLoop {
       AppLogger.info('agent_loop.round.decision', {
         'runId': effectiveRunId,
         'round': round,
-        'finalizeOnly': finalizeOnly,
         'toolCallCount': requests.length,
         'toolCallsUsed': runState.toolCallsUsed,
         'actionCount': actionLedger.records.length,
       });
-
-      if (finalizeOnly && requests.isNotEmpty) {
-        report(AgentRunPhase.finalizing, '已拦截重复工具请求，正在要求模型直接总结。');
-        modelMessages.add({
-          'role': 'assistant',
-          'content': stripInternalToolProgressText(contentBuffer.toString()),
-          'tool_calls': requests
-              .map((request) => request.toAssistantMessageToolCall())
-              .toList(growable: false),
-        });
-        for (final request in requests) {
-          final result = _finalizeGateBlockedResult(request);
-          modelMessages.add({
-            'role': 'tool',
-            'tool_call_id': request.id,
-            'name': request.name,
-            'content': result.encodedModelObservation,
-          });
-        }
-        modelMessages.add(const {
-          'role': 'user',
-          'content': 'Finalize gate 已生效：不要再发起任何工具调用。请只输出面向用户的自然语言结论。',
-        });
-        continue;
-      }
 
       // CASE 1: NO TOOL CALLS -> WE ARE DONE
       if (requests.isEmpty) {
@@ -493,8 +533,7 @@ class AgentLoop {
           final looksLikePseudoToolCall = looksLikePseudoToolCallText(
             finalText,
           );
-          if (finalText.trim().isEmpty &&
-              _requiredToolsSatisfied(toolRoute, currentTurnToolResults)) {
+          if (finalText.trim().isEmpty) {
             replaceMessage(
               assistantMessageId,
               _modelErrorResponse('模型只返回了内部工具参数进度，没有返回可展示内容。请重试本轮请求。'),
@@ -503,87 +542,7 @@ class AgentLoop {
             report(AgentRunPhase.failed, '模型没有返回可展示内容');
             return;
           }
-          if (!_requiredToolsSatisfied(toolRoute, currentTurnToolResults)) {
-            if (looksLikePseudoToolCallText(finalText) &&
-                toolRoute.tools.isNotEmpty &&
-                provider.supportsTools &&
-                runState.canUseTools &&
-                rawFinalCorrectionAttempts < 1) {
-              rawFinalCorrectionAttempts += 1;
-              replaceMessage(
-                assistantMessageId,
-                _assistantIntermediateMessage(
-                  assistantMessageId,
-                  '模型输出了不会执行的伪工具调用标签，系统已拦截，正在要求改用真实工具调用。',
-                ),
-              );
-              modelMessages
-                ..add({
-                  'role': 'assistant',
-                  'content': '[上一轮把伪工具调用标签作为正文输出，系统未执行这些标签。]',
-                })
-                ..add({
-                  'role': 'user',
-                  'content':
-                      '你刚才把 <tool_call>、<function=...> 或 <parameter=...> '
-                      '当作普通正文输出了。正文里的伪工具标签不会被系统执行。'
-                      '请立即使用当前 tools schema 发起真实 tool call；'
-                      '不要再输出伪工具标签、原始参数或工具调用文本。'
-                      '如果无法调用真实工具，请明确说明哪些动作尚未执行。',
-                });
-              notifyChange();
-              continue;
-            }
-            if (requiredToolCorrectionAttempts < 2) {
-              requiredToolCorrectionAttempts += 1;
-              replaceMessage(
-                assistantMessageId,
-                _assistantIntermediateMessage(
-                  assistantMessageId,
-                  looksLikePseudoToolCall
-                      ? '模型输出了不会执行的伪工具调用标签，系统已拦截。'
-                      : finalText,
-                ),
-              );
-              modelMessages
-                ..add({
-                  'role': 'assistant',
-                  'content': looksLikePseudoToolCall
-                      ? '[上一轮把伪工具调用标签作为正文输出，系统未执行这些标签。]'
-                      : finalText,
-                })
-                ..add({
-                  'role': 'user',
-                  'content': looksLikePseudoToolCall
-                      ? '本轮存在必须完成的工具动作：'
-                            '${_requiredToolDisplayNames(toolRoute.requiredToolNames)}。'
-                            '你刚才把工具调用写成了正文里的伪标签，这些标签没有被执行。'
-                            '请使用当前 tools schema 发起真实 tool call；'
-                            '如果无法调用，请明确说明哪些动作尚未完成。'
-                      : '本轮存在必须完成的工具动作：'
-                            '${_requiredToolDisplayNames(toolRoute.requiredToolNames)}。'
-                            '在这些动作成功执行前，不能声称任务已经完成、内容已经保存、'
-                            '产物已经创建或可以预览。请立即调用缺失的必需工具；'
-                            '如果无法调用，请明确说明哪些动作尚未完成。',
-                });
-              notifyChange();
-              continue;
-            }
-            replaceMessage(
-              assistantMessageId,
-              _requiredToolErrorResponse(
-                assistantMessageId,
-                toolRoute.requiredToolNames,
-              ),
-            );
-            notifyChange();
-            report(AgentRunPhase.completed, '必需工具没有成功完成');
-            return;
-          }
-
-          if ((currentTurnToolResults.isNotEmpty ||
-                  looksLikePseudoToolCall && toolRoute.tools.isNotEmpty) &&
-              looksLikeRawToolProcess(finalText) &&
+          if (looksLikeRawToolProcess(finalText) &&
               rawFinalCorrectionAttempts < 1) {
             rawFinalCorrectionAttempts += 1;
             replaceMessage(
@@ -631,9 +590,7 @@ class AgentLoop {
           final looksTruncated =
               streamFinishReason == 'length' ||
               looksLikeTruncatedAssistantText(finalText);
-          if (looksTruncated &&
-              truncatedCorrectionAttempts < 1 &&
-              !finalizeOnly) {
+          if (looksTruncated && truncatedCorrectionAttempts < 1) {
             truncatedCorrectionAttempts += 1;
             AppLogger.warning('agent_loop.stream.truncated_retry', {
               'round': round,
@@ -683,6 +640,7 @@ class AgentLoop {
             .map((r) => r.toAssistantMessageToolCall())
             .toList(growable: false),
       });
+      await persistProtocol(restoredModelStep + round);
 
       processBlocks
         ..clear()
@@ -724,7 +682,6 @@ class AgentLoop {
           final result = _invalidToolArgumentsResult(request);
           runState.recordToolResult(false);
           runState.recordProgress(false);
-          currentTurnToolResults.add(result);
           processBlocks.add(
             MessageBlock.toolResult(result.capabilityId, result.output),
           );
@@ -735,12 +692,12 @@ class AgentLoop {
             'name': request.name,
             'content': result.encodedModelObservation,
           });
+          await persistProtocol(restoredModelStep + round + 1);
           continue;
         }
 
         if (!runState.canStartToolCall) {
           final result = _toolBudgetExceededResult(request, runState);
-          currentTurnToolResults.add(result);
           processBlocks.add(
             MessageBlock.toolResult(result.capabilityId, result.output),
           );
@@ -751,6 +708,7 @@ class AgentLoop {
             'name': request.name,
             'content': result.encodedModelObservation,
           });
+          await persistProtocol(restoredModelStep + round + 1);
           continue;
         }
 
@@ -773,6 +731,7 @@ class AgentLoop {
             round: round,
             ledger: actionLedger,
           ),
+          onActionLedgerChanged: persistActionLedger,
         );
 
         runState.recordToolResult(result.output['ok'] == true);
@@ -781,8 +740,6 @@ class AgentLoop {
               (result.output['receipt'] is! Map ||
                   (result.output['receipt']! as Map)['replayed'] != true),
         );
-        currentTurnToolResults.add(result);
-
         activeWorkspaceId = _switchWorkspaceIfNeeded(
           result: result,
           fallbackWorkspaceId: activeWorkspaceId,
@@ -802,6 +759,7 @@ class AgentLoop {
               workspaceId: activeWorkspaceId,
               input: request.arguments,
               detail: result.output['detail'] as String? ?? '需要授权',
+              runId: effectiveRunId,
               userPrompt: latestRoutingPrompt,
             ),
           );
@@ -811,6 +769,7 @@ class AgentLoop {
         publishToolProcess();
 
         if (result.output['error'] == 'permission_confirmation_required') {
+          await persistProtocol(restoredModelStep + round + 1);
           report(AgentRunPhase.completed, '等待用户授权');
           return;
         }
@@ -827,14 +786,14 @@ class AgentLoop {
             receipt['replayed'] == true &&
             receipt['replayProtected'] == true &&
             receipt['status'] == 'completed') {
-          finalizeOnly = true;
           modelMessages.add(const {
             'role': 'user',
             'content':
                 '这个逻辑动作已经完成，系统返回了已有 execution receipt，未再次执行副作用。'
-                '请立即进入最终回答阶段，基于已有结果给用户自然语言结论；不要再次调用工具。',
+                '请基于该 receipt 继续完成用户尚未完成的目标；不要再次执行这个相同动作。'
+                '其它独立动作仍可在需要时调用。',
           });
-          AppLogger.info('agent_loop.finalize_gate.entered', {
+          AppLogger.info('agent_loop.replay.receipt_returned', {
             'runId': effectiveRunId,
             'round': round,
             'tool': request.name,
@@ -842,6 +801,7 @@ class AgentLoop {
             'duplicateOf': receipt['duplicateOf'],
           });
         }
+        await persistProtocol(restoredModelStep + round + 1);
       }
       accumulatedProcessBlocks = List<MessageBlock>.of(processBlocks);
     }
@@ -891,22 +851,6 @@ class AgentLoop {
         'ok': false,
         'error': 'tool_budget_exceeded',
         'detail': detail,
-        'tool': request.name,
-      },
-    );
-  }
-
-  CapabilityExecutionResult _finalizeGateBlockedResult(
-    ToolCallRequest request,
-  ) {
-    return CapabilityExecutionResult(
-      capabilityId: CapabilityRuntime.capabilityIdForToolNameOrFallback(
-        request.name,
-      ),
-      output: {
-        'ok': false,
-        'error': 'finalize_gate_blocked',
-        'detail': '逻辑动作已经完成，Finalize Gate 已阻止重复副作用工具调用。',
         'tool': request.name,
       },
     );
@@ -1248,24 +1192,6 @@ class AgentLoop {
     return '$chars 字符';
   }
 
-  bool _requiredToolsSatisfied(
-    ToolRoute toolRoute,
-    List<CapabilityExecutionResult> results,
-  ) {
-    if (toolRoute.requiredToolNames.isEmpty) {
-      return true;
-    }
-    final successfulCapabilityIds = results
-        .where((result) => result.output['ok'] == true)
-        .map((result) => result.capabilityId)
-        .toSet();
-    return toolRoute.requiredToolNames.every((toolName) {
-      final capabilityId = CapabilityRuntime.capabilityIdForToolName(toolName);
-      return capabilityId != null &&
-          successfulCapabilityIds.contains(capabilityId);
-    });
-  }
-
   List<Map<String, Object?>> _snapshotModelMessages(
     List<Map<String, Object?>> messages,
   ) {
@@ -1375,29 +1301,6 @@ class AgentLoop {
         MessageBlock.error('模型连接中断', detail),
       ],
     );
-  }
-
-  AgentMessage _requiredToolErrorResponse(
-    String id,
-    List<String> requiredToolNames,
-  ) {
-    final requiredTools = _requiredToolDisplayNames(requiredToolNames);
-    return AgentMessage(
-      id: id,
-      role: MessageRole.assistant,
-      createdAt: DateTime.now(),
-      blocks: [
-        MessageBlock.error(
-          '必需动作未完成',
-          '必需工具没有成功完成：$requiredTools。'
-              '系统已阻止模型把未完成的创建、保存、切换、预览或其它必须执行动作当作成功结果展示。',
-        ),
-      ],
-    );
-  }
-
-  String _requiredToolDisplayNames(List<String> requiredToolNames) {
-    return requiredToolNames.map(agentToolDisplayName).join('、');
   }
 
   AgentMessage _modelErrorResponse(String detail) {
