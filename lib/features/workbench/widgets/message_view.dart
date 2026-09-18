@@ -29,15 +29,10 @@ class MessageView extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final maxWidth = constraints.maxWidth < 480
-            ? constraints.maxWidth * 0.82
-            : constraints.maxWidth * 0.72;
         return Align(
           alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
           child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: maxWidth.clamp(260.0, 620.0).toDouble(),
-            ),
+            constraints: BoxConstraints(maxWidth: constraints.maxWidth),
             child: Tooltip(
               message: isUser ? 'You' : 'Agent',
               child: Container(

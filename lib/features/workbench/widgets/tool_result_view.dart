@@ -9,16 +9,22 @@ class ToolResultView extends StatelessWidget {
   const ToolResultView({
     required this.capabilityId,
     required this.output,
+    this.showFrame = true,
     super.key,
   });
 
   final String capabilityId;
   final Map<String, Object?> output;
+  final bool showFrame;
 
   @override
   Widget build(BuildContext context) {
     if (capabilityId == 'web.search' || capabilityId == 'web.fetch') {
-      return _WebToolResultCard(capabilityId: capabilityId, output: output);
+      return _WebToolResultCard(
+        capabilityId: capabilityId,
+        output: output,
+        showFrame: showFrame,
+      );
     }
     final presentation = presentCapabilityResult(
       capabilityId: capabilityId,
@@ -28,6 +34,7 @@ class ToolResultView extends StatelessWidget {
       presentation: presentation,
       capabilityId: capabilityId,
       output: output,
+      showFrame: showFrame,
     );
   }
 }
@@ -37,11 +44,13 @@ class _GenericToolResultCard extends StatefulWidget {
     required this.presentation,
     required this.capabilityId,
     required this.output,
+    this.showFrame = true,
   });
 
   final CapabilityResultPresentation presentation;
   final String capabilityId;
   final Map<String, Object?> output;
+  final bool showFrame;
 
   @override
   State<_GenericToolResultCard> createState() => _GenericToolResultCardState();
@@ -62,6 +71,75 @@ class _GenericToolResultCardState extends State<_GenericToolResultCard> {
   Widget build(BuildContext context) {
     final presentation = widget.presentation;
     final colors = context.phoneAgentColors;
+    final body = InkWell(
+      onTap: () => setState(() => _expanded = !_expanded),
+      borderRadius: widget.showFrame ? BorderRadius.circular(16) : null,
+      child: Padding(
+        padding: EdgeInsets.all(widget.showFrame ? 10 : 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  presentation.ok
+                      ? Icons.check_circle_outline
+                      : Icons.error_outline,
+                  size: 18,
+                  color: presentation.ok
+                      ? colors.primaryAction
+                      : const Color(0xFFE0523D),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    presentation.title,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelLarge?.copyWith(color: colors.textPrimary),
+                  ),
+                ),
+                _StatusPill(ok: presentation.ok),
+                const SizedBox(width: 4),
+                Icon(
+                  _expanded ? Icons.expand_less : Icons.expand_more,
+                  color: colors.textTertiary,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              presentation.summary,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: colors.textSecondary),
+            ),
+            if (widget.capabilityId == 'location.get_current' &&
+                presentation.ok)
+              _LocationMapAction(output: widget.output),
+            if (_expanded) ...[
+              const SizedBox(height: 8),
+              Text(
+                '调试详情 · ${widget.capabilityId}',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+              const SizedBox(height: 4),
+              SelectionArea(
+                child: Text(
+                  presentation.detail,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+    if (!widget.showFrame) {
+      return body;
+    }
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
@@ -72,72 +150,7 @@ class _GenericToolResultCardState extends State<_GenericToolResultCard> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: colors.border),
       ),
-      child: InkWell(
-        onTap: () => setState(() => _expanded = !_expanded),
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    presentation.ok
-                        ? Icons.check_circle_outline
-                        : Icons.error_outline,
-                    size: 18,
-                    color: presentation.ok
-                        ? colors.primaryAction
-                        : const Color(0xFFE0523D),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      presentation.title,
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: colors.textPrimary,
-                      ),
-                    ),
-                  ),
-                  _StatusPill(ok: presentation.ok),
-                  const SizedBox(width: 4),
-                  Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
-                    color: colors.textTertiary,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                presentation.summary,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(color: colors.textSecondary),
-              ),
-              if (widget.capabilityId == 'location.get_current' &&
-                  presentation.ok)
-                _LocationMapAction(output: widget.output),
-              if (_expanded) ...[
-                const SizedBox(height: 8),
-                Text(
-                  '调试详情 · ${widget.capabilityId}',
-                  style: Theme.of(context).textTheme.labelSmall,
-                ),
-                const SizedBox(height: 4),
-                SelectionArea(
-                  child: Text(
-                    presentation.detail,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
+      child: body,
     );
   }
 }
@@ -201,10 +214,15 @@ class _LocationMapAction extends StatelessWidget {
 }
 
 class _WebToolResultCard extends StatefulWidget {
-  const _WebToolResultCard({required this.capabilityId, required this.output});
+  const _WebToolResultCard({
+    required this.capabilityId,
+    required this.output,
+    this.showFrame = true,
+  });
 
   final String capabilityId;
   final Map<String, Object?> output;
+  final bool showFrame;
 
   @override
   State<_WebToolResultCard> createState() => _WebToolResultCardState();
@@ -234,6 +252,65 @@ class _WebToolResultCardState extends State<_WebToolResultCard> {
     final query = widget.output['query'];
     final title = widget.capabilityId == 'web.fetch' ? '网页解析结果' : '联网搜索结果';
 
+    final body = InkWell(
+      onTap: () => setState(() => _expanded = !_expanded),
+      borderRadius: widget.showFrame ? BorderRadius.circular(16) : null,
+      child: Padding(
+        padding: EdgeInsets.all(widget.showFrame ? 10 : 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  ok ? Icons.public : Icons.error_outline,
+                  size: 18,
+                  color: ok ? colors.primaryAction : const Color(0xFFE0523D),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelLarge?.copyWith(color: colors.textPrimary),
+                  ),
+                ),
+                _StatusPill(ok: ok),
+                const SizedBox(width: 4),
+                Icon(
+                  _expanded ? Icons.expand_less : Icons.expand_more,
+                  color: colors.textTertiary,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (provider is String && provider.isNotEmpty)
+              _MetaLine(label: 'Provider', value: provider),
+            if (query is String && query.isNotEmpty)
+              _MetaLine(label: 'Query', value: query),
+            if (url is String && url.isNotEmpty)
+              _MetaLine(label: 'URL', value: url),
+            if (error is String && error.isNotEmpty)
+              _ErrorText(error: error)
+            else if (_expanded && content is String && content.isNotEmpty)
+              _SearchContent(content: content)
+            else if (!_expanded && content is String && content.isNotEmpty)
+              Text(
+                _preview(content),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              )
+            else
+              const Text('工具没有返回可展示内容。'),
+          ],
+        ),
+      ),
+    );
+    if (!widget.showFrame) {
+      return body;
+    }
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
@@ -242,62 +319,7 @@ class _WebToolResultCardState extends State<_WebToolResultCard> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: colors.border),
       ),
-      child: InkWell(
-        onTap: () => setState(() => _expanded = !_expanded),
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    ok ? Icons.public : Icons.error_outline,
-                    size: 18,
-                    color: ok ? colors.primaryAction : const Color(0xFFE0523D),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: colors.textPrimary,
-                      ),
-                    ),
-                  ),
-                  _StatusPill(ok: ok),
-                  const SizedBox(width: 4),
-                  Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
-                    color: colors.textTertiary,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              if (provider is String && provider.isNotEmpty)
-                _MetaLine(label: 'Provider', value: provider),
-              if (query is String && query.isNotEmpty)
-                _MetaLine(label: 'Query', value: query),
-              if (url is String && url.isNotEmpty)
-                _MetaLine(label: 'URL', value: url),
-              if (error is String && error.isNotEmpty)
-                _ErrorText(error: error)
-              else if (_expanded && content is String && content.isNotEmpty)
-                _SearchContent(content: content)
-              else if (!_expanded && content is String && content.isNotEmpty)
-                Text(
-                  _preview(content),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                )
-              else
-                const Text('工具没有返回可展示内容。'),
-            ],
-          ),
-        ),
-      ),
+      child: body,
     );
   }
 
@@ -397,7 +419,6 @@ class _StatusPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: ok ? colors.cardBackground : colors.warningBackground,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: colors.border),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

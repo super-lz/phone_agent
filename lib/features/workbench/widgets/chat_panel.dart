@@ -340,9 +340,9 @@ class _ChatPanelState extends State<ChatPanel> {
                     controller: _scrollController,
                     reverse: true,
                     padding: EdgeInsets.fromLTRB(
-                      14,
+                      24,
                       20,
-                      14,
+                      24,
                       MediaQuery.of(context).padding.bottom + 18,
                     ),
                     keyboardDismissBehavior:

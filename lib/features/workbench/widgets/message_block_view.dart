@@ -18,6 +18,7 @@ class MessageBlockView extends StatelessWidget {
     required this.onOpenWebAppArtifact,
     this.onApproveCapability,
     this.onDenyCapability,
+    this.compactChrome = false,
     super.key,
   });
 
@@ -25,6 +26,7 @@ class MessageBlockView extends StatelessWidget {
   final ValueChanged<String> onOpenWebAppArtifact;
   final ValueChanged<Map<String, Object?>>? onApproveCapability;
   final ValueChanged<Map<String, Object?>>? onDenyCapability;
+  final bool compactChrome;
 
   @override
   Widget build(BuildContext context) {
@@ -43,11 +45,13 @@ class MessageBlockView extends StatelessWidget {
           title: 'Tool Call · $capabilityId',
           body: toolCallSummary(capabilityId, block.data['input']),
           initiallyExpanded: false,
+          showFrame: !compactChrome,
         );
       case MessageBlockType.toolResult:
         return ToolResultView(
           capabilityId: block.data['capabilityId']! as String,
           output: block.data['output']! as Map<String, Object?>,
+          showFrame: !compactChrome,
         );
       case MessageBlockType.todoList:
         return TodoBlock(items: MessageBlock.stringList(block.data['items']));
@@ -104,6 +108,7 @@ class MessageBlockView extends StatelessWidget {
             onOpenWebAppArtifact: onOpenWebAppArtifact,
             onApproveCapability: onApproveCapability,
             onDenyCapability: onDenyCapability,
+            compactChrome: true,
           ),
         );
       case MessageBlockType.citation:

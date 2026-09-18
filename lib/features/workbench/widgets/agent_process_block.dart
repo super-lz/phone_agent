@@ -37,23 +37,17 @@ class _AgentProcessBlockState extends State<AgentProcessBlock> {
   @override
   Widget build(BuildContext context) {
     final colors = context.phoneAgentColors;
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: colors.cardBackground,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colors.border),
-      ),
-      child: InkWell(
-        onTap: () => setState(() => _expanded = !_expanded),
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+    final splitColor = colors.border.withValues(alpha: 0.45);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
                 children: [
                   if (widget.status == 'processing')
                     SizedBox(
@@ -95,13 +89,17 @@ class _AgentProcessBlockState extends State<AgentProcessBlock> {
                   ),
                 ],
               ),
-              if (_expanded) ...[
-                Divider(height: 20, color: colors.border),
-                for (final block in widget.blocks) widget.blockBuilder(block),
-              ],
-            ],
+            ),
           ),
-        ),
+          if (_expanded) ...[
+            Divider(height: 16, thickness: 0.5, color: splitColor),
+            for (var index = 0; index < widget.blocks.length; index += 1) ...[
+              widget.blockBuilder(widget.blocks[index]),
+              if (index != widget.blocks.length - 1)
+                Divider(height: 12, thickness: 0.4, color: splitColor),
+            ],
+          ],
+        ],
       ),
     );
   }

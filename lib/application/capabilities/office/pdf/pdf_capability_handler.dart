@@ -55,7 +55,7 @@ class PdfCapabilityHandler {
           },
         );
       }
-      final extracted = codec.extract(read.bytes);
+      final extracted = await codec.extract(read.bytes);
       final truncated = extracted.length > maxChars;
       final content = truncated ? extracted.substring(0, maxChars) : extracted;
       return CapabilityExecutionResult(
@@ -104,13 +104,24 @@ class PdfCapabilityHandler {
       );
     }
     final path = io.outputPathOf(arguments, fallback: 'pdf/$title.pdf');
-    return io.writeGenerated(
-      capabilityId: capabilityId,
-      workspaceId: workspaceId,
-      path: path,
-      bytes: await codec.encode(title: title, body: body),
-      fileStore: fileStore,
-      summary: '已生成 PDF 文件：$path。',
-    );
+    try {
+      return io.writeGenerated(
+        capabilityId: capabilityId,
+        workspaceId: workspaceId,
+        path: path,
+        bytes: await codec.encode(title: title, body: body),
+        fileStore: fileStore,
+        summary: '已生成 PDF 文件：$path。',
+      );
+    } on Object catch (error) {
+      return CapabilityExecutionResult(
+        capabilityId: capabilityId,
+        output: {
+          'ok': false,
+          'error': 'pdf generate failed',
+          'detail': error.toString(),
+        },
+      );
+    }
   }
 }

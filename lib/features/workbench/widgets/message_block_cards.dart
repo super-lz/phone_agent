@@ -109,6 +109,7 @@ class StructuredBlock extends StatelessWidget {
     required this.body,
     this.initiallyExpanded = true,
     this.onTap,
+    this.showFrame = true,
     super.key,
   });
 
@@ -117,6 +118,7 @@ class StructuredBlock extends StatelessWidget {
   final String body;
   final bool initiallyExpanded;
   final VoidCallback? onTap;
+  final bool showFrame;
 
   @override
   Widget build(BuildContext context) {
@@ -127,6 +129,15 @@ class StructuredBlock extends StatelessWidget {
         title: title,
         body: body,
         initiallyExpanded: initiallyExpanded,
+        showFrame: showFrame,
+      );
+    }
+    if (!showFrame) {
+      return _StructuredBlockBody(
+        icon: icon,
+        title: title,
+        body: body,
+        onTap: onTap,
       );
     }
     return Padding(
@@ -181,18 +192,75 @@ class StructuredBlock extends StatelessWidget {
   }
 }
 
+class _StructuredBlockBody extends StatelessWidget {
+  const _StructuredBlockBody({
+    required this.icon,
+    required this.title,
+    required this.body,
+    this.onTap,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+  final VoidCallback? onTap;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.phoneAgentColors;
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: colors.primaryAction),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(color: colors.textPrimary),
+                ),
+                const SizedBox(height: 4),
+                Text(body, style: TextStyle(color: colors.textSecondary)),
+              ],
+            ),
+          ),
+          if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+          if (onTap != null && trailing == null) ...[
+            const SizedBox(width: 8),
+            Icon(Icons.chevron_right, size: 18, color: colors.textTertiary),
+          ],
+        ],
+      ),
+    );
+    if (onTap == null) {
+      return content;
+    }
+    return InkWell(onTap: onTap, child: content);
+  }
+}
+
 class _ExpandableStructuredBlock extends StatefulWidget {
   const _ExpandableStructuredBlock({
     required this.icon,
     required this.title,
     required this.body,
     required this.initiallyExpanded,
+    this.showFrame = true,
   });
 
   final IconData icon;
   final String title;
   final String body;
   final bool initiallyExpanded;
+  final bool showFrame;
 
   @override
   State<_ExpandableStructuredBlock> createState() =>
@@ -209,6 +277,19 @@ class _ExpandableStructuredBlockState
     final preview = widget.body.length > 120
         ? '${widget.body.substring(0, 120)}...'
         : widget.body;
+    final body = _StructuredBlockBody(
+      icon: widget.icon,
+      title: widget.title,
+      body: _expanded ? widget.body : preview,
+      onTap: () => setState(() => _expanded = !_expanded),
+      trailing: Icon(
+        _expanded ? Icons.expand_less : Icons.expand_more,
+        color: colors.textTertiary,
+      ),
+    );
+    if (!widget.showFrame) {
+      return body;
+    }
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
