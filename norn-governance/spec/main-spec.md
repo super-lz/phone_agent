@@ -1,6 +1,6 @@
 # Phone Agent 第一版本实现规格
 
-本文件是当前项目的主实现规格，记录业务语义，不复述代码实现。填写和维护规则见 `docs/spec/AGENTS.md`。
+本文件是当前项目的主实现规格，记录业务语义，不复述代码实现。填写和维护规则见 `norn-governance/spec/AGENTS.md`。
 
 ## 目标
 
