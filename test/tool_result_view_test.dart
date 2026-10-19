@@ -144,7 +144,7 @@ void main() {
     );
 
     expect(find.text('联网搜索结果'), findsOneWidget);
-    expect(find.text('OK'), findsOneWidget);
+    expect(find.text('成功'), findsOneWidget);
     expect(find.textContaining('aliyun_bailian_websearch_mcp'), findsOneWidget);
     expect(find.textContaining('搜索摘要'), findsOneWidget);
     expect(find.textContaining('https://example.com/news'), findsWidgets);
@@ -174,7 +174,7 @@ void main() {
     );
 
     expect(find.text('网页解析结果'), findsOneWidget);
-    expect(find.text('ERR'), findsOneWidget);
+    expect(find.text('失败'), findsOneWidget);
     expect(find.text('HTTP 500'), findsOneWidget);
   });
 
@@ -247,6 +247,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('我先查询一下。'), findsOneWidget);
+    expect(find.text('天气'), findsOneWidget);
+    expect(find.text('联网搜索结果'), findsNothing);
+    await tester.tap(find.text('联网搜索'));
+    await tester.pumpAndSettle();
     expect(find.text('联网搜索结果'), findsOneWidget);
   });
 
@@ -340,7 +344,8 @@ void main() {
     );
 
     expect(find.text('正在执行 创建 Web App'), findsOneWidget);
-    expect(find.textContaining('Tool Call'), findsOneWidget);
+    expect(find.text('创建 Web App'), findsOneWidget);
+    expect(find.text('待办'), findsOneWidget);
 
     await tester.pumpWidget(
       MaterialApp(

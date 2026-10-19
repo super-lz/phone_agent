@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/phone_agent_colors.dart';
+import '../../../application/agent/tool_display_names.dart';
 import 'tool_call_summary.dart';
 
 class ApprovalBlock extends StatelessWidget {
@@ -27,7 +28,7 @@ class ApprovalBlock extends StatelessWidget {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: colors.warningBackground,
         border: Border.all(color: colors.border),
@@ -41,12 +42,16 @@ class ApprovalBlock extends StatelessWidget {
               Icon(
                 Icons.verified_user_outlined,
                 size: 18,
-                color: colors.primaryAction,
+                color: colors.textSecondary,
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  '需要确认 · ${data['capabilityId']}',
+                  '${pending
+                      ? '需要确认'
+                      : status == 'approved'
+                      ? '已允许'
+                      : '已拒绝'} · ${agentToolDisplayName(toolName)}',
                   style: Theme.of(
                     context,
                   ).textTheme.titleSmall?.copyWith(color: colors.textPrimary),

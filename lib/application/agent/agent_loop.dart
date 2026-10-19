@@ -282,7 +282,16 @@ class AgentLoop {
     }
 
     var rawFinalCorrectionAttempts = 0;
-    var truncatedCorrectionAttempts = 0;
+    // The protocol checkpoint also carries an unfinished answer across restart.
+    var continuationPrefix =
+        hasProtocolCheckpoint &&
+            modelMessages.length >= 2 &&
+            modelMessages.last['role'] == 'user' &&
+            modelMessages.last['content'] == assistantContinuationPrompt &&
+            modelMessages[modelMessages.length - 2]['role'] == 'assistant'
+        ? modelMessages[modelMessages.length - 2]['content'] as String? ?? ''
+        : '';
+    var truncatedCorrectionAttempts = continuationPrefix.isEmpty ? 0 : 1;
     var accumulatedProcessBlocks = <MessageBlock>[];
 
     for (
@@ -307,7 +316,11 @@ class AgentLoop {
       final processBlocks = <MessageBlock>[
         ...accumulatedProcessBlocks,
         MessageBlock.intermediateMarkdown(
-          round == 0 ? '正在分析请求并规划下一步。' : '正在根据工具结果继续处理。',
+          continuationPrefix.isNotEmpty
+              ? '正在补全回答。'
+              : round == 0
+              ? '正在分析请求并规划下一步。'
+              : '正在根据工具结果继续处理。',
         ),
       ];
       var isPreparingToolCall = false;
@@ -318,7 +331,24 @@ class AgentLoop {
       var hasReceivedToolCallDelta = false;
       String? streamFinishReason;
 
+      String combinedContent() => mergeAssistantContinuation(
+        continuationPrefix,
+        contentBuffer.toString(),
+      );
+
       void publishProcessBlocks() {
+        if (continuationPrefix.isNotEmpty) {
+          replaceMessage(
+            assistantMessageId,
+            _assistantFinalMessage(
+              assistantMessageId,
+              stripInternalToolProgressText(combinedContent()),
+              processBlocks,
+            ),
+          );
+          notifyChange();
+          return;
+        }
         replaceMessage(
           assistantMessageId,
           AgentMessage(
@@ -335,9 +365,7 @@ class AgentLoop {
         processBlocks
           ..clear()
           ..addAll(accumulatedProcessBlocks);
-        final content = stripInternalToolProgressText(
-          contentBuffer.toString(),
-        ).trim();
+        final content = stripInternalToolProgressText(combinedContent()).trim();
         if (content.isNotEmpty) {
           processBlocks.add(MessageBlock.intermediateMarkdown(content));
         }
@@ -354,7 +382,10 @@ class AgentLoop {
 
       while (true) {
         throwIfCancelled();
-        report(AgentRunPhase.modelStreaming, '正在思考...');
+        report(
+          AgentRunPhase.modelStreaming,
+          continuationPrefix.isEmpty ? '正在思考...' : '正在补全回答...',
+        );
 
         try {
           await for (final event in _chatClient.streamChat(
@@ -413,7 +444,7 @@ class AgentLoop {
 
               if (!isPreparingToolCall) {
                 final visibleText = stripInternalToolProgressText(
-                  contentBuffer.toString(),
+                  combinedContent(),
                 );
                 if (toolRoute.tools.isNotEmpty &&
                     looksLikePseudoToolCallText(visibleText)) {
@@ -492,17 +523,18 @@ class AgentLoop {
             );
             continue;
           }
-          if (contentBuffer.isNotEmpty) {
+          if (contentBuffer.isNotEmpty || continuationPrefix.isNotEmpty) {
             replaceMessage(
               assistantMessageId,
               _assistantInterruptedMessage(
                 assistantMessageId,
-                stripInternalToolProgressText(contentBuffer.toString()),
+                stripInternalToolProgressText(combinedContent()),
                 error.message,
+                processBlocks: processBlocks,
               ),
             );
             notifyChange();
-            report(AgentRunPhase.completed, '模型连接中断');
+            report(AgentRunPhase.failed, '模型连接中断');
             return;
           }
           rethrow;
@@ -520,16 +552,14 @@ class AgentLoop {
 
       // CASE 1: NO TOOL CALLS -> WE ARE DONE
       if (requests.isEmpty) {
-        if (contentBuffer.isEmpty) {
+        if (contentBuffer.isEmpty && continuationPrefix.isEmpty) {
           replaceMessage(
             assistantMessageId,
             _modelErrorResponse('模型没有返回任何内容。'),
           );
           notifyChange();
         } else {
-          final finalText = stripInternalToolProgressText(
-            contentBuffer.toString(),
-          );
+          final finalText = stripInternalToolProgressText(combinedContent());
           final looksLikePseudoToolCall = looksLikePseudoToolCallText(
             finalText,
           );
@@ -545,6 +575,7 @@ class AgentLoop {
           if (looksLikeRawToolProcess(finalText) &&
               rawFinalCorrectionAttempts < 1) {
             rawFinalCorrectionAttempts += 1;
+            continuationPrefix = '';
             replaceMessage(
               assistantMessageId,
               _assistantIntermediateMessage(
@@ -589,26 +620,49 @@ class AgentLoop {
 
           final looksTruncated =
               streamFinishReason == 'length' ||
+              continuationPrefix.isNotEmpty &&
+                  contentBuffer.toString().trim().isEmpty ||
               looksLikeTruncatedAssistantText(finalText);
-          if (looksTruncated && truncatedCorrectionAttempts < 1) {
+          if (looksTruncated) {
+            if (truncatedCorrectionAttempts >= 1) {
+              replaceMessage(
+                assistantMessageId,
+                _assistantInterruptedMessage(
+                  assistantMessageId,
+                  finalText,
+                  '模型补写后仍未说完，以上内容尚未完成。请重试或切换模型后继续。',
+                  title: '回答未完成',
+                  processBlocks: processBlocks,
+                ),
+              );
+              notifyChange();
+              report(AgentRunPhase.failed, '模型补写后回答仍未完成');
+              return;
+            }
             truncatedCorrectionAttempts += 1;
             AppLogger.warning('agent_loop.stream.truncated_retry', {
               'round': round,
               'contentLength': finalText.length,
               'finishReason': streamFinishReason,
             });
+            // Keep the received prefix outside the per-round stream buffer.
+            // Preserve boundary whitespace so English words and Markdown join.
+            final trailingWhitespace = RegExp(
+              r'\s*$',
+            ).firstMatch(combinedContent())!.group(0)!;
+            continuationPrefix = finalText + trailingWhitespace;
+            accumulatedProcessBlocks = List<MessageBlock>.of(processBlocks);
             replaceMessage(
               assistantMessageId,
-              _assistantIntermediateMessage(assistantMessageId, finalText),
+              _assistantFinalMessage(
+                assistantMessageId,
+                finalText,
+                processBlocks,
+              ),
             );
             modelMessages
-              ..add({'role': 'assistant', 'content': finalText})
-              ..add({
-                'role': 'user',
-                'content':
-                    '上一条回复没有说完。请从中断处继续，输出完整的面向用户回答；'
-                    '不要重复已经说过的句子开头，也不要解释这次续写。',
-              });
+              ..add({'role': 'assistant', 'content': continuationPrefix})
+              ..add({'role': 'user', 'content': assistantContinuationPrompt});
             notifyChange();
             continue;
           }
@@ -629,9 +683,8 @@ class AgentLoop {
 
       // CASE 2: TOOL CALLS -> EXECUTE THEM
       report(AgentRunPhase.executingTool, '正在执行工具...');
-      final visibleContent = stripInternalToolProgressText(
-        contentBuffer.toString(),
-      );
+      final visibleContent = stripInternalToolProgressText(combinedContent());
+      continuationPrefix = '';
 
       modelMessages.add({
         'role': 'assistant',
@@ -1289,17 +1342,20 @@ class AgentLoop {
   AgentMessage _assistantInterruptedMessage(
     String id,
     String partialText,
-    String detail,
-  ) {
-    final visibleText = partialText.trim();
+    String detail, {
+    String title = '模型连接中断',
+    List<MessageBlock> processBlocks = const [],
+  }) {
+    final partial = _assistantFinalMessage(
+      id,
+      partialText.trim(),
+      processBlocks,
+    );
     return AgentMessage(
       id: id,
       role: MessageRole.assistant,
       createdAt: DateTime.now(),
-      blocks: [
-        if (visibleText.isNotEmpty) MessageBlock.markdown(visibleText),
-        MessageBlock.error('模型连接中断', detail),
-      ],
+      blocks: [...partial.blocks, MessageBlock.error(title, detail)],
     );
   }
 

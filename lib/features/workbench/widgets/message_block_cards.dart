@@ -68,8 +68,7 @@ class WebAppArtifactCard extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,

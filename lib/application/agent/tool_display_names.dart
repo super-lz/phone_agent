@@ -1,5 +1,5 @@
 String agentToolDisplayName(String name) {
-  return switch (name) {
+  return switch (name.replaceAll('.', '_')) {
     'project_create_web_app' => '创建 Web App',
     'project_update_web_app' => '更新 Web App',
     'project_test_web_app' => '检查 Web App',

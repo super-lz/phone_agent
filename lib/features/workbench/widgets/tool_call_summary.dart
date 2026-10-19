@@ -2,12 +2,22 @@ import '../../../domain/conversation/message_block.dart';
 
 String toolCallSummary(String capabilityId, Object? rawInput) {
   final input = _stringKeyMap(rawInput);
-  return switch (capabilityId) {
+  return switch (capabilityId.replaceAll('.', '_')) {
     'project_create_web_app' => _webAppCreateSummary(input),
     'project_update_web_app' => _webAppUpdateSummary(input),
     'file_write_app_file' => _fileWriteSummary(input),
     _ => _genericToolSummary(input),
   };
+}
+
+/// One meaningful target for the collapsed step; never preview generated files.
+String? toolCallTarget(Object? rawInput) {
+  final input = _stringKeyMap(rawInput);
+  for (final key in ['title', 'query', 'path', 'url', 'name']) {
+    final value = _stringValue(input[key]);
+    if (value != null) return _truncate(value, 160);
+  }
+  return null;
 }
 
 String _webAppCreateSummary(Map<String, Object?> input) {

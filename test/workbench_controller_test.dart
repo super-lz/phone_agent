@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:phone_agent/application/agent/agent_loop_budget.dart';
 import 'package:phone_agent/application/agent/agent_run_state.dart';
+import 'package:phone_agent/application/agent/final_response_guard.dart';
 import 'package:phone_agent/application/capabilities/capability_runtime.dart';
 import 'package:phone_agent/data/background/agent_run_background_service.dart';
 import 'package:phone_agent/data/capabilities/native_capability_adapter.dart';
@@ -42,6 +43,234 @@ void main() {
     expect(controller.messages.last.blocks.first.data['text'], '真实模型回复');
     expect(chatClient.capturedTools.single, isEmpty);
   });
+
+  test(
+    'short truncated stop reply continues without replacing prefix',
+    () async {
+      final store = InMemoryWorkbenchStore();
+      final chatClient = _FakeChatClient([
+        [const ChatStreamEvent(contentDelta: '我看到', finishReason: 'stop')],
+        [
+          const ChatStreamEvent(contentDelta: '你在'),
+          const ChatStreamEvent(contentDelta: '看屏幕。', finishReason: 'stop'),
+        ],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+        workbenchStore: store,
+      );
+      addTearDown(controller.dispose);
+      final visibleTexts = <String>[];
+      controller.addListener(() {
+        for (final message in controller.messages.where(
+          (m) => m.id.startsWith('msg-model-'),
+        )) {
+          for (final block in message.blocks.where(
+            (b) => b.type == MessageBlockType.markdownText,
+          )) {
+            visibleTexts.add(block.data['text']! as String);
+          }
+        }
+      });
+      await controller.sendPrompt('解释你看到的内容');
+      expect(chatClient.callCount, 2);
+      expect(controller.messages.last.blocks.first.data['text'], '我看到你在看屏幕。');
+      expect(visibleTexts, contains('我看到你在'));
+      expect(visibleTexts, isNot(contains('你在')));
+      final saved = await store.loadMessages('default');
+      expect(saved.last.blocks.first.data['text'], '我看到你在看屏幕。');
+    },
+  );
+
+  test(
+    'length-limited continuation preserves Markdown and repeated prefix',
+    () async {
+      final chatClient = _FakeChatClient([
+        [
+          const ChatStreamEvent(
+            contentDelta: '第一点。\n**第二点',
+            finishReason: 'length',
+          ),
+        ],
+        [
+          const ChatStreamEvent(
+            contentDelta: '第一点。\n**第二点：结论**。',
+            finishReason: 'stop',
+          ),
+        ],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+      );
+      addTearDown(controller.dispose);
+      await controller.sendPrompt('分析这个概念');
+      expect(chatClient.callCount, 2);
+      expect(
+        controller.messages.last.blocks.first.data['text'],
+        '第一点。\n**第二点：结论**。',
+      );
+    },
+  );
+
+  test('continuation retains boundary whitespace', () async {
+    final chatClient = _FakeChatClient([
+      [const ChatStreamEvent(contentDelta: 'Here is ', finishReason: 'length')],
+      [
+        const ChatStreamEvent(
+          contentDelta: 'the answer.',
+          finishReason: 'stop',
+        ),
+      ],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+    addTearDown(controller.dispose);
+    await controller.sendPrompt('请用英文回答');
+    expect(
+      controller.messages.last.blocks.first.data['text'],
+      'Here is the answer.',
+    );
+  });
+
+  for (final continuation in ['你在', '']) {
+    test(
+      'still incomplete continuation is saved with an error: $continuation',
+      () async {
+        final store = InMemoryWorkbenchStore();
+        final chatClient = _FakeChatClient([
+          [const ChatStreamEvent(contentDelta: '我看到', finishReason: 'stop')],
+          [ChatStreamEvent(contentDelta: continuation, finishReason: 'stop')],
+        ]);
+        final controller = WorkbenchController(
+          apiKeyStore: _FakeApiKeyStore('test-key'),
+          chatClient: chatClient,
+          workbenchStore: store,
+        );
+        addTearDown(controller.dispose);
+        final phases = <AgentRunPhase>[];
+        controller.addListener(() {
+          final phase = controller.currentRun?.phase;
+          if (phase != null) phases.add(phase);
+        });
+        await controller.sendPrompt('解释你看到的内容');
+        expect(chatClient.callCount, 2);
+        final blocks = (await store.loadMessages('default')).last.blocks;
+        expect(blocks.first.data['text'], '我看到$continuation');
+        expect(blocks.last.type, MessageBlockType.errorCard);
+        expect(blocks.last.data['title'], '回答未完成');
+        expect(phases, contains(AgentRunPhase.failed));
+        expect(phases, isNot(contains(AgentRunPhase.completed)));
+        expect(controller.isSending, isFalse);
+      },
+    );
+  }
+
+  test('continuing after a tool result keeps the execution trace', () async {
+    final chatClient = _FakeChatClient([
+      [
+        const ChatStreamEvent(
+          toolCallDeltas: [
+            ToolCallDelta(
+              index: 0,
+              id: 'continuation-note',
+              name: 'db_note_create',
+              argumentsDelta: '{"title":"待办","content":"检查续写"}',
+            ),
+          ],
+        ),
+      ],
+      [const ChatStreamEvent(contentDelta: '已记录，接下来我会', finishReason: 'stop')],
+      [const ChatStreamEvent(contentDelta: '帮你整理。', finishReason: 'stop')],
+    ]);
+    final controller = WorkbenchController(
+      apiKeyStore: _FakeApiKeyStore('test-key'),
+      chatClient: chatClient,
+    );
+    addTearDown(controller.dispose);
+    await controller.sendPrompt('记录一个待办：检查续写');
+    expect(
+      controller.messages.last.blocks.first.data['text'],
+      '已记录，接下来我会帮你整理。',
+    );
+    final progress = controller.messages.last.blocks.singleWhere(
+      (block) => block.type == MessageBlockType.taskProgress,
+    );
+    final steps = progress.data['blocks']! as List<MessageBlock>;
+    expect(
+      steps.where((block) => block.type == MessageBlockType.toolCall),
+      hasLength(1),
+    );
+    expect(
+      steps.where((block) => block.type == MessageBlockType.toolResult),
+      hasLength(1),
+    );
+    expect(
+      controller.workspaceNotes.where((note) => note.title == '待办'),
+      hasLength(1),
+    );
+  });
+
+  test(
+    'restored continuation checkpoint keeps the unfinished prefix',
+    () async {
+      final store = InMemoryWorkbenchStore();
+      await store.savePendingAgentRun(
+        PendingAgentRun(
+          id: 'pending-continuation',
+          workspaceId: 'default',
+          userPrompt: '解释你看到的内容',
+          modelPrompt: '解释你看到的内容',
+          priorMessages: const [],
+          startedAt: DateTime(2026),
+          modelStep: 1,
+          modelMessages: const [
+            {'role': 'system', 'content': '使用中文回答。'},
+            {'role': 'assistant', 'content': '我看到'},
+            {'role': 'user', 'content': assistantContinuationPrompt},
+          ],
+        ),
+      );
+      final chatClient = _FakeChatClient([
+        [const ChatStreamEvent(contentDelta: '你在看屏幕。', finishReason: 'stop')],
+      ]);
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+        workbenchStore: store,
+      );
+      addTearDown(controller.dispose);
+      await _waitFor(() => chatClient.callCount == 1 && !controller.isSending);
+      expect(controller.messages.last.blocks.first.data['text'], '我看到你在看屏幕。');
+      expect(await store.loadPendingAgentRun(), isNull);
+    },
+  );
+
+  test(
+    'interrupted continuation retains both received parts and reports failure',
+    () async {
+      final chatClient = _InterruptedContinuationChatClient();
+      final controller = WorkbenchController(
+        apiKeyStore: _FakeApiKeyStore('test-key'),
+        chatClient: chatClient,
+      );
+      addTearDown(controller.dispose);
+      final phases = <AgentRunPhase>[];
+      controller.addListener(() {
+        final phase = controller.currentRun?.phase;
+        if (phase != null) phases.add(phase);
+      });
+      await controller.sendPrompt('解释你看到的内容');
+      expect(controller.messages.last.blocks.first.data['text'], '我看到你在');
+      expect(controller.messages.last.blocks.last.data['title'], '模型连接中断');
+      expect(phases, contains(AgentRunPhase.failed));
+      expect(phases, isNot(contains(AgentRunPhase.completed)));
+      expect(chatClient.callCount, 2);
+    },
+  );
 
   test('normal prompt exposes latest context budget snapshot', () async {
     final chatClient = _FakeChatClient([
@@ -3306,4 +3535,32 @@ Iterable<MessageBlock> _allBlocks(List<AgentMessage> messages) {
     }
     return [block];
   });
+}
+
+class _InterruptedContinuationChatClient extends _FakeChatClient {
+  _InterruptedContinuationChatClient()
+    : super([
+        [const ChatStreamEvent(contentDelta: '我看到', finishReason: 'stop')],
+      ]);
+
+  @override
+  Stream<ChatStreamEvent> streamChat({
+    required ModelProviderConfig provider,
+    required String apiKey,
+    required List<Map<String, Object?>> messages,
+    List<Map<String, Object?>> tools = const [],
+  }) async* {
+    if (callCount == 0) {
+      yield* super.streamChat(
+        provider: provider,
+        apiKey: apiKey,
+        messages: messages,
+        tools: tools,
+      );
+      return;
+    }
+    callCount++;
+    yield const ChatStreamEvent(contentDelta: '你在');
+    throw const ModelRequestException('连接中断', isRetryable: true);
+  }
 }

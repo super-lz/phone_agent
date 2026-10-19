@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../../core/logging/app_logger.dart';
-import '../skills/skill_document.dart';
 import '../../data/capabilities/native_capability_adapter.dart';
 import '../../data/capabilities/web_capability_adapter.dart';
 import '../../data/models/openai_compatible_chat_client.dart';
@@ -17,6 +16,7 @@ import '../../domain/permissions/permission_policy.dart';
 import '../../domain/workbench/workbench_store.dart';
 import '../../domain/workspace/workspace.dart';
 import '../agent/agent_action_ledger.dart';
+import '../skills/skill_document.dart';
 import 'artifact_capability_handler.dart';
 import 'capability_execution_result.dart';
 import 'capability_tool_definitions.dart';

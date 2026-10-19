@@ -87,7 +87,14 @@ class PromptComposer extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         child: Container(
-                          padding: const EdgeInsets.fromLTRB(0, 2, 0, 2),
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: colors.inputBackground.withValues(
+                              alpha: isSending ? 0.92 : 1,
+                            ),
+                            borderRadius: BorderRadius.circular(26),
+                            border: Border.all(color: colors.border),
+                          ),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
@@ -96,12 +103,12 @@ class PromptComposer extends StatelessWidget {
                                 tooltip: '添加附件',
                                 icon: Icon(
                                   Icons.add_rounded,
-                                  color: colors.primaryAction,
+                                  color: colors.textSecondary,
                                   size: 24,
                                 ),
                                 style: IconButton.styleFrom(
-                                  fixedSize: const Size(40, 40),
-                                  minimumSize: const Size(40, 40),
+                                  fixedSize: const Size(48, 48),
+                                  minimumSize: const Size(48, 48),
                                   tapTargetSize:
                                       MaterialTapTargetSize.shrinkWrap,
                                 ),
@@ -112,51 +119,37 @@ class PromptComposer extends StatelessWidget {
                                       },
                               ),
                               Expanded(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: colors.inputBackground.withValues(
-                                      alpha: isSending ? 0.82 : 1,
-                                    ),
-                                    borderRadius: BorderRadius.circular(22),
-                                    border: Border.all(
-                                      color: colors.border.withValues(
-                                        alpha: isSending ? 0.72 : 1,
-                                      ),
-                                    ),
+                                child: TextField(
+                                  controller: controller,
+                                  minLines: 1,
+                                  maxLines: 5,
+                                  textInputAction: TextInputAction.send,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    height: 1.4,
+                                    letterSpacing: 0,
                                   ),
-                                  child: TextField(
-                                    controller: controller,
-                                    minLines: 1,
-                                    maxLines: 5,
-                                    textInputAction: TextInputAction.send,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      height: 1.4,
-                                      letterSpacing: 0,
+                                  decoration: InputDecoration(
+                                    hintText: '问我任何问题...',
+                                    hintStyle: TextStyle(
+                                      color: colors.inputHint,
                                     ),
-                                    decoration: InputDecoration(
-                                      hintText: '问我任何问题...',
-                                      hintStyle: TextStyle(
-                                        color: colors.inputHint,
-                                      ),
-                                      isDense: true,
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                            horizontal: 16,
-                                            vertical: 12,
-                                          ),
-                                      border: InputBorder.none,
-                                      enabledBorder: InputBorder.none,
-                                      focusedBorder: InputBorder.none,
-                                      filled: false,
+                                    isDense: true,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 12,
                                     ),
-                                    onSubmitted: (_) {
-                                      if (!isSending &&
-                                          controller.text.trim().isNotEmpty) {
-                                        onSendPrompt();
-                                      }
-                                    },
+                                    border: InputBorder.none,
+                                    enabledBorder: InputBorder.none,
+                                    focusedBorder: InputBorder.none,
+                                    filled: false,
                                   ),
+                                  onSubmitted: (_) {
+                                    if (!isSending &&
+                                        controller.text.trim().isNotEmpty) {
+                                      onSendPrompt();
+                                    }
+                                  },
                                 ),
                               ),
                               const SizedBox(width: 4),
@@ -170,7 +163,7 @@ class PromptComposer extends StatelessWidget {
 
                                   if (isSending) {
                                     return Padding(
-                                      padding: const EdgeInsets.only(left: 8),
+                                      padding: const EdgeInsets.only(left: 4),
                                       child: IconButton.filled(
                                         onPressed: onCancelRun,
                                         tooltip: '停止',
@@ -191,7 +184,7 @@ class PromptComposer extends StatelessWidget {
                                   }
 
                                   return Padding(
-                                    padding: const EdgeInsets.only(left: 8),
+                                    padding: const EdgeInsets.only(left: 4),
                                     child: IconButton.filled(
                                       onPressed: canSend ? onSendPrompt : null,
                                       tooltip: '发送',

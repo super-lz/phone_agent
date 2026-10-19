@@ -75,10 +75,37 @@ void main() {
   });
 
   test('detects mid-sentence truncated assistant replies', () {
+    expect(looksLikeTruncatedAssistantText('我看到'), isTrue);
+    expect(looksLikeTruncatedAssistantText('我认为'), isTrue);
+    expect(looksLikeTruncatedAssistantText('我在'), isTrue);
+    expect(looksLikeTruncatedAssistantText('我需要'), isTrue);
     expect(looksLikeTruncatedAssistantText('抱歉，刚才可能是我的'), isTrue);
     expect(looksLikeTruncatedAssistantText('I think it was my'), isTrue);
     expect(looksLikeTruncatedAssistantText('我现在暂时没办法直接为您搜索美食。'), isFalse);
     expect(looksLikeTruncatedAssistantText('我现在暂时没办法直接为您搜索美食'), isFalse);
     expect(looksLikeTruncatedAssistantText('好的'), isFalse);
+    expect(looksLikeTruncatedAssistantText('知道了'), isFalse);
+    expect(looksLikeTruncatedAssistantText('明白了'), isFalse);
+    expect(looksLikeTruncatedAssistantText('上海'), isFalse);
+    expect(looksLikeTruncatedAssistantText('42'), isFalse);
+    expect(looksLikeTruncatedAssistantText(''), isFalse);
   });
+
+  test(
+    'joins continuation without dropping prefix, whitespace or Markdown',
+    () {
+      expect(mergeAssistantContinuation('我看到', '你在看屏幕。'), '我看到你在看屏幕。');
+      expect(mergeAssistantContinuation('我看到', '我看到你在看屏幕。'), '我看到你在看屏幕。');
+      expect(mergeAssistantContinuation('我看到', '看到你在看屏幕。'), '我看到你在看屏幕。');
+      expect(
+        mergeAssistantContinuation('Here is ', 'the answer.'),
+        'Here is the answer.',
+      );
+      expect(mergeAssistantContinuation('这是 **重点', '内容**。'), '这是 **重点内容**。');
+      expect(mergeAssistantContinuation('保留前文', ''), '保留前文');
+      expect(mergeAssistantContinuation('', '完整回答。'), '完整回答。');
+      expect(mergeAssistantContinuation('哈', '哈'), '哈哈');
+      expect(mergeAssistantContinuation('**重点**', '**结论**'), '**重点****结论**');
+    },
+  );
 }

@@ -4,8 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import '../../../application/agent/agent_loop.dart';
 import '../../../application/agent/agent_action_ledger.dart';
+import '../../../application/agent/agent_loop.dart';
 import '../../../application/agent/agent_loop_budget.dart';
 import '../../../application/agent/agent_run_state.dart';
 import '../../../application/agent/context_budget.dart';

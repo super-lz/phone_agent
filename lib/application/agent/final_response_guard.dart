@@ -45,7 +45,7 @@ bool looksLikeInternalToolProgressText(String text) =>
 
 bool looksLikeTruncatedAssistantText(String text) {
   final trimmed = text.trim();
-  if (trimmed.length < 6) {
+  if (trimmed.isEmpty) {
     return false;
   }
   const completeShortReplies = {
@@ -55,12 +55,19 @@ bool looksLikeTruncatedAssistantText(String text) {
     '不行',
     '谢谢',
     '收到',
+    '知道了',
+    '明白了',
     'okay',
     'yes',
     'no',
   };
   if (completeShortReplies.contains(trimmed.toLowerCase())) {
     return false;
+  }
+  // A subject plus a verb that still requires an object is unfinished even
+  // when it is only a few characters long. Length alone is not completeness.
+  if (_unfinishedClause.hasMatch(trimmed)) {
+    return true;
   }
   if (RegExp(r'[。！？!?…]$').hasMatch(trimmed)) {
     return false;
@@ -112,6 +119,57 @@ bool looksLikeTruncatedAssistantText(String text) {
   final lower = trimmed.toLowerCase();
   return tails.any(lower.endsWith);
 }
+
+final _unfinishedClause = RegExp(
+  r'(?:^|[。！？!?\n])\s*(?:我(?:们)?|你(?:们)?|您|他(?:们)?|她(?:们)?)'
+  r'(?:刚刚|刚才|已经|正在|可以|能够|还|也|会|能|想|要)*'
+  r'(?:看到|看见|发现|认为|觉得|需要|准备|想要|希望|建议)\s*[。.!！?？]*$',
+);
+
+const assistantContinuationPrompt =
+    '上一条回复没有说完。请从中断处继续，输出完整的面向用户回答；'
+    '不要重复已经说过的句子开头，也不要解释这次续写。';
+
+/// Join actual model text, preserving whitespace and Markdown across the cut.
+/// A provider may repeat the prefix or the last few characters when continuing.
+String mergeAssistantContinuation(String prefix, String continuation) {
+  if (prefix.isEmpty) return continuation;
+  if (continuation.isEmpty) return prefix;
+  final maxOverlap = prefix.length < continuation.length
+      ? prefix.length
+      : continuation.length;
+  // Linear overlap matching keeps large, streamed answers from allocating a
+  // substring for every possible boundary on every incoming delta.
+  final borders = List<int>.filled(maxOverlap, 0);
+  for (var i = 1, matched = 0; i < maxOverlap; i++) {
+    while (matched > 0 &&
+        continuation.codeUnitAt(i) != continuation.codeUnitAt(matched)) {
+      matched = borders[matched - 1];
+    }
+    if (continuation.codeUnitAt(i) == continuation.codeUnitAt(matched)) {
+      matched++;
+    }
+    borders[i] = matched;
+  }
+  var matched = 0;
+  for (var i = prefix.length - maxOverlap; i < prefix.length; i++) {
+    while (matched > 0 &&
+        (matched == maxOverlap ||
+            prefix.codeUnitAt(i) != continuation.codeUnitAt(matched))) {
+      matched = borders[matched - 1];
+    }
+    if (prefix.codeUnitAt(i) == continuation.codeUnitAt(matched)) matched++;
+  }
+  if (matched >= 2 &&
+      _continuationOverlapContent.hasMatch(
+        continuation.substring(0, matched),
+      )) {
+    return prefix + continuation.substring(matched);
+  }
+  return prefix + continuation;
+}
+
+final _continuationOverlapContent = RegExp(r'[\p{L}\p{N}]', unicode: true);
 
 final _internalToolProgressPatterns = [
   RegExp(

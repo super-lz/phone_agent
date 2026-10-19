@@ -359,6 +359,9 @@ class _ChatPanelState extends State<ChatPanel> {
                       final messageIndex = displayMessages.length - index - 1;
                       return MessageView(
                         message: displayMessages[messageIndex],
+                        currentRun: index == 0 && widget.isSending
+                            ? widget.currentRun
+                            : null,
                         onOpenWebAppArtifact: widget.onOpenWebAppArtifact,
                         onApproveCapability: widget.onApproveCapability,
                         onDenyCapability: widget.onDenyCapability,

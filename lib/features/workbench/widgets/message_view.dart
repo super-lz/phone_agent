@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/phone_agent_colors.dart';
-import '../../../application/capabilities/capability_runtime.dart';
+import '../../../application/agent/agent_run_state.dart';
 import '../../../domain/conversation/message_block.dart';
+import 'agent_process_entries.dart';
 import 'message_block_view.dart';
 
 export 'message_block_view.dart';
@@ -11,12 +12,14 @@ class MessageView extends StatelessWidget {
   const MessageView({
     required this.message,
     required this.onOpenWebAppArtifact,
+    this.currentRun,
     this.onApproveCapability,
     this.onDenyCapability,
     super.key,
   });
 
   final AgentMessage message;
+  final AgentRunSnapshot? currentRun;
   final ValueChanged<String> onOpenWebAppArtifact;
   final ValueChanged<Map<String, Object?>>? onApproveCapability;
   final ValueChanged<Map<String, Object?>>? onDenyCapability;
@@ -36,41 +39,50 @@ class MessageView extends StatelessWidget {
             child: Tooltip(
               message: isUser ? 'You' : 'Agent',
               child: Container(
-                margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: EdgeInsets.symmetric(
+                  horizontal: isUser ? 16 : 0,
+                  vertical: isUser ? 12 : 4,
                 ),
-                decoration: BoxDecoration(
-                  color: isUser
-                      ? colors.outgoingBubbleBackground
-                      : colors.incomingBubbleBackground,
-                  borderRadius: _bubbleRadius(isUser),
-                  border: isUser
-                      ? null
-                      : Border.all(color: colors.incomingBubbleBorder),
-                ),
+                decoration: isUser
+                    ? BoxDecoration(
+                        color: colors.outgoingBubbleBackground,
+                        borderRadius: _bubbleRadius(),
+                      )
+                    : null,
                 child: Theme(
                   data: Theme.of(context).copyWith(
                     textTheme: Theme.of(context).textTheme.copyWith(
-                      bodyMedium: TextStyle(
-                        color: isUser
-                            ? colors.outgoingMessageText
-                            : colors.messageText,
-                        fontSize: 15,
-                        height: 1.5,
-                        letterSpacing: 0,
-                      ),
+                      bodyMedium:
+                          (Theme.of(context).textTheme.bodyMedium ??
+                                  const TextStyle())
+                              .copyWith(
+                                color: isUser
+                                    ? colors.outgoingMessageText
+                                    : colors.messageText,
+                                fontSize: 15,
+                                height: 1.5,
+                                letterSpacing: 0,
+                              ),
                     ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      for (final block in displayBlocks)
+                      for (var index = 0; index < displayBlocks.length; index++)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 4),
                           child: MessageBlockView(
-                            block: block,
+                            block: displayBlocks[index],
+                            currentRun:
+                                index ==
+                                    displayBlocks.lastIndexWhere(
+                                      (block) =>
+                                          block.type ==
+                                          MessageBlockType.taskProgress,
+                                    )
+                                ? currentRun
+                                : null,
                             onOpenWebAppArtifact: onOpenWebAppArtifact,
                             onApproveCapability: onApproveCapability,
                             onDenyCapability: onDenyCapability,
@@ -87,24 +99,12 @@ class MessageView extends StatelessWidget {
     );
   }
 
-  BorderRadius _bubbleRadius(bool isUser) {
-    const round = Radius.circular(22);
-    const square = Radius.circular(8);
-    if (isUser) {
-      return const BorderRadius.only(
-        topLeft: round,
-        topRight: square,
-        bottomLeft: round,
-        bottomRight: round,
-      );
-    }
-    return const BorderRadius.only(
-      topLeft: square,
-      topRight: round,
-      bottomLeft: round,
-      bottomRight: round,
-    );
-  }
+  BorderRadius _bubbleRadius() => const BorderRadius.only(
+    topLeft: Radius.circular(22),
+    topRight: Radius.circular(8),
+    bottomLeft: Radius.circular(22),
+    bottomRight: Radius.circular(22),
+  );
 
   List<MessageBlock> _displayBlocks(AgentMessage message) {
     if (message.role != MessageRole.assistant) {
@@ -117,8 +117,15 @@ class MessageView extends StatelessWidget {
         ...message.blocks.where(
           (block) => block.type == MessageBlockType.taskProgress,
         ),
-        ...message.blocks.where(
-          (block) => block.type != MessageBlockType.taskProgress,
+        ..._displayBlocks(
+          AgentMessage(
+            id: message.id,
+            role: message.role,
+            createdAt: message.createdAt,
+            blocks: message.blocks
+                .where((block) => block.type != MessageBlockType.taskProgress)
+                .toList(growable: false),
+          ),
         ),
       ];
     }
@@ -156,31 +163,13 @@ class MessageView extends StatelessWidget {
     List<MessageBlock> processBlocks,
     List<MessageBlock> visibleBlocks,
   ) {
-    if (visibleBlocks.isNotEmpty) {
-      return 'completed';
-    }
-    final toolCalls = processBlocks
-        .where((block) => block.type == MessageBlockType.toolCall)
-        .map((block) => block.data['capabilityId'] as String?)
-        .whereType<String>()
-        .toList(growable: false);
-    if (toolCalls.isEmpty) {
-      return 'processing';
-    }
-    final resultIds = processBlocks
-        .where((block) => block.type == MessageBlockType.toolResult)
-        .map((block) => block.data['capabilityId'] as String?)
-        .whereType<String>()
-        .toList(growable: false);
-    final allCallsHaveResults = toolCalls.every((name) {
-      final expectedCapabilityId = CapabilityRuntime.capabilityIdForToolName(
-        name,
-      );
-      return resultIds.contains(name) ||
-          expectedCapabilityId != null &&
-              resultIds.contains(expectedCapabilityId);
-    });
-    return allCallsHaveResults ? 'completed' : 'processing';
+    if (currentRun?.isActive == true) return 'processing';
+    if (visibleBlocks.isNotEmpty) return 'completed';
+    final steps = agentProcessEntries(processBlocks).whereType<ToolStepEntry>();
+    if (steps.isEmpty) return 'processing';
+    return steps.every((step) => step.result != null)
+        ? 'completed'
+        : 'processing';
   }
 
   bool _isProcessBlock(MessageBlock block) {

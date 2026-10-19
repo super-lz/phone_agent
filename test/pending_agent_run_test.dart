@@ -82,7 +82,10 @@ void main() {
     expect(restored.protocolVersion, 1);
     expect(restored.modelStep, 3);
     expect(restored.toolIndex, contains('db_note_create'));
-    expect(restored.toolSchema.single['function'], isA<Map>());
-    expect(restored.modelMessages.last['tool_calls'], isA<List>());
+    expect(
+      restored.toolSchema.single['function'],
+      isA<Map<Object?, Object?>>(),
+    );
+    expect(restored.modelMessages.last['tool_calls'], isA<List<Object?>>());
   });
 }

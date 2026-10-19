@@ -134,11 +134,11 @@ class PendingAgentRun {
   }
 
   static List<Map<String, Object?>> _mapListFromJson(Object? value) {
-    if (value is! Iterable) {
+    if (value is! Iterable<Object?>) {
       return const [];
     }
     return value
-        .whereType<Map>()
+        .whereType<Map<Object?, Object?>>()
         .map((item) {
           return item.map((key, value) => MapEntry(key.toString(), value));
         })

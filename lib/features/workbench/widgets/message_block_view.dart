@@ -2,9 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../application/agent/agent_run_state.dart';
+import '../../../application/agent/tool_display_names.dart';
 import '../../../domain/conversation/message_block.dart';
 import 'agent_process_block.dart';
 import 'approval_block.dart';
+import 'artifact_result_card.dart';
 import 'file_size_format.dart';
 import 'markdown_block_view.dart';
 import 'message_block_cards.dart';
@@ -19,10 +22,12 @@ class MessageBlockView extends StatelessWidget {
     this.onApproveCapability,
     this.onDenyCapability,
     this.compactChrome = false,
+    this.currentRun,
     super.key,
   });
 
   final MessageBlock block;
+  final AgentRunSnapshot? currentRun;
   final ValueChanged<String> onOpenWebAppArtifact;
   final ValueChanged<Map<String, Object?>>? onApproveCapability;
   final ValueChanged<Map<String, Object?>>? onDenyCapability;
@@ -42,7 +47,7 @@ class MessageBlockView extends StatelessWidget {
         final capabilityId = block.data['capabilityId'] as String? ?? 'tool';
         return StructuredBlock(
           icon: Icons.play_arrow,
-          title: 'Tool Call · $capabilityId',
+          title: agentToolDisplayName(capabilityId),
           body: toolCallSummary(capabilityId, block.data['input']),
           initiallyExpanded: false,
           showFrame: !compactChrome,
@@ -75,11 +80,7 @@ class MessageBlockView extends StatelessWidget {
           detail: _attachmentDetail(block.data),
         );
       case MessageBlockType.artifactCard:
-        return StructuredBlock(
-          icon: Icons.inventory_2_outlined,
-          title: block.data['title']! as String,
-          body: 'Artifact ID: ${block.data['artifactId']}',
-        );
+        return ArtifactResultCard(title: block.data['title']! as String);
       case MessageBlockType.webAppCard:
         final artifactId = block.data['artifactId']! as String;
         return WebAppArtifactCard(
@@ -101,6 +102,7 @@ class MessageBlockView extends StatelessWidget {
         );
       case MessageBlockType.taskProgress:
         return AgentProcessBlock(
+          currentRun: currentRun,
           blocks: _processBlocks(block.data['blocks']),
           status: block.data['status'] as String? ?? 'completed',
           blockBuilder: (block) => MessageBlockView(
@@ -113,9 +115,13 @@ class MessageBlockView extends StatelessWidget {
         );
       case MessageBlockType.citation:
         return StructuredBlock(
-          icon: Icons.extension,
-          title: block.type.name,
-          body: block.data.toString(),
+          icon: Icons.link_outlined,
+          title: block.data['title'] as String? ?? '参考来源',
+          body:
+              block.data['url'] as String? ??
+              block.data['text'] as String? ??
+              '来源详情不可用',
+          showFrame: !compactChrome,
         );
     }
   }
